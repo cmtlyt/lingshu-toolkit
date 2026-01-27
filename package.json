@@ -36,7 +36,8 @@
     "test:lib:ci": "vitest run",
     "prepare": "husky",
     "test:lib": "vitest --coverage.enabled --ui",
-    "script:gen-file": "esno scripts/gen-file.ts"
+    "script:gen-file": "esno scripts/gen-file.ts",
+    "prepublishOnly": "pnpm run build"
   },
   "author": {
     "name": "cmtlyt",
@@ -73,7 +74,6 @@
     "react": "^19.2.3",
     "vue": "^3.5.27"
   },
-  "sideEffects": false,
   "devEngines": {
     "runtime": {
       "name": "node",
@@ -87,6 +87,15 @@
     "access": "public",
     "registry": "https://registry.npmjs.org/"
   },
+  "homepage": "https://cmtlyt.github.io/lingshu-toolkit/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmtlyt/lingshu-toolkit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cmtlyt/lingshu-toolkit/issues"
+  },
+  "license": "MIT",
   "files": [
     "dist"
   ],
