@@ -4,11 +4,12 @@
   "name": "reactUseControllableValue",
   "description": "reactUseControllableValue",
   "registryDependencies": [
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json",
     "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
   ],
   "dependencies": [
-    "react",
-    "@s"
+    "react"
   ],
   "type": "registry:item",
   "files": [

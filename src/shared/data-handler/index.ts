@@ -1,4 +1,4 @@
-import { throwType } from '@s/throw-error';
+import { throwType } from '@/shared/throw-error';
 import type { ActionContext, ActionHandlers, Actions, DataHandlerOptions, Handler } from './types';
 
 function createActions() {

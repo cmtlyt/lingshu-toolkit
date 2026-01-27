@@ -13,5 +13,5 @@ storybook-static
 !.vscode/extensions.json
 .idea
 !.vscode/settings.json
-.coverage
+coverage
 doc_build

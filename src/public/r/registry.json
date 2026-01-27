@@ -70,11 +70,12 @@
       "name": "reactUseControllableValue",
       "description": "reactUseControllableValue",
       "registryDependencies": [
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json",
         "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
       ],
       "dependencies": [
-        "react",
-        "@s"
+        "react"
       ],
       "files": [
         {
@@ -90,11 +91,12 @@
       "name": "reactUseCounter",
       "description": "reactUseCounter",
       "registryDependencies": [
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json",
         "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
       ],
       "dependencies": [
-        "react",
-        "@s"
+        "react"
       ],
       "files": [
         {
@@ -109,9 +111,11 @@
       "title": "reactUseValidData",
       "name": "reactUseValidData",
       "description": "reactUseValidData",
-      "registryDependencies": [],
+      "registryDependencies": [
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+        "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json"
+      ],
       "dependencies": [
-        "@s",
         "react"
       ],
       "files": [
@@ -119,21 +123,6 @@
           "path": "src/react/use-valid-data/index.ts",
           "type": "registry:file",
           "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-valid-data/index.ts"
-        },
-        {
-          "path": "src/shared/data-handler/types.ts",
-          "type": "registry:file",
-          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/types.ts"
-        },
-        {
-          "path": "src/shared/data-handler/tools.ts",
-          "type": "registry:file",
-          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/tools.ts"
-        },
-        {
-          "path": "src/shared/logger/index.ts",
-          "type": "registry:file",
-          "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/logger/index.ts"
         }
       ],
       "type": "registry:item"

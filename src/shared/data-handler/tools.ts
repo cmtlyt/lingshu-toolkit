@@ -1,4 +1,4 @@
-import { logger } from '@s/logger';
+import { logger } from '@/shared/logger';
 import type { Handler } from './types';
 
 function getType(_v: any) {

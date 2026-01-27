@@ -4,11 +4,12 @@
   "name": "reactUseCounter",
   "description": "reactUseCounter",
   "registryDependencies": [
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json",
     "https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidData.json"
   ],
   "dependencies": [
-    "react",
-    "@s"
+    "react"
   ],
   "type": "registry:item",
   "files": [
@@ -16,7 +17,7 @@
       "path": "src/react/use-counter/index.ts",
       "type": "registry:file",
       "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-counter/index.ts",
-      "content": "import { logger } from '../../shared/logger';\nimport { useEffectEvent, useMemo, useRef, useState } from 'react';\nimport { $dt, $t, useValidData } from '../use-valid-data';\n\ninterface UseCounterOptions {\n  min: number;\n  max: number;\n  step: number;\n}\n\nfunction getRealValue(value: number, options: UseCounterOptions) {\n  const { min, max } = options;\n  return Math.min(Math.max(value, min), max);\n}\n\nfunction nanTransform(_dv: number) {\n  return (_v: unknown) => {\n    if (typeof _v === 'undefined') {\n      return _dv;\n    }\n    logger.warn('useCounter', 'value is not a number', _v, 'useCounter will use default value');\n    const numV = Number(_v);\n    if (Number.isNaN(numV)) {\n      return _dv;\n    }\n    return numV;\n  };\n}\n\nconst validInfo = $dt<UseCounterOptions>({\n  min: $t.validNumber(nanTransform(Number.NEGATIVE_INFINITY)),\n  max: $t.validNumber(nanTransform(Number.POSITIVE_INFINITY)),\n  step: $t.validNumber(nanTransform(1)),\n});\n\nexport function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {\n  const { result: validOptions } = useValidData(options, validInfo) as { result: UseCounterOptions };\n  const { step } = validOptions;\n\n  const initialValueRef = useRef(getRealValue(Number(initialValue), validOptions));\n  const [current, setCurrent] = useState(getRealValue(Number(initialValue), validOptions));\n\n  const setValue = useEffectEvent((value: number | ((prev: number) => number)) => {\n    setCurrent(() => getRealValue(typeof value === 'function' ? value(current) : value, validOptions));\n  });\n\n  const actions = useMemo(() => {\n    const _step = Math.abs(step);\n\n    const increment = (delta = _step) => setValue((prev) => prev + delta);\n    const decrement = (delta = _step) => setValue((prev) => prev - delta);\n    const reset = () => setCurrent(initialValueRef.current);\n\n    return { increment, decrement, reset, set: setValue };\n  }, [step]);\n\n  return [current, actions] as const;\n}\n"
+      "content": "import { useEffectEvent, useMemo, useRef, useState } from 'react';\nimport { logger } from '../../shared/logger';\nimport { $dt, $t, useValidData } from '../use-valid-data';\n\ninterface UseCounterOptions {\n  min: number;\n  max: number;\n  step: number;\n}\n\nfunction getRealValue(value: number, options: UseCounterOptions) {\n  const { min, max } = options;\n  return Math.min(Math.max(value, min), max);\n}\n\nfunction nanTransform(_dv: number) {\n  return (_v: unknown) => {\n    if (typeof _v === 'undefined') {\n      return _dv;\n    }\n    logger.warn('useCounter', 'value is not a number', _v, 'useCounter will use default value');\n    const numV = Number(_v);\n    if (Number.isNaN(numV)) {\n      return _dv;\n    }\n    return numV;\n  };\n}\n\nconst validInfo = $dt<UseCounterOptions>({\n  min: $t.validNumber(nanTransform(Number.NEGATIVE_INFINITY)),\n  max: $t.validNumber(nanTransform(Number.POSITIVE_INFINITY)),\n  step: $t.validNumber(nanTransform(1)),\n});\n\nexport function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {\n  const { result: validOptions } = useValidData(options, validInfo) as { result: UseCounterOptions };\n  const { step } = validOptions;\n\n  const initialValueRef = useRef(getRealValue(Number(initialValue), validOptions));\n  const [current, setCurrent] = useState(getRealValue(Number(initialValue), validOptions));\n\n  const setValue = useEffectEvent((value: number | ((prev: number) => number)) => {\n    setCurrent(() => getRealValue(typeof value === 'function' ? value(current) : value, validOptions));\n  });\n\n  const actions = useMemo(() => {\n    const _step = Math.abs(step);\n\n    const increment = (delta = _step) => setValue((prev) => prev + delta);\n    const decrement = (delta = _step) => setValue((prev) => prev - delta);\n    const reset = () => setCurrent(initialValueRef.current);\n\n    return { increment, decrement, reset, set: setValue };\n  }, [step]);\n\n  return [current, actions] as const;\n}\n"
     }
   ]
 }

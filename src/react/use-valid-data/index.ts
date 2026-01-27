@@ -1,8 +1,8 @@
-import { dataHandler } from '@s';
-import type { DataHandlerOptions, Handler } from '@s/data-handler/types';
 import { useMemo, useRef } from 'react';
+import { dataHandler } from '@/shared/data-handler';
+import type { DataHandlerOptions, Handler } from '@/shared/data-handler/types';
 
-export * from '@s/data-handler/tools';
+export * from '@/shared/data-handler/tools';
 
 export function useValidData<T extends Record<PropertyKey, any>>(
   data: T,

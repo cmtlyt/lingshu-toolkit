@@ -3,9 +3,11 @@
   "title": "reactUseValidData",
   "name": "reactUseValidData",
   "description": "reactUseValidData",
-  "registryDependencies": [],
+  "registryDependencies": [
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandler.json",
+    "https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowError.json"
+  ],
   "dependencies": [
-    "@s",
     "react"
   ],
   "type": "registry:item",
@@ -14,25 +16,7 @@
       "path": "src/react/use-valid-data/index.ts",
       "type": "registry:file",
       "target": "~/src/cmtlyt/lingshu-toolkit/src/react/use-valid-data/index.ts",
-      "content": "import { dataHandler } from '@s';\nimport type { DataHandlerOptions, Handler } from '../../shared/data-handler/types';\nimport { useMemo, useRef } from 'react';\n\nexport * from '../../shared/data-handler/tools';\n\nexport function useValidData<T extends Record<PropertyKey, any>>(\n  data: T,\n  verifyInfo: Handler<T>,\n  options?: DataHandlerOptions<T>,\n) {\n  const verifyInfoRef = useRef(verifyInfo);\n  const optionsRef = useRef(options);\n\n  return useMemo(() => dataHandler(data, verifyInfoRef.current, optionsRef.current), [data]);\n}\n"
-    },
-    {
-      "path": "src/shared/data-handler/types.ts",
-      "type": "registry:file",
-      "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/types.ts",
-      "content": "export interface Actions {\n  assert: <T extends boolean>(flag: T, msg?: string) => T;\n  /**\n   * 转换结果中的数值类型\n   *\n   * @warning 如果被 assert 处理为 false, 则不会应用转换\n   */\n  transform: <T>(value: T) => T;\n}\n\nexport type Handler<M extends Record<PropertyKey, any>> =\n  | Partial<{\n      [K in keyof M]: (value: M[K], action: Actions, option: M) => false | (any & {});\n    }>\n  | (<K extends keyof M>(value: M[K], key: K, action: Actions, option: M) => false | (any & {}));\n\nexport interface ActionContext {\n  errors: string[];\n  transforms: [PropertyKey, any][];\n  handledErrorKeys: Set<PropertyKey>;\n}\n\nexport interface ActionHandlers {\n  addError(key: PropertyKey, msg?: string): void;\n  addTransform(key: PropertyKey, value: any): void;\n}\n\nexport interface DataHandlerOptions<M extends Record<PropertyKey, any>> {\n  strict?: boolean;\n  errorHandler?: (error: ActionContext['errors']) => void;\n  defaultValue?: M;\n}\n"
-    },
-    {
-      "path": "src/shared/data-handler/tools.ts",
-      "type": "registry:file",
-      "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/data-handler/tools.ts",
-      "content": "import { logger } from '../logger';\nimport type { Handler } from './types';\n\nfunction getType(_v: any) {\n  return Object.prototype.toString.call(_v).slice(8, -1).toLowerCase();\n}\n\ntype TypeHandler = NonNullable<Exclude<Handler<any>, (...args: any[]) => any>[string]>;\n\ntype Fullback = ((_v: any) => any) | (any & {});\n\nfunction typeHandler(type: any, verifyFn?: (_v: any) => boolean) {\n  return (fullback?: Fullback): TypeHandler =>\n    (_v, actions) => {\n      if (verifyFn ? verifyFn(_v) : getType(_v) === type) {\n        return true;\n      }\n      if (fullback == null) {\n        return false;\n      }\n      let fullbackValue = fullback;\n      if (typeof fullback === 'function') {\n        fullbackValue = fullback(_v);\n      }\n      actions.transform(fullbackValue);\n    };\n}\n\nexport const $t = {\n  notNullable: typeHandler('notNullable', (_v) => _v != null),\n  string: typeHandler('string'),\n  validString: typeHandler('validString', (_v) => typeof _v === 'string' && _v.length > 0),\n  number: typeHandler('number'),\n  validNumber: typeHandler('validNumber', (_v) => typeof _v === 'number' && !Number.isNaN(_v)),\n  boolean: typeHandler('boolean'),\n  object: typeHandler('object'),\n  array: typeHandler('array'),\n  function: typeHandler('function'),\n  symbol: typeHandler('symbol'),\n} satisfies Record<string, () => TypeHandler>;\n\nexport function defineTransform<T extends Record<PropertyKey, any>>(\n  dataInfo: Partial<Record<keyof T, keyof typeof $t | TypeHandler>>,\n) {\n  const verifyInfo: Record<PropertyKey, TypeHandler> = {};\n  const keys = Reflect.ownKeys(dataInfo);\n  for (let i = 0, key = keys[i], item = dataInfo[key]; i < keys.length; key = keys[++i], item = dataInfo[key]) {\n    if (typeof item === 'function') {\n      verifyInfo[key] = item;\n      continue;\n    }\n    const handler = $t[item as keyof typeof $t];\n    if (!handler) {\n      logger.warn(`${item} is not a valid type`);\n      continue;\n    }\n    verifyInfo[key] = handler();\n  }\n  return verifyInfo;\n}\n\nexport const $dt = defineTransform;\n"
-    },
-    {
-      "path": "src/shared/logger/index.ts",
-      "type": "registry:file",
-      "target": "~/src/cmtlyt/lingshu-toolkit/src/shared/logger/index.ts",
-      "content": "export const logger = new Proxy(console, {\n  get(target, prop, receiver) {\n    const oldLog = Reflect.get(target, prop, receiver).bind(console);\n    return (...args: any) => {\n      oldLog('[@cmtlyt/lingshu-toolkit]:', ...args);\n    };\n  },\n});\n"
+      "content": "import { useMemo, useRef } from 'react';\nimport { dataHandler } from '../../shared/data-handler';\nimport type { DataHandlerOptions, Handler } from '../../shared/data-handler/types';\n\nexport * from '../../shared/data-handler/tools';\n\nexport function useValidData<T extends Record<PropertyKey, any>>(\n  data: T,\n  verifyInfo: Handler<T>,\n  options?: DataHandlerOptions<T>,\n) {\n  const verifyInfoRef = useRef(verifyInfo);\n  const optionsRef = useRef(options);\n\n  return useMemo(() => dataHandler(data, verifyInfoRef.current, optionsRef.current), [data]);\n}\n"
     }
   ]
 }

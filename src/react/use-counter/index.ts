@@ -1,5 +1,5 @@
-import { logger } from '@s/logger';
 import { useEffectEvent, useMemo, useRef, useState } from 'react';
+import { logger } from '@/shared/logger';
 import { $dt, $t, useValidData } from '../use-valid-data';
 
 interface UseCounterOptions {
