@@ -21,6 +21,7 @@ interface Context {
   registryUrl: string;
   shadcnExportsFile: string;
   docGenIgnoreEntryCheck: boolean;
+  packageJson: Record<string, any>;
 }
 
 async function parseMetaFile(metaFile: string) {
@@ -77,6 +78,7 @@ function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ct
     namespace,
     name: tool.name,
     shadcnPath: `${ctx.registryUrl}/${formatNameFromTool({ meta: tool, namespace })}`,
+    npmVersion: ctx.packageJson.version,
     fileName: path.basename(toolPath),
   };
 }
@@ -120,6 +122,7 @@ async function writeJson(filePath: string, json: Record<string, any>) {
 async function packageJsonPatch(namesapces: string[], ctx: Context) {
   const packageJsonPath = path.resolve(ctx.root, 'package.json');
   const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf-8'));
+  ctx.packageJson = packageJson;
 
   const exports: Record<string, any> = packageJson.exports || {};
 
@@ -174,6 +177,7 @@ function createContext(options: PluginAutoPatchFileOptions) {
     metaFile: realMetaFile,
     shadcnExportsFile,
     docGenIgnoreEntryCheck: options.docGenIgnoreEntryCheck === true,
+    packageJson: {},
   };
   return ctx;
 }
