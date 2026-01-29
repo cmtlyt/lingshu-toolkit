@@ -4,12 +4,17 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, mergeConfig, type TestProjectInlineConfiguration } from 'vitest/config';
 import vitestBaseConfig from './vitest.base.config';
 
-function getProjectConfig(config: TestProjectInlineConfiguration) {
+function getProjectConfig(namespace: string, config: TestProjectInlineConfiguration = {}) {
   return mergeConfig(
     vitestBaseConfig,
     mergeConfig(
       defineConfig({
         test: {
+          typecheck: {
+            enabled: true,
+            include: [`src/${namespace}/**/*.test-d.ts`],
+          },
+          include: [`src/${namespace}/**/*.test.{ts,tsx}`],
           browser: {
             enabled: true,
             provider: playwright(),
@@ -28,22 +33,12 @@ export default mergeConfig(
   defineConfig({
     test: {
       projects: [
-        getProjectConfig({
-          test: {
-            include: ['src/shared/**/*.test.ts'],
-          },
+        getProjectConfig('shared'),
+        getProjectConfig('react', {
+          plugins: [react() as any],
         }),
-        getProjectConfig({
-          plugins: [react()],
-          test: {
-            include: ['src/react/**/*.test.tsx', 'src/react/**/*.test.ts'],
-          },
-        }),
-        getProjectConfig({
-          plugins: [vue()],
-          test: {
-            include: ['src/vue/**/*.test.ts'],
-          },
+        getProjectConfig('vue', {
+          plugins: [vue() as any],
         }),
       ],
     },

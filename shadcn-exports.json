@@ -14,6 +14,10 @@
       "path": "src/shared/types/index.ts"
     },
     {
+      "name": "sharedConditionMerge",
+      "path": "src/shared/condition-merge/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "path": "src/react/use-controllable-value/index.ts"
     },
