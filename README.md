@@ -2,6 +2,8 @@
 
 一个支持 shadcn 的工具库
 
+[![codecov](https://codecov.io/gh/cmtlyt/lingshu-toolkit/graph/badge.svg?token=WCAIRJNBFN)](https://codecov.io/gh/cmtlyt/lingshu-toolkit)
+
 ## 为什么要支持 shadcn?
 
 如果是纯 shadcn 的话, 就会失去长期维护能力, 作者对包的后续修改也很难进行更新, 所以对于这个痛点, 我希望这个包能同时支持 shadcn 和 npm package
