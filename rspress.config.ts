@@ -19,16 +19,11 @@ export default defineConfig({
     showLineNumbers: true,
   },
   builderConfig: {
-    source: {
-      alias: {
-        '@': path.resolve(__dirname, 'src'),
-      },
-    },
     output: {
       copy: [
         {
-          from: path.resolve(__dirname, 'src/public'),
-          to: path.resolve(__dirname, 'doc_build'),
+          from: path.resolve(__dirname, 'src/public/r'),
+          to: path.resolve(__dirname, 'doc_build/r'),
         },
       ],
     },
