@@ -34,7 +34,7 @@ const validInfo = $dt<UseCounterOptions>({
 });
 
 export function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {
-  const { result: validOptions } = useValidData(options, validInfo) as { result: UseCounterOptions };
+  const validOptions = useValidData(options as UseCounterOptions, validInfo);
   const { step } = validOptions;
 
   const initialValueRef = useRef(getRealValue(Number(initialValue), validOptions));

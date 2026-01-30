@@ -12,22 +12,22 @@ describe('useValidData', () => {
     const { result } = await renderHook(() =>
       useValidData({ str: '1', num: 1, bool: true }, $dt({ str: 'string', num: 'number', bool: $t.boolean })),
     );
-    expect(result.current.result).toEqual({ str: '1', num: 1, bool: true });
+    expect(result.current).toEqual({ str: '1', num: 1, bool: true });
   });
 
   test('组件基本使用', async () => {
     const effectFn = vi.fn();
     function App(props: Record<PropertyKey, any>) {
-      const { result } = useValidData(props, $dt({ str: 'string', num: 'number', bool: $t.boolean }));
-      const [, setNum] = useState(result.num);
+      let { num, str } = useValidData(props, $dt({ str: 'string', num: 'number', bool: $t.boolean }));
+      const [, setNum] = useState(num);
 
       useEffect(() => {
         effectFn();
       }, []);
 
       return (
-        <div data-testid="container" onClick={() => setNum(++result.num)}>
-          {result.str}
+        <div data-testid="container" onClick={() => setNum(++num)}>
+          {str}
         </div>
       );
     }
@@ -44,5 +44,14 @@ describe('useValidData', () => {
     await container.click();
     await expect.poll(() => container).toHaveTextContent('456');
     expect(effectFn).toHaveBeenCalledOnce();
+  });
+
+  test('不解包', async () => {
+    const { result } = await renderHook(() =>
+      useValidData({ str: '1', num: 1, bool: true }, $dt({ str: 'string', num: 'number', bool: $t.boolean }), {
+        unwrap: false,
+      }),
+    );
+    expect(result.current).toEqual({ result: { str: '1', num: 1, bool: true }, errors: [] });
   });
 });

@@ -29,4 +29,5 @@ export interface DataHandlerOptions<M extends Record<PropertyKey, any>> {
   strict?: boolean;
   errorHandler?: (error: ActionContext['errors']) => void;
   defaultValue?: M;
+  unwrap?: boolean;
 }

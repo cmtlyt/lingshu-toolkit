@@ -172,4 +172,17 @@ describe('useTitle', () => {
 
     document.title = originalTitle;
   });
+
+  test('不传入参数', async () => {
+    const originalTitle = document.title;
+    const TestComponent = defineComponent({
+      setup() {
+        useTitle();
+        return () => null;
+      },
+    });
+    render(TestComponent);
+    await nextTick();
+    expect(document.title).toBe(originalTitle);
+  });
 });

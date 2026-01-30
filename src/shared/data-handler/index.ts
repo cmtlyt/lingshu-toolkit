@@ -90,11 +90,11 @@ export function dataHandler<
   data: M & Partial<O['defaultValue']>,
   handler: Handler<M>,
   options?: O,
-): { result: M & O['defaultValue']; errors: string[] } {
+): O['unwrap'] extends true ? M & O['defaultValue'] : { result: M & O['defaultValue']; errors: string[] } {
   if (!handler) {
     throwType('dataHandler', 'handler is required');
   }
-  const { strict = false, errorHandler, defaultValue } = options || {};
+  const { strict = false, errorHandler, defaultValue, unwrap = false } = options || {};
   const handlerIsFunction = typeof handler === 'function';
   const handleFn = handlerIsFunction
     ? handler
@@ -113,7 +113,7 @@ export function dataHandler<
 
   filterData(tempData, ctx, defaultValue);
 
-  return { result: tempData, errors: ctx.errors };
+  return (unwrap ? tempData : { result: tempData, errors: ctx.errors }) as any;
 }
 
 export * from './tools';

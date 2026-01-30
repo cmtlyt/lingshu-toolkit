@@ -38,6 +38,10 @@
       "path": "src/react/use-boolean/index.ts"
     },
     {
+      "name": "reactUseTitle",
+      "path": "src/react/use-title/index.ts"
+    },
+    {
       "name": "vueUseTitle",
       "path": "src/vue/use-title/index.ts"
     }

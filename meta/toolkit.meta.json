@@ -6,7 +6,8 @@
     { "name": "useCounter" },
     { "name": "useValidData" },
     { "name": "useToggle" },
-    { "name": "useBoolean" }
+    { "name": "useBoolean" },
+    { "name": "useTitle" }
   ],
   "vue": [{ "name": "useTitle" }]
 }

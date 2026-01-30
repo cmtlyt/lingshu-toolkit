@@ -488,7 +488,13 @@
   },
   "overrides": [
     {
-      "includes": ["**/tests/**", "**/stories/**", ".storybook/**"],
+      "includes": [
+        "**/tests/**",
+        "**/stories/**",
+        ".storybook/**",
+        "**/*.test.{js,ts,jsx,tsx}",
+        "**/*.test-d.{ts,tsx}"
+      ],
       "linter": {
         "rules": {
           "complexity": {

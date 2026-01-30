@@ -1,28 +1,28 @@
 import { type MaybeRefOrGetter, onScopeDispose, ref, toValue, watch } from 'vue';
+import { $dt, $t, dataHandler } from '../../shared';
 
 interface UseTitleOptions {
-  restoreOnUnmount?: boolean;
+  restoreOnUnmount: boolean;
 }
 
-export function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: UseTitleOptions = {}) {
-  const { restoreOnUnmount = true } = options;
-  const title = ref(toValue(newTitle));
-  let originalTitle = '';
-
-  if (typeof document !== 'undefined') {
-    originalTitle = document.title;
-    document.title = title.value;
+function setTitle(title?: string) {
+  if (!title || typeof document === 'undefined') {
+    return;
   }
+  const oldTitle = document.title;
+  document.title = title;
+  return oldTitle;
+}
 
-  watch(
-    title,
-    (value) => {
-      if (typeof document !== 'undefined') {
-        document.title = value;
-      }
-    },
-    { flush: 'sync' },
-  );
+const validInfo = $dt({ restoreOnUnmount: $t.boolean(true) });
+
+export function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: Partial<UseTitleOptions> = {}) {
+  const { restoreOnUnmount } = dataHandler(options as UseTitleOptions, validInfo, { unwrap: true });
+  const title = ref(toValue(newTitle));
+
+  const originalTitle = setTitle(title.value);
+
+  watch(title, setTitle, { flush: 'sync' });
 
   watch(
     () => toValue(newTitle),
@@ -33,9 +33,7 @@ export function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: UseTi
 
   if (restoreOnUnmount) {
     onScopeDispose(() => {
-      if (originalTitle && typeof document !== 'undefined') {
-        document.title = originalTitle;
-      }
+      setTitle(originalTitle);
     });
   }
 

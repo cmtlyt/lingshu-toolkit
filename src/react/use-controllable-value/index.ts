@@ -47,10 +47,12 @@ export function useControllableValue<
   P extends keyof T | (string & {}) = PropertyKey,
   O extends PublicUseControllableValueOptions<keyof T, P> = PublicUseControllableValueOptions<keyof T, P>,
 >(props = {} as T, options = {} as O) {
-  const { result: validOptions } = useValidData(options as UseControllableValueOptions, validInfo) as {
-    result: UseControllableValueOptions;
-  };
-  const { defaultValue: _defaultValue, trigger, valuePropName, defaultValuePropName } = validOptions;
+  const {
+    defaultValue: _defaultValue,
+    trigger,
+    valuePropName,
+    defaultValuePropName,
+  } = useValidData(options as UseControllableValueOptions, validInfo);
   const {
     [valuePropName]: propValue,
     [defaultValuePropName]: defaultValue = _defaultValue,
