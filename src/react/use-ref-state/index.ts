@@ -2,11 +2,15 @@ import { useMemo, useRef } from 'react';
 import { useForceUpdate } from '@/react/use-force-update';
 
 export interface UseRefStateCtrl<T> {
-  patchState: (updater: (darft: T) => void, update?: boolean) => void;
+  patchState: (updater: (draft: T) => void, update?: boolean) => void;
   forceUpdate: () => void;
   getState: () => T;
   setState: (state: T, update?: boolean) => void;
   reset: (update?: boolean) => void;
+}
+
+function clone<T>(_v: T) {
+  return structuredClone(_v);
 }
 
 export function useRefState<T>(initialState: T) {
@@ -14,7 +18,7 @@ export function useRefState<T>(initialState: T) {
   const forceUpdate = useForceUpdate();
 
   const ctrl = useMemo<UseRefStateCtrl<T>>(() => {
-    const origin = structuredClone(stateRef.current);
+    const origin = clone(stateRef.current);
 
     const updateHandler = (update = true) => void (update && forceUpdate());
 
@@ -33,7 +37,7 @@ export function useRefState<T>(initialState: T) {
       forceUpdate,
       getState: () => stateRef.current,
       setState,
-      reset: (update = true) => setState(structuredClone(origin), update),
+      reset: (update = true) => setState(clone(origin), update),
     };
   }, [forceUpdate]);
 

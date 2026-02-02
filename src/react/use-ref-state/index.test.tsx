@@ -54,8 +54,8 @@ describe('useRefState', () => {
           <button
             data-testid="patchBtn"
             onClick={() =>
-              ctrl.patchState((darft) => {
-                darft.num = 2;
+              ctrl.patchState((draft) => {
+                draft.num = 2;
               })
             }
             type="button"
@@ -66,8 +66,8 @@ describe('useRefState', () => {
           <button
             data-testid="patchBtnNU"
             onClick={() =>
-              ctrl.patchState((darft) => {
-                darft.num = 2;
+              ctrl.patchState((draft) => {
+                draft.num = 2;
               }, false)
             }
             type="button"

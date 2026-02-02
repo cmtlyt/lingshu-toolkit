@@ -9,9 +9,11 @@ export class ErrorBoundary extends Component<PropsWithChildren<{ onError: () => 
   static getDerivedStateFromError() {
     return { hasError: true };
   }
+  componentDidCatch() {
+    this.props.onError();
+  }
   render() {
     if (this.state.hasError) {
-      this.props.onError();
       return null;
     }
     return this.props.children;

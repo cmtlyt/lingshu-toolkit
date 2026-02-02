@@ -1,6 +1,6 @@
 import { useReducer } from 'react';
 
 export function useForceUpdate() {
-  const [, forceUpdate] = useReducer(() => Math.random(), 0);
+  const [, forceUpdate] = useReducer((prev) => (prev + 1) % 10, 0);
   return forceUpdate;
 }
