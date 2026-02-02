@@ -244,6 +244,61 @@ async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfo
   return generateDocMeta(namespaceInfos, metaMap);
 }
 
+async function parseNamespaceExports(namespaceInfos: NamespaceInfo[]) {
+  const namespaceExports: Record<string, Set<string>> = {};
+  const exportReg = /export.*?from\s+(['"])(.*?)\1/s;
+
+  for (let i = 0, namespaceInfo = namespaceInfos[i]; i < namespaceInfos.length; namespaceInfo = namespaceInfos[++i]) {
+    const { namespace, namespacePath } = namespaceInfo;
+    const exportFromSet = namespaceExports[namespace] || new Set();
+    namespaceExports[namespace] = exportFromSet;
+    const entryContent = await fsp.readFile(path.resolve(namespacePath, 'index.ts'), 'utf-8');
+    const entrys = entryContent.split(';\n');
+
+    for (let j = 0, line = entrys[j]; j < entrys.length; line = entrys[++j]) {
+      const [, , from] = line.match(exportReg) || [];
+      if (!from) {
+        continue;
+      }
+      exportFromSet.add(from);
+    }
+  }
+
+  return namespaceExports;
+}
+
+async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx: Context) {
+  const namespace = Reflect.ownKeys(namespaceExports) as string[];
+
+  return Promise.all(
+    namespace.map(async (ns) => {
+      const exportFromSet = namespaceExports[ns];
+      const entryPath = path.resolve(ctx.root, 'src', ns, 'index.ts');
+      const entryContent = `${Array.from(exportFromSet)
+        .map((item) => `export * from '${item}';`)
+        .join('\n')}\n`;
+      return fsp.appendFile(entryPath, entryContent, 'utf-8');
+    }),
+  );
+}
+
+async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], ctx: Context) {
+  const namespaceExports: Record<string, Set<string>> = await parseNamespaceExports(namespaceInfos);
+  const patchNamespaceExports: Record<string, Set<string>> = {};
+
+  for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
+    const { namespace, filePath } = toolInfo;
+    const exportPath = `./${path.basename(path.dirname(filePath))}`;
+    if (namespaceExports[namespace]?.has(exportPath)) {
+      continue;
+    }
+    patchNamespaceExports[namespace] ||= new Set();
+    patchNamespaceExports[namespace].add(exportPath);
+  }
+
+  return generateEntrys(patchNamespaceExports, ctx);
+}
+
 async function processHandler(ctx: Context) {
   const meta = await parseMetaFile(ctx.metaFile);
   const namespaces = (Reflect.ownKeys(meta) as string[]).filter((key) => key !== '$schema');
@@ -257,7 +312,11 @@ async function processHandler(ctx: Context) {
       }),
     )
   ).flat(1);
-  return Promise.all([generateRspressDocMetas(namespaceInfos, toolInfos, ctx), generateShadcnExports(toolInfos, ctx)]);
+  return Promise.all([
+    generateRspressDocMetas(namespaceInfos, toolInfos, ctx),
+    generateShadcnExports(toolInfos, ctx),
+    patchNamespaceEntryExports(namespaceInfos, toolInfos, ctx),
+  ]);
 }
 
 export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {

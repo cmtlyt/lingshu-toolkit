@@ -12,8 +12,7 @@
     "useDefineForClassFields": true,
     "allowImportingTsExtensions": true,
     "paths": {
-      "@/*": ["./src/*"],
-      "~/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"],

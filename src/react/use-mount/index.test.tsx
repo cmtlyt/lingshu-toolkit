@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 import { render, renderHook } from 'vitest-browser-react';
-import { ErrorBoundary } from '~/test/utils';
+import { ErrorBoundary } from '@/test/utils';
 import { useMount } from './index';
 
 describe('useMount', () => {
