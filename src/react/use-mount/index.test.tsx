@@ -1,6 +1,6 @@
-import { Component, type PropsWithChildren } from 'react';
 import { describe, expect, test, vi } from 'vitest';
 import { render, renderHook } from 'vitest-browser-react';
+import { ErrorBoundary } from '~/test/utils';
 import { useMount } from './index';
 
 describe('useMount', () => {
@@ -20,20 +20,13 @@ describe('useMount', () => {
       useMount();
       return null;
     };
-    const errorCallback = vi.fn(() => {
-      return { hasError: true };
-    });
-    const ErrorBoundary = class extends Component<PropsWithChildren> {
-      state = { hasError: false };
-      static getDerivedStateFromError = errorCallback;
-      render() {
-        if (this.state.hasError) {
-          return null;
-        }
-        return <Test />;
-      }
-    };
-    await render(<ErrorBoundary />);
+    const errorCallback = vi.fn();
+    const App = () => (
+      <ErrorBoundary onError={errorCallback}>
+        <Test />
+      </ErrorBoundary>
+    );
+    await render(<App />);
     expect(errorCallback).toBeCalledTimes(1);
   });
 });

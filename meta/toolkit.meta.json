@@ -8,7 +8,9 @@
     { "name": "useToggle" },
     { "name": "useBoolean" },
     { "name": "useTitle" },
-    { "name": "useMount" }
+    { "name": "useMount" },
+    { "name": "useForceUpdate" },
+    { "name": "useRefState" }
   ],
   "vue": [{ "name": "useTitle" }]
 }

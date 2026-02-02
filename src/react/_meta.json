@@ -28,5 +28,15 @@
     "type": "file",
     "label": "useMount",
     "name": "use-mount/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useForceUpdate",
+    "name": "use-force-update/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useRefState",
+    "name": "use-ref-state/index.mdx"
   }
 ]

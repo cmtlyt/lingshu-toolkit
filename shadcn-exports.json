@@ -46,6 +46,14 @@
       "path": "src/react/use-mount/index.ts"
     },
     {
+      "name": "reactUseForceUpdate",
+      "path": "src/react/use-force-update/index.ts"
+    },
+    {
+      "name": "reactUseRefState",
+      "path": "src/react/use-ref-state/index.ts"
+    },
+    {
       "name": "vueUseTitle",
       "path": "src/vue/use-title/index.ts"
     }
