@@ -1,5 +1,11 @@
 import { Component, type PropsWithChildren } from 'react';
 
+/**
+ * 在指定毫秒后产生延迟并完成。
+ *
+ * @param time - 延迟时长（毫秒）
+ * @returns 在指定毫秒后完成的 `void`
+ */
 export function sleep(time: number) {
   return new Promise((resolve) => setTimeout(resolve, time));
 }

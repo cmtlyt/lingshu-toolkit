@@ -236,6 +236,16 @@ function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]
   }
 }
 
+/**
+ * 为各命名空间生成或更新 rspress 所需的文档元数据文件（_meta.json）。
+ *
+ * 该函数会在已有命名空间元数据的基础上，基于工具列表补充缺失的文档条目并将更新写回到各命名空间的 _meta.json 中。
+ *
+ * @param namespaceInfos - 已初始化的命名空间信息数组（包含命名空间路径等）。
+ * @param toolInfos - 项目中所有工具的元数据列表，用于计算需要的文档条目。
+ * @param _ctx - 运行时上下文（当前未被此函数使用，可传入以便未来扩展）。
+ * @returns 写入并更新各命名空间 `_meta.json` 的写入结果。
+ */
 async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], _ctx: Context) {
   const { metaMap, docSet } = await initMetaMap(namespaceInfos);
 
@@ -244,6 +254,14 @@ async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfo
   return generateDocMeta(namespaceInfos, metaMap);
 }
 
+/**
+ * 收集每个命名空间的 entry 文件（index.ts）中通过 `export ... from '...'` 声明引用的模块路径，并按命名空间分组返回。
+ *
+ * 该函数会读取传入的每个 NamespaceInfo 的 namespacePath 下的 index.ts，提取所有 `from '...'` 或 `from "..."` 中的路径并加入对应命名空间的集合。
+ *
+ * @param namespaceInfos - 包含 namespace 和 namespacePath 的命名空间信息数组
+ * @returns 一个映射对象，键为命名空间名称，值为该命名空间 index.ts 中被 `export ... from` 引用的模块路径集合（Set<string>）
+ */
 async function parseNamespaceExports(namespaceInfos: NamespaceInfo[]) {
   const namespaceExports: Record<string, Set<string>> = {};
   const exportReg = /export.*?from\s+(['"])(.*?)\1/s;
@@ -267,6 +285,15 @@ async function parseNamespaceExports(namespaceInfos: NamespaceInfo[]) {
   return namespaceExports;
 }
 
+/**
+ * 将每个命名空间的导出路径以导出语句追加到对应的 src/<namespace>/index.ts 文件中。
+ *
+ * 遍历 namespaceExports 中的每个命名空间，将 Set 中的模块路径转换为 `export * from '...';` 语句并追加到该命名空间的 index.ts。
+ *
+ * @param namespaceExports - 键为命名空间名，值为该命名空间应导出的模块路径集合
+ * @param ctx - 运行时上下文，至少需要包含项目根路径用于解析 index.ts 的目标位置
+ * @returns 每个文件追加操作的结果数组，数组项对应一次 appendFile 调用的完成结果
+ */
 async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx: Context) {
   const namespace = Reflect.ownKeys(namespaceExports) as string[];
 
@@ -282,6 +309,16 @@ async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx
   );
 }
 
+/**
+ * 确保每个命名空间的入口索引包含对应工具的导出，并为缺失的导出生成索引条目。
+ *
+ * 遍历工具信息，比较已存在的命名空间导出列表，收集缺失的导出路径并将其写入或追加到各命名空间的 index.ts。
+ *
+ * @param namespaceInfos - 每个命名空间的元信息与路径集合，用于读取和比较现有导出
+ * @param toolInfos - 待处理的工具信息列表，每项包含工具所在命名空间与文件路径
+ * @param ctx - 运行时上下文，包含项目根路径和配置等必要信息
+ * @returns 写入或追加命名空间索引文件的操作集合（每项对应一次文件写入或追加操作）
+ */
 async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], ctx: Context) {
   const namespaceExports: Record<string, Set<string>> = await parseNamespaceExports(namespaceInfos);
   const patchNamespaceExports: Record<string, Set<string>> = {};
@@ -299,6 +336,15 @@ async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolI
   return generateEntrys(patchNamespaceExports, ctx);
 }
 
+/**
+ * 基于元数据文件初始化命名空间与工具，并触发文档元数据、shadcn 导出与命名空间入口导出补丁的生成任务。
+ *
+ * 读取并解析 ctx 指定的元数据文件，确保每个命名空间已初始化，更新 package.json 的 exports，初始化各工具文件，
+ * 然后并行执行：生成 rspress 文档元数据、生成 shadcn-exports.json、以及修补命名空间的入口导出。
+ *
+ * @param ctx - 运行时上下文，包含根路径、元数据文件路径、注册表 URL、以及其他生成/写入所需配置
+ * @returns 一个数组，按顺序包含三个任务的返回结果：generateRspressDocMetas、generateShadcnExports、patchNamespaceEntryExports 的返回值
+ */
 async function processHandler(ctx: Context) {
   const meta = await parseMetaFile(ctx.metaFile);
   const namespaces = (Reflect.ownKeys(meta) as string[]).filter((key) => key !== '$schema');
@@ -319,6 +365,12 @@ async function processHandler(ctx: Context) {
   ]);
 }
 
+/**
+ * 创建并返回一个用于根据元数据文件自动生成与修补项目文件的 Vitest 插件。
+ *
+ * @param options - 插件配置项，用于构建运行时上下文（例如项目根目录、元数据文件路径、注册表 URL、以及文档/条目检查相关选项）
+ * @returns 一个符合 Vitest Plugin 接口的插件对象，会在 serve 模式下运行并在检测到元数据文件变更时触发处理流程以更新代码与元数据产物
+ */
 export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
   const ctx = createContext(options);
 

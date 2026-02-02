@@ -4,6 +4,12 @@ import shadcnRegistryGenerate from '@cmtlyt/unplugin-shadcn-registry-generate';
 import { defineConfig } from '@rslib/core';
 import { config } from './scripts/config';
 
+/**
+ * 在指定命名空间的 src 目录下查找符合条件的 TypeScript 条目文件路径。
+ *
+ * @param namespace - 要搜索的命名空间目录名（对应 src/<namespace>）
+ * @returns 匹配的文件路径数组，相对于模块目录；会排除该命名空间的 index.ts 以及各类测试文件（包括浏览器测试和 test-d 变体）
+ */
 function getEntrys(namespace: string) {
   return globSync([`src/${namespace}/**/*.ts`], {
     cwd: import.meta.dirname,
