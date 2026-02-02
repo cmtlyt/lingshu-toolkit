@@ -34,6 +34,7 @@ export default mergeConfig(
     test: {
       projects: [
         getProjectConfig('shared'),
+        getProjectConfig('shared', { test: { browser: { enabled: false } } }),
         getProjectConfig('react', {
           plugins: [react() as any],
         }),
