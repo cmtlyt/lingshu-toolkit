@@ -9,7 +9,7 @@
 
 ```bash
 # 1. Fork 并克隆仓库
-git clone https://github.com/your-username/lingshu-toolkit.git
+git clone https://github.com/<your-username>/lingshu-toolkit.git
 cd lingshu-toolkit
 
 # 2. 安装依赖
@@ -18,48 +18,71 @@ pnpm install
 # 3. 运行测试
 pnpm test
 
-# 4. 启动文档
-pnpm run dev:docs
 ```
 
 ## 项目结构
 
-```
+```text
 src/
 ├── react/          # React hooks
 ├── vue/            # Vue hooks
 └── shared/         # 共享工具函数（框架无关）
 ```
 
-**当前支持的框架**：React、Vue
+### 当前支持的框架
 
-每个 hook/工具目录包含：
-- `index.ts` - 实现代码
-- `index.test.ts` - 测试文件
-- `index.mdx` - 文档文件
+React、Vue
+
+### 新增工具或 Hook
+
+项目使用 `meta/toolkit.meta.json` 文件管理所有工具和 hook。新增时：
+
+1. 在 `meta/toolkit.meta.json` 中添加配置：
+
+```json
+{
+  "shared": [{ "name": "yourUtil" }],
+  "react": [{ "name": "useYourHook" }],
+  "vue": [{ "name": "useYourHook" }]
+}
+```
+
+2. 运行 `pnpm run script:gen-file` 自动生成目录结构和文件模板：
+   - `index.ts` - 实现代码
+   - `index.test.ts` - 测试文件
+   - `index.mdx` - 文档文件
 
 ### 新增框架支持
 
-如需新增其他框架（如 Svelte、Solid 等），需遵循以下规范：
+如需新增其他框架（如 Svelte、Solid 等），需遵循以下步骤：
 
-1. **目录结构**
-```
-src/
-└── <framework-name>/     # 框架名小写，如 svelte、solid
-    ├── index.ts          # 导出所有 hooks
-    ├── use-example/
-    │   ├── index.ts
-    │   ├── index.test.ts
-    │   └── index.mdx
-    └── ...
+1. **在 meta 文件中添加新框架**
+
+在 `meta/toolkit.meta.json` 中添加新的框架 namespace：
+
+```json
+{
+  "shared": [...],
+  "react": [...],
+  "vue": [...],
+  "svelte": [{ "name": "useExample" }]
+}
 ```
 
-2. **构建配置**
+2. **运行生成命令**
+
+```bash
+pnpm run script:gen-file
+```
+
+这会自动创建框架目录结构和文件模板。
+
+3. **构建配置**
 - 在 `rslib.config.ts` 中添加对应的构建入口
 - 在 `package.json` 的 `exports` 字段中添加导出路径
 - 在 `peerDependencies` 中添加框架依赖
 
-3. **测试配置**
+4. **测试配置**
 - 安装对应的 vitest-browser 插件（如 `vitest-browser-svelte`）
 - 在测试文件中使用对应的测试工具（如 `renderHook` from `vitest-browser-svelte`）
 
@@ -69,8 +92,7 @@ src/
 
 - 使用 TypeScript
 - 使用 `@/` 别名导入（如 `@/react/use-toggle`）
-- 返回值使用 `as const` 确保类型推断
-- 使用 `biome-ignore` 注释忽略特定规则
+- 确保类型推导正确
 
 ### 代码示例
 
@@ -92,7 +114,11 @@ export function useExample(defaultValue: string) {
 
 ### 测试规范
 
-**测试覆盖率要求：100%**
+#### 测试覆盖率要求
+
+100%
+
+#### 测试内容
 
 使用 Vitest + Playwright + vitest-browser-react/vue，必须包含：
 - 导出测试
@@ -150,6 +176,21 @@ export function exampleUtil(input: string): string {
 
 ### 测试规范
 
+#### 测试覆盖率要求
+
+100%
+
+#### 测试文件命名
+
+- 通用环境（Node.js + 浏览器）：`index.test.ts`
+- 仅浏览器环境：`index.test.browser.ts` 或 `index.test.browser.tsx`
+
+**注意**：如果工具函数依赖浏览器 API（如 `window`、`document`、`localStorage` 等），必须使用 `.browser.ts` 后缀，这样测试会在浏览器环境中运行。
+
+#### 测试示例
+
+**通用环境测试**
+
 Shared 包使用 Vitest（非浏览器模式）测试：
 
 ```typescript
@@ -172,9 +213,29 @@ describe('exampleUtil', () => {
 });
 ```
 
-**覆盖率要求：100%**
+**浏览器环境测试**
 
-运行 shared 包测试：
+如果工具依赖浏览器 API，使用 `.browser.ts` 后缀：
+
+```typescript
+// src/shared/browser-util/index.test.browser.ts
+import { describe, expect, test } from 'vitest';
+import { getLocalStorage } from './index';
+
+describe('getLocalStorage', () => {
+  test('导出测试', () => {
+    expect(getLocalStorage).toBeTypeOf('function');
+  });
+
+  test('功能测试', () => {
+    localStorage.setItem('test', 'value');
+    expect(getLocalStorage('test')).toBe('value');
+  });
+});
+```
+
+#### 运行测试
+
 ```bash
 pnpm run test:lib      # 开发模式
 pnpm run test:lib:ci   # CI 模式
@@ -186,23 +247,14 @@ pnpm run test:lib:ci   # CI 模式
 
 ### 配置 Shadcn Registry
 
-新增 hook 后，需要在 `shadcn-exports.json` 中注册：
+在 `meta/toolkit.meta.json` 中注册 hook 后，运行 `pnpm run script:gen-file` 会自动更新 `shadcn-exports.json`。
 
-```json
-{
-  "exports": [
-    {
-      "name": "frameworkHookName",
-      "path": "src/framework/hook-name/index.ts"
-    }
-  ]
-}
-```
+**自动生成的命名规范**：
+- React hooks: `reactUseExample`（对应 meta 中的 `react.useExample`）
+- Vue hooks: `vueUseExample`（对应 meta 中的 `vue.useExample`）
+- Shared 工具: `sharedExampleUtil`（对应 meta 中的 `shared.exampleUtil`）
 
-命名规范：
-- React hooks: `reactUseExample`
-- Vue hooks: `vueUseExample`
-- Shared 工具: `sharedExampleUtil`
+无需手动编辑 `shadcn-exports.json`，命名会根据 meta 配置自动生成。
 
 ### 测试 Shadcn Registry
 
@@ -217,7 +269,8 @@ pnpm preview:docs
 ```
 
 3. 访问 registry URL 验证
-```
+
+```text
 http://localhost:4173/lingshu-toolkit/r/<hookName>.json
 ```
 
@@ -242,20 +295,23 @@ http://localhost:4173/lingshu-toolkit/r/<hookName>.json
 
 示例：
 ```bash
-feat: 新增 useLocalStorage hook
-fix: 修复 useBoolean 类型推断问题
+feat(react): 新增 useLocalStorage hook
+fix(react): 修复 useBoolean 类型推断问题
 docs: 更新 useToggle 文档
+chore(ci): 优化测试流程
 ```
 
 ### Git Hooks
 
 项目配置了以下 hooks（通过 husky）：
 
-**pre-commit**：
+#### pre-commit
+
 - 运行 lint-staged（检查 .ts 文件）
 - 运行测试（`pnpm test:ci`）
 
-**commit-msg**：
+#### commit-msg
+
 - 使用 commitlint 检查 commit 信息格式
 
 ### 代码检查
@@ -281,7 +337,7 @@ git checkout -b feat/your-feature
 2. 开发并测试
 ```bash
 pnpm test  # 运行测试
-pnpm run dev:docs  # 预览文档
+pnpm run dev:docs  # 启动文档开发服务器（支持热更新）
 ```
 
 3. 提交代码

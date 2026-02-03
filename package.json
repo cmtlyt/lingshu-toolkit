@@ -33,12 +33,21 @@
     "./vue/*": {
       "types": "./dist/vue/*/index.d.ts",
       "import": "./dist/vue/*"
+    },
+    "./aaa": {
+      "types": "./dist/aaa/index.d.ts",
+      "import": "./dist/aaa/index.js"
+    },
+    "./aaa/*": {
+      "types": "./dist/aaa/*/index.d.ts",
+      "import": "./dist/aaa/*"
     }
   },
   "scripts": {
     "build": "rslib build",
     "build:docs": "rspress build",
     "check": "biome check --write",
+    "dev:docs": "rspress dev",
     "dev:registry": "pnpm dlx serve src/public -p 3000",
     "preview:docs": "rspress preview",
     "format": "biome format --write",
