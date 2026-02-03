@@ -4,6 +4,7 @@ export * from './use-counter';
 export * from './use-force-update';
 export * from './use-mount';
 export * from './use-ref-state';
+export * from './use-storage';
 export * from './use-title';
 export * from './use-toggle';
 export * from './use-valid-data';

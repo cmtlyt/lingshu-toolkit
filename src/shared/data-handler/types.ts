@@ -10,9 +10,9 @@ export interface Actions {
 
 export type Handler<M extends Record<PropertyKey, any>> =
   | Partial<{
-      [K in keyof M]: (value: M[K], action: Actions, option: M) => false | (any & {});
+      [K in keyof M]: (value: any, action: Actions, option: M) => false | (any & {});
     }>
-  | (<K extends keyof M>(value: M[K], key: K, action: Actions, option: M) => false | (any & {}));
+  | (<K extends keyof M>(value: any, key: K, action: Actions, option: M) => false | (any & {}));
 
 export interface ActionContext {
   errors: string[];

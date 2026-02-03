@@ -6,13 +6,14 @@ export * from '@/shared/data-handler/tools';
 
 export function useValidData<
   T extends Record<PropertyKey, any>,
+  H extends Handler<T> = Handler<T>,
   O extends DataHandlerOptions<T> = DataHandlerOptions<T> & { unwrap: true },
->(data: T, verifyInfo: Handler<T>, options?: O) {
+>(data: T, verifyInfo: H, options?: O) {
   const verifyInfoRef = useRef(verifyInfo);
   const optionsRef = useRef(options);
 
   return useMemo(
-    () => dataHandler<T, O>(data, verifyInfoRef.current, { unwrap: true, ...optionsRef.current } as O),
+    () => dataHandler<T, H, O>(data, verifyInfoRef.current, { unwrap: true, ...optionsRef.current } as O),
     [data],
   );
 }

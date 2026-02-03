@@ -1,4 +1,6 @@
 import { throwType } from '@/shared/throw-error';
+import type { Equal, Printify } from '@/shared/types';
+import type { Transform2Type } from './tools';
 import type { ActionContext, ActionHandlers, Actions, DataHandlerOptions, Handler } from './types';
 
 function createActions() {
@@ -83,14 +85,27 @@ function filterData(data: Record<PropertyKey, any>, ctx: ActionContext, defaultV
   });
 }
 
+type MergeResult<BaseResult extends Record<PropertyKey, any>, HandlerResult extends Handler<any>> = Printify<
+  HandlerResult extends (...args: any[]) => any
+    ? BaseResult
+    : BaseResult & {
+        [K in keyof HandlerResult]: Equal<HandlerResult[K], any> extends true
+          ? Required<BaseResult>[K]
+          : HandlerResult[K];
+      }
+>;
+
 export function dataHandler<
   M extends Record<PropertyKey, any>,
+  H extends Handler<M> = Handler<M>,
   O extends DataHandlerOptions<M> = DataHandlerOptions<M>,
 >(
   data: M & Partial<O['defaultValue']>,
-  handler: Handler<M>,
+  handler: H,
   options?: O,
-): O['unwrap'] extends true ? M & O['defaultValue'] : { result: M & O['defaultValue']; errors: string[] } {
+): O['unwrap'] extends true
+  ? MergeResult<M & O['defaultValue'], Transform2Type<H>>
+  : { result: MergeResult<M & O['defaultValue'], Transform2Type<H>>; errors: string[] } {
   if (!handler) {
     throwType('dataHandler', 'handler is required');
   }
@@ -105,7 +120,7 @@ export function dataHandler<
   const keys = handlerIsFunction ? Reflect.ownKeys(data) : Reflect.ownKeys(handler);
   const [ctx, actionHandler, getActions] = createActions();
 
-  handleProcess(tempData, keys, handleFn, getActions, actionHandler);
+  handleProcess(tempData, keys, handleFn as any, getActions, actionHandler);
 
   errorProcess(ctx.errors, errorHandler, strict);
 

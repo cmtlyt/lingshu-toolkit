@@ -18,5 +18,10 @@
     "type": "file",
     "label": "conditionMerge",
     "name": "condition-merge/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "createStorageHandler",
+    "name": "create-storage-handler/index.mdx"
   }
 ]

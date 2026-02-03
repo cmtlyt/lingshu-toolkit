@@ -11,3 +11,5 @@ export type UnionToIntersection<U> = [U] extends [never]
 export type IsPrimitive<T> = T extends number | string | boolean | symbol | bigint | null | undefined ? true : false;
 
 export type IsBasicType<T> = T extends number | string | boolean | symbol | bigint ? true : false;
+
+export type Printify<T> = T extends any[] ? T : [T] extends [never] ? T : { [K in keyof T]: T[K] };

@@ -27,14 +27,14 @@ function nanTransform(_dv: number) {
   };
 }
 
-const validInfo = $dt<UseCounterOptions>({
+const validInfo = $dt({
   min: $t.validNumber(nanTransform(Number.NEGATIVE_INFINITY)),
   max: $t.validNumber(nanTransform(Number.POSITIVE_INFINITY)),
   step: $t.validNumber(nanTransform(1)),
 });
 
 export function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {
-  const validOptions = useValidData(options as UseCounterOptions, validInfo);
+  const validOptions = useValidData(options, validInfo);
   const { step } = validOptions;
 
   const initialValueRef = useRef(getRealValue(Number(initialValue), validOptions));
