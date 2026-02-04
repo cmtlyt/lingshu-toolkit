@@ -71,8 +71,10 @@ export const $t = {
 
 type TransformMap = typeof $t;
 
-type DataTransformResult<D extends Record<PropertyKey, keyof TransformMap | TypeHandler | undefined>> = {
-  [K in keyof D]: D[K] extends keyof TransformMap ? TransformMap[D[K]] : D[K];
+type TransformKey = Exclude<keyof TransformMap, 'enum'>;
+
+type DataTransformResult<D extends Record<PropertyKey, TransformKey | TypeHandler | undefined>> = {
+  [K in keyof D]: D[K] extends TransformKey ? TransformMap[D[K]] : D[K];
 };
 
 export type Transform2Type<R extends DataTransformResult<any>> = {
@@ -81,9 +83,7 @@ export type Transform2Type<R extends DataTransformResult<any>> = {
 
 export function defineTransform<
   T extends Record<PropertyKey, any>,
-  D extends Partial<Record<keyof T, keyof TransformMap | TypeHandler>> = Partial<
-    Record<keyof T, keyof TransformMap | TypeHandler>
-  >,
+  D extends Partial<Record<keyof T, TransformKey | TypeHandler>> = Partial<Record<keyof T, TransformKey | TypeHandler>>,
 >(dataInfo: D) {
   const verifyInfo: Record<PropertyKey, TypeHandler> = {};
   const keys = Reflect.ownKeys(dataInfo);
@@ -92,12 +92,12 @@ export function defineTransform<
       verifyInfo[key] = item;
       continue;
     }
-    const handler = $t[item as keyof TransformMap];
+    const handler = $t[item as TransformKey];
     if (!handler) {
       logger.warn('defineTransform', `${item} is not a valid type`);
       continue;
     }
-    verifyInfo[key] = (handler as any)();
+    verifyInfo[key] = handler();
   }
   return verifyInfo as DataTransformResult<D>;
 }
