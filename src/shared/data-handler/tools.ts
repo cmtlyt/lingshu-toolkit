@@ -14,7 +14,9 @@ type ParseType<T extends string> = T extends keyof TypeMap ? TypeMap[T] : any;
 
 type TypeHandlerInfo<T extends string> = (value: ParseType<T>, ...args: TypeHandlerParams) => ReturnType<TypeHandler>;
 
-type Fullback<T extends string> = ((_v: any) => ParseType<T>) | (ParseType<T> & {});
+type Fullback<T extends string> = T extends 'function'
+  ? (_v: any) => ParseType<T>
+  : ((_v: any) => ParseType<T>) | (ParseType<T> & {});
 
 function typeHandler<T extends string>(type: T, verifyFn?: (_v: any) => boolean) {
   return (fullback?: Fullback<T>): TypeHandlerInfo<T> =>
@@ -27,7 +29,6 @@ function typeHandler<T extends string>(type: T, verifyFn?: (_v: any) => boolean)
       }
       let fullbackValue = fullback;
       if (typeof fullback === 'function') {
-        // @ts-expect-error 断言为函数, 如果传入 type 为函数的话, 则 fullback 一定为函数且返回一个函数
         fullbackValue = fullback(_v);
       }
       actions.transform(fullbackValue);
