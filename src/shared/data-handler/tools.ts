@@ -1,5 +1,5 @@
-import { throwType } from '@/shared//throw-error';
 import { logger } from '@/shared/logger';
+import { throwType } from '@/shared/throw-error';
 import type { Handler } from './types';
 
 function getType(_v: any) {
@@ -59,7 +59,7 @@ export const $t = {
   array: typeHandler('array'),
   function: typeHandler('function'),
   symbol: typeHandler('symbol'),
-  enum: <T>(list?: T[], fullback?: T) => {
+  enum: <T>(list: T[], fullback?: T) => {
     if (!Array.isArray(list)) {
       throwType('$t.enum', 'list must be an array');
     }
@@ -96,7 +96,7 @@ export function defineTransform<
       logger.warn('defineTransform', `${item} is not a valid type`);
       continue;
     }
-    verifyInfo[key] = handler();
+    verifyInfo[key] = (handler as any)();
   }
   return verifyInfo as DataTransformResult<D>;
 }

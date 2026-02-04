@@ -14,7 +14,7 @@ describe('useStorage', () => {
     act(() => handler.set({ a: 1 }));
     expect(handler.get()).toEqual({ a: 1 });
     expect(handler.get('a')).toBe(1);
-    handler.clear();
-    expect(handler.get()).toBeNullable();
+    act(() => handler.clear());
+    expect(() => handler.get()).toThrowError();
   });
 });

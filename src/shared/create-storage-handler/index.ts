@@ -1,5 +1,6 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { logger } from '@/shared/logger';
+import { throwError } from '../throw-error';
 
 export interface CreateStorageOptions {
   storageType: 'local' | 'session' | 'memory';
@@ -43,6 +44,8 @@ function getStorage(storageType: CreateStorageOptions['storageType']) {
   }
 }
 
+const CLEAR_FLAG = Symbol('cleared');
+
 export function createStorageHandler<T extends Record<string, any>>(
   storageKey: string,
   initialData?: T,
@@ -61,12 +64,18 @@ export function createStorageHandler<T extends Record<string, any>>(
 
   return {
     get(key?) {
+      if (context.data === CLEAR_FLAG) {
+        throwError('createStorageHandler', 'Storage has been cleared.');
+      }
       if (key == null) {
         return context.data;
       }
       return context.data[key];
     },
     set(value, key?) {
+      if (context.data === CLEAR_FLAG) {
+        throwError('createStorageHandler', 'Storage has been cleared.');
+      }
       if (key == null) {
         context.data = value;
       } else {
@@ -81,7 +90,7 @@ export function createStorageHandler<T extends Record<string, any>>(
       }
     },
     clear() {
-      context.data = null;
+      context.data = CLEAR_FLAG;
       storage.removeItem(validStorageKey);
     },
   } as StorageHandler<T>;
