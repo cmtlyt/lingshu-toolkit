@@ -185,7 +185,7 @@ export function exampleUtil(input: string): string {
 Shared 工具需要根据运行环境选择测试文件后缀：
 
 - 通用环境（Node.js + 浏览器）：`index.test.ts`
-- 仅浏览器环境：`index.test.browser.ts` 或 `index.test.browser.tsx`
+- 仅浏览器环境：`index.browser.test.ts` 或 `index.browser.test.tsx`
 
 **注意**：如果工具函数依赖浏览器 API（如 `window`、`document`、`localStorage` 等），必须使用 `.browser.ts` 后缀，这样测试会在浏览器环境中运行。
 
