@@ -1,6 +1,12 @@
 {
   "$schema": "../plugins/auto-patch-file/schema.json",
-  "shared": [{ "name": "dataHandler" }, { "name": "throwError" }, { "name": "types" }, { "name": "conditionMerge" }],
+  "shared": [
+    { "name": "dataHandler" },
+    { "name": "throwError" },
+    { "name": "types" },
+    { "name": "conditionMerge" },
+    { "name": "createStorageHandler" }
+  ],
   "react": [
     { "name": "useControllableValue" },
     { "name": "useCounter" },
@@ -10,7 +16,8 @@
     { "name": "useTitle" },
     { "name": "useMount" },
     { "name": "useForceUpdate" },
-    { "name": "useRefState" }
+    { "name": "useRefState" },
+    { "name": "useStorage" }
   ],
   "vue": [{ "name": "useTitle" }]
 }

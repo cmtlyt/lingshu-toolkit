@@ -216,4 +216,19 @@ describe('data-handler-tools', () => {
     expect(result3.result).toEqual({ str: 0 });
     expect(result3.errors.length).toBe(0);
   });
+
+  test('enum', () => {
+    expect(dataHandler({ str: '1' }, $dt({ str: $t.enum(['1', '2']) }))).toEqual({
+      result: { str: '1' },
+      errors: [],
+    });
+    const result = dataHandler({ str: '3' }, $dt({ str: $t.enum(['1', '2']) }));
+    expect(result.errors.length).toBe(1);
+    expect(result.result).toEqual({ str: undefined });
+    const result2 = dataHandler({ str: '3' }, $dt({ str: $t.enum(['1', '2'], '1') }));
+    expect(result2.result).toEqual({ str: '1' });
+    expect(result2.errors.length).toBe(0);
+    // @ts-expect-error test
+    expect(() => dataHandler({}, $dt({ str: $t.enum(null, '1') }))).toThrowError(TypeError);
+  });
 });

@@ -38,5 +38,10 @@
     "type": "file",
     "label": "useRefState",
     "name": "use-ref-state/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useStorage",
+    "name": "use-storage/index.mdx"
   }
 ]

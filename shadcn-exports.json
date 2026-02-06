@@ -18,6 +18,10 @@
       "path": "src/shared/condition-merge/index.ts"
     },
     {
+      "name": "sharedCreateStorageHandler",
+      "path": "src/shared/create-storage-handler/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "path": "src/react/use-controllable-value/index.ts"
     },
@@ -52,6 +56,10 @@
     {
       "name": "reactUseRefState",
       "path": "src/react/use-ref-state/index.ts"
+    },
+    {
+      "name": "reactUseStorage",
+      "path": "src/react/use-storage/index.ts"
     },
     {
       "name": "vueUseTitle",

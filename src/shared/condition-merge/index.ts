@@ -1,5 +1,5 @@
 import { throwType } from '@/shared/throw-error';
-import type { IsPrimitive, UnionToIntersection } from '@/shared/types';
+import type { IsPrimitive, Printify, UnionToIntersection } from '@/shared/types';
 
 type AssertValue = Record<PropertyKey, any> | any[];
 
@@ -61,8 +61,6 @@ type MergedResult<T extends ConditionItem[]> = T extends [
   : ParseConditionValue<T[0]>;
 
 type CMInput = ConditionItem[];
-
-type Printify<T> = T extends any[] ? T : [T] extends [never] ? T : { [K in keyof T]: T[K] };
 
 type FormatResult<T extends any[]> = T[0] & Record<PropertyKey, any>;
 

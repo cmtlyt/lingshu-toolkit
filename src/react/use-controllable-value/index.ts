@@ -8,7 +8,7 @@ interface UseControllableValueOptions<Ks extends PropertyKey = PropertyKey, P ex
   trigger: Ks;
 }
 
-const validInfo = $dt<UseControllableValueOptions>({
+const validInfo = $dt({
   defaultValuePropName: $t.validString('defaultValue'),
   valuePropName: $t.validString('value'),
   trigger: $t.validString('onChange'),
@@ -52,7 +52,7 @@ export function useControllableValue<
     trigger,
     valuePropName,
     defaultValuePropName,
-  } = useValidData(options as UseControllableValueOptions, validInfo);
+  } = useValidData(options as UseControllableValueOptions<keyof T, P>, validInfo);
   const {
     [valuePropName]: propValue,
     [defaultValuePropName]: defaultValue = _defaultValue,
