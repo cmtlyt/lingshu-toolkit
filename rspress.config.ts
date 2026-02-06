@@ -1,7 +1,10 @@
 import path from 'node:path';
+import process from 'node:process';
 import shadcnRegistryGenerate from '@cmtlyt/unplugin-shadcn-registry-generate';
 import { defineConfig } from 'rspress/config';
 import { config } from './scripts/config';
+
+const isDev = process.env.NODE_ENV === 'development';
 
 export default defineConfig({
   base: '/lingshu-toolkit/',
@@ -29,14 +32,16 @@ export default defineConfig({
     },
     tools: {
       rspack: {
-        plugins: [
-          shadcnRegistryGenerate.rspack({
-            outputDir: config.shadcnRegistryPluginOutputDir,
-            basePath: config.shadcnRegistryPluginBasePath,
-            registryUrl: config.registryUrl,
-            noRootRegistry: config.shadcnRegistryPluginNoRoot,
-          }),
-        ],
+        plugins: isDev
+          ? []
+          : [
+              shadcnRegistryGenerate.rspack({
+                outputDir: config.shadcnRegistryPluginOutputDir,
+                basePath: config.shadcnRegistryPluginBasePath,
+                registryUrl: config.registryUrl,
+                noRootRegistry: config.shadcnRegistryPluginNoRoot,
+              }),
+            ],
       },
     },
   },
