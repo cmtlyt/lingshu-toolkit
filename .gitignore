@@ -17,4 +17,5 @@ coverage
 doc_build
 src/public/r
 
-.claude/
+.claude/skills/*
+!.claude/skills/lingshu-dev/
