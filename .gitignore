@@ -16,3 +16,6 @@ storybook-static
 coverage
 doc_build
 src/public/r
+
+.claude/skills/*
+!.claude/skills/lingshu-dev/

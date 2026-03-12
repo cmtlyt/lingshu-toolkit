@@ -5,7 +5,9 @@
     { "name": "throwError" },
     { "name": "types" },
     { "name": "conditionMerge" },
-    { "name": "createStorageHandler" }
+    { "name": "createStorageHandler" },
+    { "name": "animation" },
+    { "name": "withResolvers" }
   ],
   "react": [
     { "name": "useControllableValue" },

@@ -203,7 +203,7 @@ async function initMetaMap(namespaceInfos: NamespaceInfo[]) {
         metaMap[namespace] = [];
         return;
       }
-      metaMap[namespace] = JSON.parse(await fsp.readFile(metaPath, 'utf-8'));
+      metaMap[namespace] = JSON.parse((await fsp.readFile(metaPath, 'utf-8')) || '[]');
       metaMap[namespace].forEach((item) => {
         docSet.add(item.name);
       });

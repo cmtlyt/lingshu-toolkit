@@ -23,5 +23,15 @@
     "type": "file",
     "label": "createStorageHandler",
     "name": "create-storage-handler/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "animation",
+    "name": "animation/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "withResolvers",
+    "name": "with-resolvers/index.mdx"
   }
 ]

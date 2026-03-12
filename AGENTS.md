@@ -17,7 +17,7 @@ You are an expert in JavaScript, Rspack, Rsbuild, Rslib, and library development
 
 ### Vitest
 
-- Run `pnpm run test` to test your code
+- Run `pnpm run test:ci` to test your code
 
 ### Biome
 
