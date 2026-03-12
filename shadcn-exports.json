@@ -22,6 +22,14 @@
       "path": "src/shared/create-storage-handler/index.ts"
     },
     {
+      "name": "sharedAnimation",
+      "path": "src/shared/animation/index.ts"
+    },
+    {
+      "name": "sharedWithResolvers",
+      "path": "src/shared/with-resolvers/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "path": "src/react/use-controllable-value/index.ts"
     },

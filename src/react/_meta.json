@@ -1,13 +1,13 @@
 [
   {
     "type": "file",
-    "label": "useCounter",
-    "name": "use-counter/index.mdx"
+    "label": "useControllableValue",
+    "name": "use-controllable-value/index.mdx"
   },
   {
     "type": "file",
-    "label": "useControllableValue",
-    "name": "use-controllable-value/index.mdx"
+    "label": "useCounter",
+    "name": "use-counter/index.mdx"
   },
   {
     "type": "file",
@@ -16,13 +16,18 @@
   },
   {
     "type": "file",
+    "label": "useToggle",
+    "name": "use-toggle/index.mdx"
+  },
+  {
+    "type": "file",
     "label": "useBoolean",
     "name": "use-boolean/index.mdx"
   },
   {
     "type": "file",
-    "label": "useToggle",
-    "name": "use-toggle/index.mdx"
+    "label": "useTitle",
+    "name": "use-title/index.mdx"
   },
   {
     "type": "file",
