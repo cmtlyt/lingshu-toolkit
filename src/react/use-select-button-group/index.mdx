@@ -1,0 +1,192 @@
+# useSelectButtonGroup
+
+> package version >0.2.0
+>
+> shadcn any version
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseSelectButtonGroup.json
+```
+
+## usage
+
+```ts
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react'
+// or
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react/use-select-button-group'
+```
+
+## API
+
+### 单选模式
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| options.mode | `'single'` | 单选模式 |
+| options.defaultValue | `T \| undefined` | 默认选中值（非受控） |
+| options.value | `T \| undefined` | 选中值（受控） |
+| options.onChange | `(value: T \| undefined) => void` | 值变化回调 |
+
+| 返回值 | 类型 | 描述 |
+|--------|------|------|
+| [0] | `T \| undefined` | 当前选中值 |
+| [1].select | `(value: T) => void` | 选中指定值 |
+| [1].clear | `() => void` | 清空选中 |
+| [1].isSelected | `(value: T) => boolean` | 检查是否选中 |
+
+### 多选模式
+
+| 参数 | 类型 | 描述 |
+|------|------|------|
+| options.mode | `'multiple'` | 多选模式 |
+| options.defaultValue | `T[]` | 默认选中值列表（非受控） |
+| options.value | `T[]` | 选中值列表（受控） |
+| options.onChange | `(value: T[]) => void` | 值变化回调 |
+
+| 返回值 | 类型 | 描述 |
+|--------|------|------|
+| [0] | `T[]` | 当前选中值列表 |
+| [1].select | `(value: T) => void` | 添加选中值 |
+| [1].deselect | `(value: T) => void` | 移除选中值 |
+| [1].toggle | `(value: T) => void` | 切换选中状态 |
+| [1].clear | `() => void` | 清空所有选中 |
+| [1].selectAll | `(values: T[]) => void` | 选中所有指定值 |
+| [1].isSelected | `(value: T) => boolean` | 检查是否选中 |
+
+## Examples
+
+### 单选模式 - 非受控
+
+```tsx
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react';
+
+function TabGroup() {
+  const [selected, { select, isSelected }] = useSelectButtonGroup({
+    mode: 'single',
+    defaultValue: 'tab1'
+  });
+
+  return (
+    <div>
+      {['tab1', 'tab2', 'tab3'].map(tab => (
+        <button
+          key={tab}
+          onClick={() => select(tab)}
+          style={{ fontWeight: isSelected(tab) ? 'bold' : 'normal' }}
+        >
+          {tab}
+        </button>
+      ))}
+      <p>当前选中: {selected}</p>
+    </div>
+  );
+}
+```
+
+### 单选模式 - 受控
+
+```tsx
+import { useState } from 'react';
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react';
+
+function ControlledTabGroup() {
+  const [activeTab, setActiveTab] = useState('tab1');
+  const [selected, { select, isSelected }] = useSelectButtonGroup({
+    mode: 'single',
+    value: activeTab,
+    onChange: setActiveTab
+  });
+
+  return (
+    <div>
+      {['tab1', 'tab2', 'tab3'].map(tab => (
+        <button
+          key={tab}
+          onClick={() => select(tab)}
+          className={isSelected(tab) ? 'active' : ''}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+### 多选模式 - 非受控
+
+```tsx
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react';
+
+function FilterGroup() {
+  const [selected, { toggle, clear, isSelected }] = useSelectButtonGroup({
+    mode: 'multiple',
+    defaultValue: ['option1']
+  });
+
+  return (
+    <div>
+      {['option1', 'option2', 'option3'].map(option => (
+        <button
+          key={option}
+          onClick={() => toggle(option)}
+          style={{
+            backgroundColor: isSelected(option) ? '#007bff' : '#fff',
+            color: isSelected(option) ? '#fff' : '#000'
+          }}
+        >
+          {option}
+        </button>
+      ))}
+      <button onClick={clear}>清空</button>
+      <p>已选中: {selected.join(', ')}</p>
+    </div>
+  );
+}
+```
+
+### 多选模式 - 受控
+
+```tsx
+import { useState } from 'react';
+import { useSelectButtonGroup } from '@cmtlyt/lingshu-toolkit/react';
+
+function ControlledFilterGroup() {
+  const [filters, setFilters] = useState<string[]>([]);
+  const [selected, { toggle, selectAll, isSelected }] = useSelectButtonGroup({
+    mode: 'multiple',
+    value: filters,
+    onChange: setFilters
+  });
+
+  const allOptions = ['option1', 'option2', 'option3'];
+
+  return (
+    <div>
+      <button onClick={() => selectAll(allOptions)}>全选</button>
+      {allOptions.map(option => (
+        <button
+          key={option}
+          onClick={() => toggle(option)}
+          className={isSelected(option) ? 'selected' : ''}
+        >
+          {option}
+        </button>
+      ))}
+    </div>
+  );
+}
+```
+
+## Notes
+
+- 单选模式下，`select` 会替换当前选中值
+- 多选模式下，`select` 不会添加重复值
+- 受控模式下，必须通过 `onChange` 更新外部状态
+- 支持任意类型的值（字符串、数字、对象等）

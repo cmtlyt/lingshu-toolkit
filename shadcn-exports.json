@@ -66,6 +66,10 @@
       "path": "src/react/use-ref-state/index.ts"
     },
     {
+      "name": "reactUseSelectButtonGroup",
+      "path": "src/react/use-select-button-group/index.ts"
+    },
+    {
       "name": "reactUseStorage",
       "path": "src/react/use-storage/index.ts"
     },
