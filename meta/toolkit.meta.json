@@ -19,6 +19,7 @@
     { "name": "useMount" },
     { "name": "useForceUpdate" },
     { "name": "useRefState" },
+    { "name": "useSelectButtonGroup" },
     { "name": "useStorage" }
   ],
   "vue": [{ "name": "useTitle" }]

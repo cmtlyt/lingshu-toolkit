@@ -48,5 +48,10 @@
     "type": "file",
     "label": "useStorage",
     "name": "use-storage/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "useSelectButtonGroup",
+    "name": "use-select-button-group/index.mdx"
   }
 ]
