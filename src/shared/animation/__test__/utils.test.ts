@@ -395,6 +395,7 @@ describe('utils', () => {
 
     test('clear 方法应该设置 stopSignal、调用 onClear 并 resolve promise', () => {
       const startFn = vi.fn();
+      const resolveSpy = vi.fn();
       const options = {
         autoStart: true,
         easing: identity,
@@ -407,10 +408,11 @@ describe('utils', () => {
         parser: identity,
       };
       const ctrl = createRunningControllerSignal(startFn, options);
+      ctrl.resolvers.resolve = resolveSpy;
       ctrl.clear();
       expect(ctrl.stopSignal).toBe(true);
       expect(options.onClear).toHaveBeenCalled();
-      expect(ctrl.resolvers).toHaveProperty('resolve');
+      expect(resolveSpy).toHaveBeenCalledWith(true);
     });
   });
 });

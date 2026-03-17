@@ -55,7 +55,7 @@ export function animation<T>(from: T, to: T, duration: number, options: Animatio
   let startTime = 0;
   let hasStarted = false;
   const rcSignal = createRunningControllerSignal(() => {
-    startTime = performance.now() + startTime;
+    startTime += performance.now();
     if (!hasStarted) {
       // 第一次启动：触发原始值并开始动画
       onUpdate(getNextValue(0) as T);
