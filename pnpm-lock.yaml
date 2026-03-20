@@ -12,8 +12,8 @@ importers:
         specifier: 2.3.8
         version: 2.3.8
       '@cmtlyt/unplugin-shadcn-registry-generate':
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.5
+        version: 0.1.5
       '@commitlint/cli':
         specifier: ^20.3.1
         version: 20.3.1(@types/node@24.10.9)(typescript@5.9.3)
@@ -309,8 +309,8 @@ packages:
   '@bufbuild/protobuf@2.11.0':
     resolution: {integrity: sha512-sBXGT13cpmPR5BMgHE6UEEfEaShh5Ror6rfN3yEK5si7QVrtZg8LEPQb0VVhiLRUslD2yLnXtnRzG035J/mZXQ==}
 
-  '@cmtlyt/unplugin-shadcn-registry-generate@0.1.3':
-    resolution: {integrity: sha512-13mrOXEzZVWgQQu4pbct7+rK2ccU3XH9lq/TrW7zaXwlP7EEif5bPGTPCDVa5ZN7Tdu4qDVCMi/b73opLwErOw==}
+  '@cmtlyt/unplugin-shadcn-registry-generate@0.1.5':
+    resolution: {integrity: sha512-gSszvYY1PwjUTHiOlANeDZf0Q2oVu3WEXJyumqnVbH55M7uM92NP6gxPq3f4d7t73G0M6z6YDNdkOlX/Ix6R6Q==}
 
   '@commitlint/cli@20.3.1':
     resolution: {integrity: sha512-NtInjSlyev/+SLPvx/ulz8hRE25Wf5S9dLNDcIwazq0JyB4/w1ROF/5nV0ObPTX8YpRaKYeKtXDYWqumBNHWsw==}
@@ -3950,7 +3950,7 @@ snapshots:
 
   '@bufbuild/protobuf@2.11.0': {}
 
-  '@cmtlyt/unplugin-shadcn-registry-generate@0.1.3':
+  '@cmtlyt/unplugin-shadcn-registry-generate@0.1.5':
     dependencies:
       pkg-types: 2.3.0
       unplugin: 2.3.11
