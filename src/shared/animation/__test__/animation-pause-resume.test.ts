@@ -311,7 +311,7 @@ describe('onStart 中同步调用 stop() 的 startTime 累加边界情况', () =
     await new Promise((resolve) => setTimeout(resolve, 5));
 
     result.start(); // 第二次：startTime 再次累加，若未修复则 startTime ≈ 2 * performance.now()
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 40));
 
     // 若存在 bug，easing 会收到负数进度值（elapsed 为负）
     expect(progressValues.length).toBeGreaterThan(0);

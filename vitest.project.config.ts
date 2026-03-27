@@ -19,7 +19,7 @@ function getBrowserProjectConfig(namespace: string, config: TestProjectInlineCon
             enabled: true,
             provider: playwright(),
             // https://vitest.dev/config/browser/playwright
-            instances: [{ browser: 'chromium', headless: true }],
+            instances: [{ browser: 'chromium', headless: true, name: namespace }],
           },
         },
       }),

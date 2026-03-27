@@ -3,6 +3,7 @@ import type { PickRequired } from '@/shared/types/base';
 import { throwError } from '../throw-error';
 import { SLOT_TYPE } from './constants';
 import type {
+  BaseEventDefault,
   BuildOptions,
   DataMixedManagerOptions,
   DMMEventHandler,
@@ -14,6 +15,7 @@ import type {
 } from './types';
 
 const validInfo = $dt({
+  name: $t.string('default'),
   fixedSlots: $t.array([]),
   dataList: $t.array([]),
   listener: $t.object({}),
@@ -35,6 +37,17 @@ class DataMixedManager<T> extends EventTarget {
     return super.addEventListener.apply(this, args as any);
   }
 
+  removeEventListener<E extends keyof EventDetailMap<T>>(
+    type: E,
+    listener: DMMEventHandler<T, E> | null,
+    options?: EventListenerOptions | boolean,
+  ): void;
+  removeEventListener(...args: any[]) {
+    return super.removeEventListener.apply(this, args as any);
+  }
+
+  /** 实例配置 */
+  private readonly options: Required<DataMixedManagerOptions<T>>;
   /** 位置到定坑配置的映射 */
   private readonly fixedSlots: Map<number, SlotConfig<T>> = new Map();
   /** 普通数据列表 */
@@ -51,7 +64,9 @@ class DataMixedManager<T> extends EventTarget {
   constructor(options?: DataMixedManagerOptions<T>) {
     super();
 
-    const { fixedSlots, dataList, listener } = dataHandler(options || {}, validInfo, { unwrap: true });
+    const validOptions = dataHandler(options || {}, validInfo, { unwrap: true });
+    const { fixedSlots, dataList, listener } = validOptions;
+    this.options = validOptions;
 
     this.addFixedSlots(fixedSlots, { lazy: true });
     this.appendList(dataList);
@@ -238,10 +253,14 @@ class DataMixedManager<T> extends EventTarget {
    * @param name - 事件名称
    * @param data - 事件数据
    */
-  private dispatch<E extends keyof EventDetailMap<T>>(name: E, data?: EventDetailMap<T>[E]) {
-    this.dispatchEvent(new CustomEvent(name, { detail: data }));
+  private dispatch<E extends keyof EventDetailMap<T>>(
+    name: E,
+    data?: Omit<EventDetailMap<T>[E], keyof BaseEventDefault>,
+  ) {
+    const detail = { name: this.options.name, ...data } as EventDetailMap<T>[E];
+    this.dispatchEvent(new CustomEvent(name, { detail }));
     if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(`[DMM]:${name}`, { detail: data }));
+      window.dispatchEvent(new CustomEvent(`[DMM]:${name}`, { detail }));
     }
   }
 

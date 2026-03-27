@@ -46,6 +46,7 @@ describe('dataMixedManager - 构造函数选项', () => {
   test('通过构造函数初始化所有选项', () => {
     const changeHandler = vi.fn();
     manager = dataMixedManager<number>({
+      name: 'test-manager',
       fixedSlots: [{ position: 2, data: 100 }],
       dataList: [1, 2, 3],
       listener: {
@@ -64,5 +65,28 @@ describe('dataMixedManager - 构造函数选项', () => {
     expect(mixedData[3]).toEqual({ isFixed: false, type: 'plain', data: 3 });
     // 构造函数初始化时不会触发 change 事件
     expect(changeHandler).toHaveBeenCalledTimes(0);
+    manager.appendList([4, 5, 6]);
+    expect(changeHandler).toHaveBeenCalledTimes(1);
+    expect(changeHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({
+          name: 'test-manager',
+          mode: 'patch',
+        }),
+      }),
+    );
+  });
+
+  test('默认 name 为 default', () => {
+    const changeHandler = vi.fn();
+    manager = dataMixedManager<number>({
+      listener: {
+        change: changeHandler,
+      },
+    });
+    manager.appendList([1, 2, 3]);
+    expect(changeHandler).toHaveBeenCalledTimes(1);
+    const event = changeHandler.mock.calls[0][0] as CustomEvent<{ name: string; mixedData: any[] }>;
+    expect(event.detail.name).toBe('default');
   });
 });

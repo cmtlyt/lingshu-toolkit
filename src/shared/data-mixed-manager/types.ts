@@ -68,16 +68,26 @@ export interface BuildOptions {
   mode?: 'rebuild' | 'patch';
 }
 
-export interface EventDetailMap<T> {
+interface DiffEventDetailMap<T> {
   change: { mode: NonNullable<BuildOptions['mode']> | 'clear'; mixedData: MixedDataItem<T>[] };
-  clear: undefined;
+  clear: Record<PropertyKey, any>;
 }
+
+export interface BaseEventDefault {
+  name: string;
+}
+
+export type EventDetailMap<T> = {
+  [K in keyof DiffEventDetailMap<T>]: BaseEventDefault & DiffEventDetailMap<T>[K];
+};
 
 export type DMMEventHandler<T, K extends keyof EventDetailMap<T>> =
   | ((event: CustomEvent<EventDetailMap<T>[K]>) => void)
   | { handleEvent: (event: CustomEvent<EventDetailMap<T>[K]>) => void };
 
 export interface DataMixedManagerOptions<T> {
+  /** 实例名称 */
+  name?: string;
   /** 定坑配置数组 */
   fixedSlots?: InputSlotConfig<T>[];
   /** 普通数据列表 */

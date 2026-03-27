@@ -4,4 +4,5 @@
  */
 export default {
   '*.ts': ['pnpm run check'],
+  '*.test.ts': ['pnpm run test:ci'],
 };
