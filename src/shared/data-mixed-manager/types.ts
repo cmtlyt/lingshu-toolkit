@@ -30,8 +30,6 @@ export interface SlotConfig<T> {
 export interface BaseDataItem<T> {
   /** 数据内容 */
   data: T;
-  /** 数据类型 */
-  type: 'plain' | SlotConfig<T>['type'];
 }
 
 /**
@@ -50,6 +48,8 @@ export interface PlainDataItem<T> extends BaseDataItem<T> {
 export interface FixedDataItem<T> extends BaseDataItem<T> {
   /** 是否为定坑数据 */
   isFixed: true;
+  /** 定坑类型 */
+  type: SlotConfig<T>['type'];
 }
 
 /**
@@ -70,7 +70,7 @@ export interface BuildOptions {
 
 interface DiffEventDetailMap<T> {
   change: { mode: NonNullable<BuildOptions['mode']> | 'clear'; mixedData: MixedDataItem<T>[] };
-  clear: Record<PropertyKey, any>;
+  clear: Record<PropertyKey, never>;
 }
 
 export interface BaseEventDefault {
