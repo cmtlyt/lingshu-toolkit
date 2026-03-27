@@ -3,7 +3,7 @@ import type { PickRequired } from '@/shared/types/base';
 import { throwError } from '../throw-error';
 import { SLOT_TYPE } from './constants';
 import type {
-  BaseEventDefault,
+  BaseEventDetail,
   BuildOptions,
   DataMixedManagerOptions,
   DMMEventHandler,
@@ -255,7 +255,7 @@ class DataMixedManager<T> extends EventTarget {
    */
   private dispatch<E extends keyof EventDetailMap<T>>(
     name: E,
-    data?: Omit<EventDetailMap<T>[E], keyof BaseEventDefault>,
+    data?: Omit<EventDetailMap<T>[E], keyof BaseEventDetail>,
   ) {
     const detail = { name: this.options.name, ...data } as EventDetailMap<T>[E];
     this.dispatchEvent(new CustomEvent(name, { detail }));

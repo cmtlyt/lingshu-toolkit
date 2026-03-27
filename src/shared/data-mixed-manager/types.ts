@@ -73,12 +73,12 @@ interface DiffEventDetailMap<T> {
   clear: Record<PropertyKey, never>;
 }
 
-export interface BaseEventDefault {
+export interface BaseEventDetail {
   name: string;
 }
 
 export type EventDetailMap<T> = {
-  [K in keyof DiffEventDetailMap<T>]: BaseEventDefault & DiffEventDetailMap<T>[K];
+  [K in keyof DiffEventDetailMap<T>]: BaseEventDetail & DiffEventDetailMap<T>[K];
 };
 
 export type DMMEventHandler<T, K extends keyof EventDetailMap<T>> =
