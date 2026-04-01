@@ -1,14 +1,7 @@
 import { createError } from '@/shared/throw-error';
 import type { AnyFunc } from '@/shared/types/base';
+import { isFunction, isPromise } from '@/shared/utils/verify';
 import { withResolvers } from '@/shared/with-resolvers';
-
-function isFunction(fn: any): fn is AnyFunc {
-  return typeof fn === 'function';
-}
-
-function isPromise(obj: any): obj is Promise<any> {
-  return !!obj && typeof obj.then === 'function';
-}
 
 interface AllxOptions {
   allSettled?: boolean;

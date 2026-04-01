@@ -1,14 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { identity } from '@/shared/utils';
 import type { Formatter } from '../types';
-import {
-  createNextTick,
-  createRunningControllerSignal,
-  getNextValueHandler,
-  identity,
-  matchValid,
-  noop,
-  tryRun,
-} from '../utils';
+import { createNextTick, createRunningControllerSignal, getNextValueHandler, matchValid, tryRun } from '../utils';
 
 describe('utils', () => {
   beforeEach(() => {
@@ -19,22 +12,6 @@ describe('utils', () => {
     vi.clearAllTimers();
     vi.useRealTimers();
     vi.restoreAllMocks();
-  });
-
-  describe('identity', () => {
-    test('应该返回传入的值', () => {
-      expect(identity(1)).toBe(1);
-      expect(identity('test')).toBe('test');
-      expect(identity({ key: 'value' })).toEqual({ key: 'value' });
-    });
-  });
-
-  describe('noop', () => {
-    test('应该不执行任何操作', () => {
-      expect(noop()).toBeUndefined();
-      // @ts-expect-error
-      expect(noop(1, 2, 3)).toBeUndefined();
-    });
   });
 
   describe('getNextValueHandler', () => {

@@ -37,6 +37,7 @@ export default mergeConfig(
         // shared node test
         getBrowserProjectConfig('shared', {
           test: {
+            name: 'shared#node',
             browser: { enabled: false },
             exclude: ['src/shared/**/*.browser.test.{ts,tsx}'],
           },

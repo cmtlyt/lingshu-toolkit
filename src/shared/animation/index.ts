@@ -1,14 +1,8 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { throwError } from '@/shared/throw-error';
+import { identity, noop } from '@/shared/utils/base';
 import type { AnimationBaseOptions, AnimationOptions, AnimationResult } from './types';
-import {
-  createNextTick,
-  createRunningControllerSignal,
-  getNextValueHandler,
-  identity,
-  matchValid,
-  noop,
-} from './utils';
+import { createNextTick, createRunningControllerSignal, getNextValueHandler, matchValid } from './utils';
 
 export function* stepAnimation<T>(from: T, to: T, step: number, options: AnimationBaseOptions = {}) {
   if (!Number.isInteger(step) || step <= 0) {

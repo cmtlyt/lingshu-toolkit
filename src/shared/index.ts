@@ -6,4 +6,5 @@ export * from './data-handler';
 export * from './data-mixed-manager';
 export * from './throw-error';
 export * from './types';
+export * from './utils';
 export * from './with-resolvers';
