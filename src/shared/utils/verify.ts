@@ -105,7 +105,7 @@ export function isTruthy<T>(_v: T): _v is Exclude<T, false | 0 | '' | null | und
  * @warn 字符串 'false' 等满足 isFalse 判断的字符串不会被视为非值
  */
 export function isFalsy(_v: unknown): _v is false | 0 | '' | null | undefined {
-  return !_v;
+  return !(isNaN(_v) || _v);
 }
 
 /** 判断是一个函数 */

@@ -846,8 +846,6 @@ A: 不建议。`useStorage` 依赖浏览器的存储 API，在服务端环境中
 function ClientComponent() {
   const [isClient, setIsClient] = useState(false);
 
-  if (!isClient) return null;
-
   useEffect(() => {
     setIsClient(true);
   }, []);
@@ -855,6 +853,8 @@ function ClientComponent() {
   const storage = useStorage('data', {
     storageType: 'local',
   }, { value: 0 });
+
+  if (!isClient) return null;
 
   return <div>{storage.get().value}</div>;
 }

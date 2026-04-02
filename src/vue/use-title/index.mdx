@@ -122,8 +122,9 @@ count.value = 5; // 标题变为: 首页 (5)
 ### 路由标题管理
 
 ```ts
-import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
 
 const route = useRoute();
 
@@ -226,8 +227,9 @@ function useTitle(
 ### 单页应用标题管理
 
 ```ts
-import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { computed } from 'vue';
 import { useRoute } from 'vue-router';
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
 
 const route = useRoute();
 

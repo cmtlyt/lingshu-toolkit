@@ -165,6 +165,8 @@ describe('utils-verify', () => {
     expect(isFalsy(Symbol('test'))).toBe(false);
     expect(isFalsy({})).toBe(false);
     expect(isFalsy([])).toBe(false);
+    expect(isFalsy(Number.NaN)).toBe(false);
+    expect(isFalsy(1 / 0)).toBe(false);
   });
 
   describe('基本使用', () => {

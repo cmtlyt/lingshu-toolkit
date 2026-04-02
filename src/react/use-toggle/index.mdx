@@ -297,7 +297,7 @@ const [value] = useToggle() // [false, actions]
 
 ### 复杂类型切换
 
-对于复杂类型（如对象、数组），确保左右值的类型一致：
+对于复杂类型（如对象、数组），不仅要类型一致，还要保证传给 `set` 的值是初始左右值之一（同一引用）：
 
 ```tsx
 interface Config {
@@ -305,8 +305,11 @@ interface Config {
   debug: boolean
 }
 
-const [config] = useToggle<Config, Config>(
-  { mode: 'simple', debug: false },
-  { mode: 'advanced', debug: true }
-)
+const left: Config = { mode: 'simple', debug: false }
+const right: Config = { mode: 'advanced', debug: true }
+const [config, { set }] = useToggle(left, right)
+
+set(left)  // ✅
+set(right) // ✅
+// set({ mode: 'simple', debug: false }) // ❌ 新对象引用，会抛错
 ```
