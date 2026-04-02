@@ -6,6 +6,16 @@
 
 > author: snailuu
 
+`useTitle` 是一个用于管理页面标题的 Vue Composable，支持响应式标题更新和自动恢复原标题功能。
+
+## 特性
+
+- **响应式标题**：标题会自动响应数据变化
+- **自动恢复**：组件卸载时可自动恢复原标题
+- **灵活配置**：支持配置是否恢复原标题
+- **类型安全**：完整的 TypeScript 类型支持
+- **SSR 兼容**：支持服务端渲染
+
 ## install
 
 ```bash title="npm"
@@ -22,23 +32,304 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/vueUseTitle.jso
 import { useTitle } from '@cmtlyt/lingshu-toolkit/vue'
 // or
 import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title'
+```
 
-// 基本使用
+## 基础用法
+
+### 设置静态标题
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+// 设置页面标题
 useTitle('我的页面标题');
+```
 
-// 获取返回值，手动控制
+### 使用返回值手动控制
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+// 获取返回值，可以手动修改标题
 const title = useTitle('初始标题');
-title.value = '新标题'; // 手动修改
+
+// 手动修改标题
+title.value = '新标题';
+```
+
+### 使用响应式数据
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref } from 'vue';
 
 // 使用响应式数据
 const pageName = ref('Home');
 const title = useTitle(pageName);
 
-// 在模板中使用
+// 修改 pageName 会自动更新标题
+pageName.value = 'About';
+```
+
+### 在模板中使用
+
+```vue
 <template>
-  <input v-model="title" placeholder="修改标题" />
+  <div>
+    <input v-model="title" placeholder="修改标题" />
+    <p>当前标题: {{ title }}</p>
+  </div>
 </template>
 
-// 配置选项
+<script setup>
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+const title = useTitle('初始标题');
+</script>
+```
+
+### 配置选项
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+// 配置不恢复原标题
 useTitle('页面标题', { restoreOnUnmount: false });
 ```
+
+## 高级用法
+
+### 动态标题
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref, computed } from 'vue';
+
+const pageTitle = ref('首页');
+const count = ref(0);
+
+// 使用计算属性创建动态标题
+const title = useTitle(
+  computed(() => {
+    return count.value > 0 ? `${pageTitle.value} (${count.value})` : pageTitle.value;
+  })
+);
+
+// 修改 count 会自动更新标题
+count.value = 5; // 标题变为: 首页 (5)
+```
+
+### 路由标题管理
+
+```ts
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+const route = useRoute();
+
+// 根据路由动态设置标题
+const title = useTitle(
+  computed(() => {
+    return route.meta.title || '默认标题';
+  })
+);
+```
+
+### 异步标题更新
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref } from 'vue';
+
+const title = useTitle('加载中...');
+
+// 模拟异步操作
+fetchData().then((data) => {
+  title.value = data.title; // 标题更新为: 数据标题
+});
+```
+
+### 多组件标题管理
+
+```ts
+// ParentComponent.vue
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+const title = useTitle('父组件标题');
+
+// ChildComponent.vue
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+// 子组件设置标题
+const childTitle = useTitle('子组件标题');
+
+// 当子组件卸载时，如果 restoreOnUnmount 为 true（默认），
+// 恢复为调用时捕获的标题, 此用例中为 “父组件标题”
+```
+
+### 标题模板
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref, computed } from 'vue';
+
+const appName = ref('My App');
+const pageName = ref('Dashboard');
+
+// 使用标题模板
+const title = useTitle(
+  computed(() => {
+    return `${pageName.value} - ${appName.value}`;
+  })
+);
+
+// 标题显示为: Dashboard - My App
+```
+
+## API
+
+### useTitle(newTitle, options?)
+
+创建一个响应式的页面标题。
+
+#### 参数
+
+- **newTitle**: `MaybeRefOrGetter<string>`
+  - 初始标题，可以是字符串、ref 或 getter 函数
+  - 默认值：`''`
+- **options?**: `Partial<UseTitleOptions>`
+  - 配置选项
+  - **restoreOnUnmount**: `boolean`
+    - 是否在组件卸载时恢复原标题
+    - 默认值：`true`
+
+#### 返回值
+
+- **返回值**: `Ref<string>`
+  - 响应式的标题引用
+
+#### 类型定义
+
+```ts
+interface UseTitleOptions {
+  restoreOnUnmount: boolean;
+}
+
+function useTitle(
+  newTitle: MaybeRefOrGetter<string> = '',
+  options: Partial<UseTitleOptions> = {}
+): Ref<string>
+```
+
+## 使用场景
+
+### 单页应用标题管理
+
+```ts
+import { computed } from 'vue';
+import { useRoute } from 'vue-router';
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+
+const route = useRoute();
+
+// 根据路由自动设置标题
+const title = useTitle(
+  computed(() => {
+    const baseTitle = '我的应用';
+    const routeTitle = route.meta.title as string | undefined;
+    return routeTitle ? `${routeTitle} - ${baseTitle}` : baseTitle;
+  })
+);
+```
+
+### 表单页面标题
+
+```vue
+<template>
+  <div>
+    <input v-model="userName" placeholder="用户名" />
+    <p>编辑用户: {{ userName }}</p>
+  </div>
+</template>
+
+<script setup>
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref, computed } from 'vue';
+
+const userName = ref('');
+
+// 根据用户名动态更新标题
+const title = useTitle(
+  computed(() => {
+    return userName.value ? `编辑用户: ${userName.value}` : '新建用户';
+  })
+);
+</script>
+```
+
+### 通知计数
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref, computed } from 'vue';
+
+const appName = ref('消息中心');
+const unreadCount = ref(0);
+
+// 在标题中显示未读消息数
+const title = useTitle(
+  computed(() => {
+    return unreadCount.value > 0
+      ? `${appName.value} (${unreadCount.value})`
+      : appName.value;
+  })
+);
+
+// 更新未读数
+unreadCount.value = 5; // 标题变为: 消息中心 (5)
+```
+
+### 加载状态
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { ref } from 'vue';
+
+const isLoading = ref(true);
+const title = useTitle('加载中...');
+
+// 模拟数据加载
+loadData().then((data) => {
+  isLoading.value = false;
+  title.value = data.title; // 标题更新为数据标题
+});
+```
+
+### 多语言支持
+
+```ts
+import { useTitle } from '@cmtlyt/lingshu-toolkit/vue/use-title';
+import { useI18n } from 'vue-i18n';
+import { computed } from 'vue';
+
+const { t } = useI18n();
+
+// 根据语言动态设置标题
+const title = useTitle(
+  computed(() => {
+    return t('page.title');
+  })
+);
+```
+
+## 注意事项
+
+1. **SSR 兼容**：在服务端渲染环境中，`useTitle` 会自动跳过标题设置
+2. **恢复原标题**：默认情况下，组件卸载时会恢复原标题，可通过 `restoreOnUnmount: false` 禁用
+3. **响应式更新**：标题会自动响应数据变化，使用 `flush: 'sync'` 确保同步更新
+4. **多组件冲突**：多个组件同时使用 `useTitle` 时，后创建的会覆盖先创建的
+5. **性能考虑**：频繁更新标题可能会影响性能，建议使用防抖或节流
+6. **浏览器兼容性**：依赖 `document.title` API，所有现代浏览器都支持
+7. **标题长度**：过长的标题可能会被浏览器截断，建议控制在合理范围内
+8. **SEO 优化**：合理的页面标题有助于 SEO，建议包含关键信息

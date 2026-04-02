@@ -6,7 +6,16 @@
 
 > author: cmtlyt
 
-## install
+用于管理切换状态的 Hook，支持布尔值和自定义值的切换操作。
+
+## 特性
+
+- **多种调用方式**：支持布尔值、单值、双值切换
+- **类型安全**：完整的 TypeScript 类型支持
+- **稳定引用**：操作方法使用 `useMemo` 优化，避免不必要的重渲染
+- **错误处理**：设置非预期值时会抛出类型错误
+
+## 安装
 
 ```bash title="npm"
 npm i @cmtlyt/lingshu-toolkit
@@ -16,10 +25,291 @@ npm i @cmtlyt/lingshu-toolkit
 npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseToggle.json
 ```
 
-## usage
+## 导入
 
 ```ts
 import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useToggle } from '@cmtlyt/lingshu-toolkit/react/use-toggle'
+```
+
+## 基础用法
+
+### 布尔值切换
+
+最简单的用法，在 `true` 和 `false` 之间切换：
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function App() {
+  const [value, { toggle, set, setLeft, setRight }] = useToggle()
+
+  return (
+    <div>
+      <p>当前状态: {value ? '开启' : '关闭'}</p>
+      <button onClick={toggle}>切换</button>
+      <button onClick={() => set(true)}>设为 true</button>
+      <button onClick={() => set(false)}>设为 false</button>
+      <button onClick={setLeft}>设为 false</button>
+      <button onClick={setRight}>设为 true</button>
+    </div>
+  )
+}
+```
+
+### 自定义默认值
+
+使用自定义值时，建议同时传入左右值，确保状态类型稳定：
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function App() {
+  const [status, { toggle }] = useToggle('loading', 'loaded')
+
+  return (
+    <div>
+      <p>状态: {status}</p>
+      <button onClick={toggle}>切换状态</button>
+    </div>
+  )
+}
+```
+
+## 高级用法
+
+### 自定义左右值
+
+指定两个自定义值进行切换：
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function App() {
+  const [theme, { toggle, setLeft, setRight }] = useToggle('light', 'dark')
+
+  return (
+    <div>
+      <p>当前主题: {theme}</p>
+      <button onClick={toggle}>切换主题</button>
+      <button onClick={setLeft}>设为亮色</button>
+      <button onClick={setRight}>设为暗色</button>
+    </div>
+  )
+}
+```
+
+### 数字切换
+
+使用数字进行切换：
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function App() {
+  const [page, { toggle, set }] = useToggle(1, 2)
+
+  return (
+    <div>
+      <p>当前页码: {page}</p>
+      <button onClick={toggle}>切换页面</button>
+      <button onClick={() => set(1)}>第 1 页</button>
+      <button onClick={() => set(2)}>第 2 页</button>
+    </div>
+  )
+}
+```
+
+### 对象切换
+
+使用对象进行状态切换：
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function App() {
+  const [config, { toggle }] = useToggle(
+    { mode: 'simple', debug: false },
+    { mode: 'advanced', debug: true }
+  )
+
+  return (
+    <div>
+      <p>模式: {config.mode}</p>
+      <p>调试: {config.debug ? '开启' : '关闭'}</p>
+      <button onClick={toggle}>切换配置</button>
+    </div>
+  )
+}
+```
+
+## 实际使用场景
+
+### 模态框显示/隐藏
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function ModalExample() {
+  const [isOpen, { set: setOpen, setLeft: close }] = useToggle(false)
+
+  return (
+    <div>
+      <button onClick={() => setOpen(true)}>打开模态框</button>
+
+      {isOpen && (
+        <div className="modal">
+          <div className="modal-content">
+            <h2>模态框内容</h2>
+            <button onClick={close}>关闭</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+### 选项卡切换
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function TabsExample() {
+  const [activeTab, { set }] = useToggle('home', 'profile')
+
+  return (
+    <div>
+      <div className="tabs">
+        <button onClick={() => set('home')}>首页</button>
+        <button onClick={() => set('profile')}>个人资料</button>
+      </div>
+
+      <div className="tab-content">
+        {activeTab === 'home' && <div>首页内容</div>}
+        {activeTab === 'profile' && <div>个人资料内容</div>}
+      </div>
+    </div>
+  )
+}
+```
+
+### 加载状态管理
+
+```tsx
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function LoadingExample() {
+  const [isLoading, { set: setLoading }] = useToggle(false)
+
+  const fetchData = async () => {
+    setLoading(true)
+    try {
+      // 模拟异步操作
+      await new Promise(resolve => setTimeout(resolve, 2000))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div>
+      <button onClick={fetchData} disabled={isLoading}>
+        {isLoading ? '加载中...' : '加载数据'}
+      </button>
+    </div>
+  )
+}
+```
+
+## API
+
+### 参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `defaultValue` | `L \| boolean` | `false` | 初始值（左值） |
+| `reverseValue` | `R` | `!defaultValue` | 反向值（右值） |
+
+### 返回值
+
+返回一个元组：`[state, actions]`
+
+#### state
+
+当前状态值，类型为 `L \| R \| boolean`。
+
+#### actions
+
+操作方法对象，包含以下方法：
+
+| 方法 | 类型 | 说明 |
+|------|------|------|
+| `set` | `(value: L \| R) => void` | 设置状态值，必须是左右值之一 |
+| `setLeft` | `() => void` | 设置为左值（初始值） |
+| `setRight` | `() => void` | 设置为右值（反向值） |
+| `toggle` | `() => void` | 在左右值之间切换 |
+
+## 注意事项
+
+### 类型安全
+
+使用 `set` 方法时，传入的值必须是左右值之一，否则会抛出错误：
+
+```tsx
+const [value, { set }] = useToggle('a', 'b')
+
+// ✅ 正确
+set('a')
+set('b')
+
+// ❌ 错误：会抛出类型错误
+set('c')
+```
+
+### 引用稳定性
+
+操作方法使用 `useMemo` 优化，引用保持稳定，可以作为依赖项传递给其他 Hook：
+
+```tsx
+import { useCallback } from 'react'
+import { useToggle } from '@cmtlyt/lingshu-toolkit/react'
+
+function Example() {
+  const [value, { toggle }] = useToggle()
+
+  const handleClick = useCallback(() => {
+    toggle()
+  }, [toggle]) // ✅ toggle 引用稳定，可以作为依赖项
+
+  return <button onClick={handleClick}>切换</button>
+}
+```
+
+### 初始值类型
+
+如果不传参数，默认使用 `false` 作为初始值，`true` 作为反向值：
+
+```tsx
+const [value] = useToggle() // [false, actions]
+```
+
+### 复杂类型切换
+
+对于复杂类型（如对象、数组），不仅要类型一致，还要保证传给 `set` 的值是初始左右值之一（同一引用）：
+
+```tsx
+interface Config {
+  mode: string
+  debug: boolean
+}
+
+const left: Config = { mode: 'simple', debug: false }
+const right: Config = { mode: 'advanced', debug: true }
+const [config, { set }] = useToggle(left, right)
+
+set(left)  // ✅
+set(right) // ✅
+// set({ mode: 'simple', debug: false }) // ❌ 新对象引用，会抛错
 ```

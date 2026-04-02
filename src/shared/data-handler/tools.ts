@@ -1,10 +1,7 @@
 import { logger } from '@/shared/logger';
 import { throwType } from '@/shared/throw-error';
+import { getType } from '@/shared/utils/base';
 import type { Handler } from './types';
-
-function getType(_v: any) {
-  return Object.prototype.toString.call(_v).slice(8, -1).toLowerCase();
-}
 
 type TypeHandler = NonNullable<Exclude<Handler<any>, (...args: any[]) => any>[string]>;
 

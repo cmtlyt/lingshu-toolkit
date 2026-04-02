@@ -144,7 +144,7 @@ describe('animation', () => {
   test('应该使用 formatter 格式化值', async () => {
     const onUpdate = vi.fn();
     const formatter = (value: number) => Math.round(value);
-    const result = animation(0, 100, 100, { onUpdate, formatter });
+    const result = animation(0, 100, 100, { onUpdate, formatterValue: formatter });
     vi.advanceTimersByTime(100);
     await vi.runAllTimersAsync();
     await result.promise;
@@ -305,7 +305,7 @@ describe('animation', () => {
     // 创建三个不同的动画
     const anim1 = animation(0, 100, 100, { onUpdate: onUpdate1 });
     const anim2 = animation(200, 300, 100, { onUpdate: onUpdate2 });
-    const anim3 = animation(0, 1000, 100, { onUpdate: onUpdate3, formatter: (v) => Math.round(v) });
+    const anim3 = animation(0, 1000, 100, { onUpdate: onUpdate3, formatterValue: (v) => Math.round(v) });
 
     // 等待所有动画完成
     vi.advanceTimersByTime(150);
@@ -355,11 +355,11 @@ describe('animation', () => {
     // 创建两个使用不同formatter的动画
     const anim1 = animation(0, 100, 100, {
       onUpdate: onUpdate1,
-      formatter: (v) => Math.floor(v / 10) * 10, // 向下取整到10的倍数
+      formatterValue: (v) => Math.floor(v / 10) * 10, // 向下取整到10的倍数
     });
     const anim2 = animation(0, 100, 100, {
       onUpdate: onUpdate2,
-      formatter: (v) => Math.ceil(v / 10) * 10, // 向上取整到10的倍数
+      formatterValue: (v) => Math.ceil(v / 10) * 10, // 向上取整到10的倍数
     });
 
     // 等待所有动画完成
@@ -388,6 +388,188 @@ describe('animation', () => {
     onUpdate2.mock.calls.forEach((call) => {
       const value = call[0];
       expect(value % 10).toBe(0);
+    });
+  });
+
+  test('应该同时使用 formatterValue 和 formatter 进行两次格式化', async () => {
+    const onUpdate = vi.fn();
+    const result = animation(0, 100, 100, {
+      // formatterValue: 先对数值进行格式化
+      formatterValue: (v) => Math.floor(v / 10) * 10,
+      // formatter: 再对格式化后的值进行二次格式化
+      formatter: (v) => `${v}px`,
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证最终值
+    const finalValue = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(finalValue).toBe('100px');
+
+    // 验证所有值都是字符串且以 'px' 结尾
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(typeof value).toBe('string');
+      expect(value).toMatch(/^\d+px$/);
+    });
+
+    // 验证数值部分都是10的倍数
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      const numValue = Number.parseInt(value.replace('px', ''), 10);
+      expect(numValue % 10).toBe(0);
+    });
+  });
+
+  test('formatterValue 应该在 formatter 之前执行', async () => {
+    const formatterValueCalls: number[] = [];
+    const formatterCalls: number[] = [];
+    const onUpdate = vi.fn();
+
+    const result = animation(0, 100, 100, {
+      formatterValue: (v) => {
+        formatterValueCalls.push(v);
+        return Math.floor(v / 10) * 10;
+      },
+      formatter: (v) => {
+        formatterCalls.push(v);
+        return `${v}px`;
+      },
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证 formatterValue 和 formatter 的调用次数相同
+    expect(formatterValueCalls.length).toBe(formatterCalls.length);
+
+    // 验证 formatterValue 的输入是原始数值
+    formatterValueCalls.forEach((v) => {
+      expect(typeof v).toBe('number');
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(100);
+    });
+
+    // 验证 formatter 的输入是 formatterValue 处理后的值（10的倍数）
+    formatterCalls.forEach((v) => {
+      expect(typeof v).toBe('number');
+      expect(v % 10).toBe(0);
+    });
+
+    // 验证 formatterValue 的输出和 formatter 的输入一一对应
+    for (let i = 0; i < formatterValueCalls.length; i++) {
+      const output = Math.floor(formatterValueCalls[i] / 10) * 10;
+      expect(formatterCalls[i]).toBe(output);
+    }
+  });
+
+  test('应该支持只使用 formatterValue 而不使用 formatter', async () => {
+    const onUpdate = vi.fn();
+    const result = animation(0, 100, 100, {
+      formatterValue: (v) => Math.round(v),
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证所有值都是整数
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(Number.isInteger(value)).toBe(true);
+    });
+  });
+
+  test('应该支持只使用 formatter 而不使用 formatterValue', async () => {
+    const onUpdate = vi.fn();
+    const result = animation(0, 100, 100, {
+      formatter: (v) => `${Math.round(v)}px`,
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证所有值都是字符串
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(typeof value).toBe('string');
+      expect(value).toMatch(/^\d+px$/);
+    });
+  });
+
+  test('formatterValue 和 formatter 都不使用时应该返回原始数值', async () => {
+    const onUpdate = vi.fn();
+    const result = animation(0, 100, 100, { onUpdate });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证所有值都是数值类型
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(typeof value).toBe('number');
+    });
+
+    // 验证最终值
+    const finalValue = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(finalValue).toBe(100);
+  });
+
+  test('formatterValue 和 formatter 在数组类型上的应用', async () => {
+    const onUpdate = vi.fn();
+    const result = animation([0, 0], [100, 200], 100, {
+      formatterValue: (v) => Math.floor(v / 10) * 10,
+      formatter: (v) => v.map((num) => `${num}px`),
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证最终值
+    const finalValue = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(finalValue).toEqual(['100px', '200px']);
+
+    // 验证所有值都是数组且元素都是字符串
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(Array.isArray(value)).toBe(true);
+      value.forEach((item: any) => {
+        expect(typeof item).toBe('string');
+        expect(item).toMatch(/^\d+px$/);
+      });
+    });
+  });
+
+  test('formatterValue 和 formatter 在对象类型上的应用', async () => {
+    const onUpdate = vi.fn();
+    const result = animation({ x: 0, y: 0 }, { x: 100, y: 200 }, 100, {
+      formatterValue: (v) => Math.floor(v / 10) * 10,
+      formatter: (v) => {
+        return { x: `${v.x}px`, y: `${v.y}px` };
+      },
+      onUpdate,
+    });
+    vi.advanceTimersByTime(100);
+    await vi.runAllTimersAsync();
+    await result.promise;
+
+    // 验证最终值
+    const finalValue = onUpdate.mock.calls[onUpdate.mock.calls.length - 1][0];
+    expect(finalValue).toEqual({ x: '100px', y: '200px' });
+
+    // 验证所有值都是对象且属性都是字符串
+    onUpdate.mock.calls.forEach((call) => {
+      const value = call[0];
+      expect(typeof value).toBe('object');
+      expect(typeof value.x).toBe('string');
+      expect(typeof value.y).toBe('string');
+      expect(value.x).toMatch(/^\d+px$/);
+      expect(value.y).toMatch(/^\d+px$/);
     });
   });
 });

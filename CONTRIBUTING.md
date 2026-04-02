@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- Node.js >= 18.0.0
+- Node.js >= 22.0.0
 - pnpm（必须使用 pnpm，不支持 npm/yarn）
 - Playwright 浏览器（首次运行浏览器测试需要安装：`pnpm exec playwright install`）
 

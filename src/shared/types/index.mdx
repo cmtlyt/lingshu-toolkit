@@ -6,6 +6,8 @@
 
 > author: cmtlyt
 
+`types` 是一个实用的 TypeScript 类型工具集合，提供了多种高级类型操作工具，用于类型检查、类型转换和类型推断等。
+
 ## install
 
 ```bash title="npm"
@@ -20,4 +22,155 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedTypes.jso
 
 ```ts
 import * as types from '@cmtlyt/lingshu-toolkit/shared/types'
+// or
+import { Equal, PickRequired, Pack, Unpack } from '@cmtlyt/lingshu-toolkit/shared/types'
 ```
+
+## 基础类型工具
+
+### Equal
+
+检查两个类型是否完全相同。
+
+```ts
+type Result1 = Equal<string, string>; // true
+type Result2 = Equal<string, number>; // false
+type Result3 = Equal<{ a: 1 }, { a: 1 }>; // true
+type Result4 = Equal<{ a: 1 }, { a: 2 }>; // false
+```
+
+### NonUnion
+
+检查类型是否不是联合类型。
+
+```ts
+type Result1 = NonUnion<string>; // true
+type Result2 = NonUnion<string | number>; // false
+type Result3 = NonUnion<never>; // never
+```
+
+### UnionToIntersection
+
+将联合类型转换为交叉类型。
+
+```ts
+type Result = UnionToIntersection<{ a: 1 } | { b: 2 }>;
+// { a: 1 } & { b: 2 }
+```
+
+### IsPrimitive
+
+检查类型是否为原始类型（包括 null 和 undefined）。
+
+```ts
+type Result1 = IsPrimitive<string>; // true
+type Result2 = IsPrimitive<number>; // true
+type Result3 = IsPrimitive<boolean>; // true
+type Result4 = IsPrimitive<object>; // false
+type Result5 = IsPrimitive<null>; // true
+type Result6 = IsPrimitive<undefined>; // true
+```
+
+### IsBasicType
+
+检查类型是否为基本类型（不包括 null 和 undefined）。
+
+```ts
+type Result1 = IsBasicType<string>; // true
+type Result2 = IsBasicType<number>; // true
+type Result3 = IsBasicType<boolean>; // true
+type Result4 = IsBasicType<null>; // false
+type Result5 = IsBasicType<undefined>; // false
+```
+
+### Printify
+
+将类型转换为可打印的形式，保留数组的结构。
+
+```ts
+type Result1 = Printify<{ a: 1; b: 2 }>; // { a: 1; b: 2 }
+type Result2 = Printify<[1, 2, 3]>; // [1, 2, 3]
+type Result3 = Printify<never>; // never
+```
+
+### PickRequired
+
+将指定属性转换为必需属性。
+
+```ts
+type User = {
+  id?: number;
+  name?: string;
+  age?: number;
+};
+
+type RequiredUser = PickRequired<User, 'id' | 'name'>;
+// { id: number; name: string; age?: number }
+```
+
+### AnyFunc
+
+表示任意函数类型。
+
+```ts
+function myFunc(fn: AnyFunc) {
+  fn();
+}
+
+myFunc(() => console.log('Hello'));
+myFunc((a, b) => a + b);
+```
+
+## 包装类型工具
+
+### Pack
+
+将类型包装为特殊格式，用于类型级别的包装。
+
+```ts
+type PackedString = Pack<string>;
+// { [Symbol('__PACK__')]: string }
+```
+
+### Unpack
+
+从包装类型中解包出原始类型。
+
+```ts
+type PackedString = Pack<string>;
+type UnpackedString = Unpack<PackedString>; // string
+```
+
+### SafeUnpack
+
+安全地解包类型，如果不是包装类型则返回原类型。
+
+```ts
+type Result1 = SafeUnpack<Pack<string>>; // string
+type Result2 = SafeUnpack<string>; // string
+```
+
+### IsPack
+
+检查类型是否为包装类型。
+
+```ts
+type Result1 = IsPack<Pack<string>>; // true
+type Result2 = IsPack<string>; // false
+```
+
+### HasPack
+
+检查类型（或其元素）是否包含包装类型。
+
+```ts
+type Result1 = HasPack<Pack<string>>; // true
+type Result2 = HasPack<[Pack<string>, number]>; // true
+type Result3 = HasPack<[string, number]>; // false
+```
+
+## 注意事项
+
+1. **类型推断**：这些类型工具主要用于类型级别的操作，不会产生运行时代码
+2. **性能考虑**：复杂的类型操作可能会影响编译性能
+3. **类型兼容性**：确保 TypeScript 版本支持这些高级类型特性

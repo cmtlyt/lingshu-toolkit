@@ -15,3 +15,9 @@ export type IsBasicType<T> = T extends number | string | boolean | symbol | bigi
 export type Printify<T> = T extends any[] ? T : [T] extends [never] ? T : { [K in keyof T]: T[K] };
 
 export type PickRequired<T, K extends keyof T> = Printify<Omit<T, K> & Required<Pick<T, K>>>;
+
+export type AnyFunc = (...args: any[]) => any;
+
+export type UnULCase<T extends string> = T extends `${infer F}${infer R}`
+  ? `${Uppercase<F> | Lowercase<F>}${UnULCase<R>}`
+  : Uppercase<T> | Lowercase<T>;

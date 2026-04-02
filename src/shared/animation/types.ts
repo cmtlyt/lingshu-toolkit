@@ -1,11 +1,13 @@
-export type Formatter = (value: number) => any;
+export type FormatterValue = (value: number) => any;
+export type Formatter<T> = (value: T) => any;
 
-export interface AnimationBaseOptions {
+export interface AnimationBaseOptions<T> {
   parser?: (value: any) => number;
-  formatter?: Formatter;
+  formatterValue?: FormatterValue;
+  formatter?: Formatter<T>;
 }
 
-export interface AnimationOptions extends AnimationBaseOptions {
+export interface AnimationOptions<T> extends AnimationBaseOptions<T> {
   autoStart?: boolean;
 
   easing?: (time: number) => number;

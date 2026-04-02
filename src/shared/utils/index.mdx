@@ -1,0 +1,398 @@
+# utils
+
+> package version >0.3.0
+>
+> shadcn any version
+
+> author: cmtlyt
+
+`utils` 是 lingshu-toolkit 的基础工具模块，提供了类型安全的工具函数和类型判断方法。包含两个子模块：`base`（基础工具函数）和 `verify`（类型判断函数）。
+
+## 特性
+
+- **完整的类型推断**：所有函数都提供完整的 TypeScript 类型支持
+- **类型守卫**：verify 模块的所有判断函数都是类型守卫，提供精确的类型推断
+- **零依赖**：纯 JavaScript 实现，无外部依赖
+- **高性能**：轻量级实现，性能优化
+- **类型安全**：所有函数都经过严格的类型检查
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedUtils.json
+```
+
+## usage
+
+```ts
+import * as utils from '@cmtlyt/lingshu-toolkit/shared/utils'
+// or
+import { noop, identity, getType } from '@cmtlyt/lingshu-toolkit/shared/utils'
+// or
+import { isString, isNumber, isObject } from '@cmtlyt/lingshu-toolkit/shared/utils'
+```
+
+## Base 模块
+
+Base 模块提供了基础的工具函数。
+
+### noop - 空函数
+
+返回 `undefined` 的空函数，常用于默认回调或占位符。
+
+```ts
+import { noop } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+// 用作默认回调
+function processData(callback: () => void = noop) {
+  // ...处理逻辑
+  callback();
+}
+
+// 占位符
+const placeholder = noop;
+```
+
+### identity - 恒等函数
+
+返回传入的参数本身，常用于函数组合或默认转换器。
+
+```ts
+import { identity } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+// 返回原值
+const result = identity(42); // 42
+
+// 用作默认转换器
+function mapArray<T>(
+  arr: T[],
+  transform: (item: T) => T = identity,
+): T[] {
+  return arr.map(transform);
+}
+```
+
+### getType - 获取类型名称
+
+返回值的精确类型名称，返回小写字符串。
+
+```ts
+import { getType } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+getType(null); // 'null'
+getType(undefined); // 'undefined'
+getType(42); // 'number'
+getType('hello'); // 'string'
+getType([]); // 'array'
+getType({}); // 'object'
+getType(new Date()); // 'date'
+getType(/regex/); // 'regexp'
+```
+
+## Verify 模块
+
+Verify 模块提供了类型判断函数，所有函数都是类型守卫。
+
+### 基础类型判断
+
+#### isSymbol - 判断是否为 Symbol
+
+```ts
+import { isSymbol } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isSymbol(Symbol('test')); // true
+isSymbol(Symbol.iterator); // true
+isSymbol('not a symbol'); // false
+```
+
+#### isUndef - 判断是否为 undefined
+
+```ts
+import { isUndef } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isUndef(undefined); // true
+isUndef(null); // false
+isUndef(0); // false
+```
+
+#### isNull - 判断是否为 null
+
+```ts
+import { isNull } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isNull(null); // true
+isNull(undefined); // false
+isNull(0); // false
+```
+
+#### isNullOrUndef - 判断是否为 null 或 undefined
+
+```ts
+import { isNullOrUndef } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isNullOrUndef(null); // true
+isNullOrUndef(undefined); // true
+isNullOrUndef(0); // false
+isNullOrUndef(''); // false
+```
+
+#### isNaN - 判断是否为 NaN
+
+```ts
+import { isNaN } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isNaN(NaN); // true
+isNaN(Number('invalid')); // true
+isNaN(42); // false
+isNaN('42'); // false
+```
+
+#### isPlainSymbol - 判断是否为普通 Symbol
+
+判断是否为非全局注册的 Symbol。
+
+```ts
+import { isPlainSymbol } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isPlainSymbol(Symbol('test')); // true
+isPlainSymbol(Symbol.iterator); // false（全局 Symbol）
+```
+
+### 对象类型判断
+
+#### isObject - 判断是否为对象
+
+包括数组、对象、Date、RegExp 等。
+
+```ts
+import { isObject } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isObject({}); // true
+isObject([]); // true
+isObject(new Date()); // true
+isObject(null); // false
+isObject(42); // false
+```
+
+#### isPlainObject - 判断是否为纯对象
+
+不包括数组。
+
+```ts
+import { isPlainObject } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isPlainObject({}); // true
+isPlainObject([]); // false
+isPlainObject(new Date()); // true
+isPlainObject(null); // false
+```
+
+#### isArray - 判断是否为数组
+
+```ts
+import { isArray } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isArray([]); // true
+isArray([1, 2, 3]); // true
+isArray({}); // false
+isArray('array'); // false
+```
+
+#### isEmptyArray - 判断是否为空数组
+
+```ts
+import { isEmptyArray } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isEmptyArray([]); // true
+isEmptyArray([1]); // false
+isEmptyArray(null); // false
+isEmptyArray({}); // false
+```
+
+### 原始类型判断
+
+#### isString - 判断是否为字符串
+
+```ts
+import { isString } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isString('hello'); // true
+isString(''); // true
+isString(42); // false
+isString(null); // false
+```
+
+#### isEmptyString - 判断是否为空字符串
+
+```ts
+import { isEmptyString } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isEmptyString(''); // true
+isEmptyString('hello'); // false
+isEmptyString(null); // false
+isEmptyString(0); // false
+```
+
+#### isNumber - 判断是否为数字
+
+包括 NaN。
+
+```ts
+import { isNumber } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isNumber(42); // true
+isNumber(3.14); // true
+isNumber(NaN); // true
+isNumber('42'); // false
+isNumber(null); // false
+```
+
+#### isPlainNumber - 判断是否为纯数字
+
+排除 NaN。
+
+```ts
+import { isPlainNumber } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isPlainNumber(42); // true
+isPlainNumber(3.14); // true
+isPlainNumber(NaN); // false
+isPlainNumber('42'); // false
+```
+
+#### isPropertyKey - 判断是否为合法的对象属性键
+
+```ts
+import { isPropertyKey } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isPropertyKey('key'); // true
+isPropertyKey(42); // true
+isPropertyKey(Symbol('key')); // true
+isPropertyKey({}); // false
+isPropertyKey(null); // false
+```
+
+#### isBoolean - 判断是否为布尔值
+
+```ts
+import { isBoolean } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isBoolean(true); // true
+isBoolean(false); // true
+isBoolean('true'); // false
+isBoolean(1); // false
+```
+
+### 布尔值判断
+
+#### isTrue - 判断是否为 true 值
+
+包括布尔值 `true` 和字符串 `'true'`（不区分大小写）。
+
+```ts
+import { isTrue } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isTrue(true); // true
+isTrue('true'); // true
+isTrue('TRUE'); // true
+isTrue('True'); // true
+isTrue(false); // false
+isTrue('false'); // false
+isTrue(1); // false
+```
+
+#### isFalse - 判断是否为 false 值
+
+包括布尔值 `false` 和字符串 `'false'`（不区分大小写）。
+
+```ts
+import { isFalse } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isFalse(false); // true
+isFalse('false'); // true
+isFalse('FALSE'); // true
+isFalse('False'); // true
+isFalse(true); // false
+isFalse('true'); // false
+isFalse(0); // false
+```
+
+#### isTruthy - 判断是否为真值
+
+⚠️ **注意**：字符串 `'false'` 等满足 `isFalse` 判断的字符串也会被视为真值。
+
+```ts
+import { isTruthy } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isTruthy(true); // true
+isTruthy('hello'); // true
+isTruthy(1); // true
+isTruthy({}); // true
+isTruthy([]); // true
+isTruthy(false); // false
+isTruthy(0); // false
+isTruthy(''); // false
+isTruthy(null); // false
+isTruthy(undefined); // false
+```
+
+#### isFalsy - 判断是否为假值
+
+⚠️ **注意**：字符串 `'false'` 等满足 `isFalse` 判断的字符串不会被视为假值。
+
+```ts
+import { isFalsy } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isFalsy(false); // true
+isFalsy(0); // true
+isFalsy(''); // true
+isFalsy(null); // true
+isFalsy(undefined); // true
+isFalsy(true); // false
+isFalsy('hello'); // false
+isFalsy(1); // false
+isFalsy({}); // false
+isFalsy([]); // false
+```
+
+### 函数和异步判断
+
+#### isFunction - 判断是否为函数
+
+```ts
+import { isFunction } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isFunction(() => {}); // true
+isFunction(function () {}); // true
+isFunction(async () => {}); // true
+isFunction(class {}); // true
+isFunction({}); // false
+isFunction(null); // false
+```
+
+#### isPromise - 判断是否为 Promise
+
+```ts
+import { isPromise } from '@cmtlyt/lingshu-toolkit/shared/utils';
+
+isPromise(Promise.resolve()); // true
+isPromise(new Promise(() => {})); // true
+isPromise({ then: () => {} }); // true
+isPromise({}); // false
+isPromise(null); // false
+```
+
+## 注意事项
+
+1. **类型守卫**：所有 verify 模块的函数都是类型守卫，可以在条件语句中自动缩小类型范围
+2. **NaN 处理**：`isNumber` 包含 NaN，`isPlainNumber` 排除 NaN，根据需求选择
+3. **对象判断**：`isObject` 包含数组，`isPlainObject` 排除数组
+4. **布尔字符串**：`isTrue` 和 `isFalse` 支持字符串 `'true'` 和 `'false'`（不区分大小写）
+5. **真值判断**：`isTruthy` 使用 JavaScript 的真值判断，`isFalsy` 使用假值判断
+6. **Symbol 判断**：`isPlainSymbol` 排除全局注册的 Symbol（如 `Symbol.iterator`）
+7. **Promise 判断**：`isPromise` 判断对象是否有 `then` 方法，不是严格的 Promise 实例检查
+8. **性能**：所有函数都经过性能优化，适合高频调用场景

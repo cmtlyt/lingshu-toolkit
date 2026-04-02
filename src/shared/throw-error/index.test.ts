@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { throwError, throwType } from '.';
+import { createError, throwError, throwType } from '.';
 
 describe('throw-error', () => {
   const prefix = '[@cmtlyt/lingshu-toolkit#test]: ';
@@ -29,5 +29,10 @@ describe('throw-error', () => {
       `[ReferenceError: ${prefix}test]`,
     );
     expect(() => throwError('test', 'test', URIError)).toThrowErrorMatchingInlineSnapshot(`[URIError: ${prefix}test]`);
+  });
+
+  test('获取错误对象', () => {
+    expect(createError('test', 'test')).toBeInstanceOf(Error);
+    expect(createError('test', 'test', TypeError)).toBeInstanceOf(TypeError);
   });
 });

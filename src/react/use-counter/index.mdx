@@ -6,6 +6,17 @@
 
 > author: cmtlyt
 
+一个功能强大的计数器 Hook，支持自定义步长、边界值限制，并提供完整的计数器操作方法。
+
+## 特性
+
+- **灵活的初始化**：支持自定义初始值、最小值、最大值和步长
+- **边界值限制**：自动处理 min/max 边界，确保值在有效范围内
+- **多种操作方法**：支持增减、重置、直接设置值等操作
+- **函数式更新**：支持通过函数动态计算新值
+- **类型安全**：完整的 TypeScript 类型支持
+- **错误处理**：内置数据验证，自动处理非数字值
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +34,330 @@ import { useCounter } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useCounter } from '@cmtlyt/lingshu-toolkit/react/use-counter'
 ```
+
+## 基础用法
+
+最简单的用法，使用默认配置：
+
+```tsx
+import { useCounter } from '@cmtlyt/lingshu-toolkit/react'
+
+function Counter() {
+  const [count, { increment, decrement, reset }] = useCounter(0)
+
+  return (
+    <div>
+      <p>Current count: {count}</p>
+      <button onClick={() => increment()}>+1</button>
+      <button onClick={() => decrement()}>-1</button>
+      <button onClick={reset}>Reset</button>
+    </div>
+  )
+}
+```
+
+## 高级用法
+
+### 自定义步长
+
+```tsx
+function StepCounter() {
+  const [count, { increment, decrement }] = useCounter(0, { step: 5 })
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => increment()}>+5</button>
+      <button onClick={() => decrement()}>-5</button>
+    </div>
+  )
+}
+```
+
+### 设置边界值
+
+```tsx
+function BoundedCounter() {
+  const [count, { increment, decrement }] = useCounter(0, {
+    min: 0,
+    max: 100,
+    step: 10
+  })
+
+  return (
+    <div>
+      <p>Count: {count} (range: 0-100)</p>
+      <button onClick={() => increment()}>+10</button>
+      <button onClick={() => decrement()}>-10</button>
+    </div>
+  )
+}
+```
+
+### 自定义增量
+
+```tsx
+function CustomIncrement() {
+  const [count, { increment, decrement }] = useCounter(0)
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={() => increment(10)}>+10</button>
+      <button onClick={() => increment(100)}>+100</button>
+      <button onClick={() => decrement(5)}>-5</button>
+    </div>
+  )
+}
+```
+
+### 函数式更新
+
+```tsx
+function FunctionalUpdate() {
+  const [count, { set }] = useCounter(0)
+
+  const double = () => set((prev) => prev * 2)
+  const square = () => set((prev) => prev * prev)
+
+  return (
+    <div>
+      <p>Count: {count}</p>
+      <button onClick={double}>Double</button>
+      <button onClick={square}>Square</button>
+    </div>
+  )
+}
+```
+
+### 复杂场景：购物车数量控制
+
+```tsx
+function CartItem({ initialQuantity = 1, maxStock = 10 }) {
+  const [quantity, { increment, decrement, reset }] = useCounter(initialQuantity, {
+    min: 1,
+    max: maxStock,
+    step: 1
+  })
+
+  return (
+    <div>
+      <p>Quantity: {quantity}</p>
+      <button onClick={() => decrement()} disabled={quantity === 1}>
+        -
+      </button>
+      <button onClick={() => increment()} disabled={quantity === maxStock}>
+        +
+      </button>
+      <button onClick={reset}>Reset to {initialQuantity}</button>
+    </div>
+  )
+}
+```
+
+## API
+
+### useCounter
+
+```ts
+function useCounter(
+  initialValue?: number,
+  options?: Partial<UseCounterOptions>
+): readonly [number, CounterActions]
+```
+
+#### 参数
+
+- **initialValue**: `number` (default: `0`)
+  - 计数器的初始值
+
+- **options**: `Partial<UseCounterOptions>` (optional)
+  - 配置选项
+
+#### Options
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| min | `number` | `Number.NEGATIVE_INFINITY` | 计数器的最小值 |
+| max | `number` | `Number.POSITIVE_INFINITY` | 计数器的最大值 |
+| step | `number` | `1` | 每次增减的步长（绝对值） |
+
+#### 返回值
+
+返回一个元组 `[count, actions]`：
+
+- **count**: `number` - 当前计数值
+- **actions**: `CounterActions` - 操作方法对象
+
+### CounterActions
+
+| 方法 | 类型 | 说明 |
+|------|------|------|
+| increment | `(delta?: number) => void` | 增加计数值，默认增加 step |
+| decrement | `(delta?: number) => void` | 减少计数值，默认减少 step |
+| reset | `() => void` | 重置为初始值 |
+| set | `(value: number \| (prev: number) => number) => void` | 直接设置计数值，支持函数式更新 |
+
+## 使用场景
+
+### 1. 分页控制
+
+```tsx
+function Pagination({ totalPages }: { totalPages: number }) {
+  const [currentPage, { increment, decrement, set }] = useCounter(1, {
+    min: 1,
+    max: totalPages
+  })
+
+  return (
+    <div>
+      <button onClick={() => decrement()} disabled={currentPage === 1}>
+        Previous
+      </button>
+      <span>Page {currentPage} of {totalPages}</span>
+      <button onClick={() => increment()} disabled={currentPage === totalPages}>
+        Next
+      </button>
+    </div>
+  )
+}
+```
+
+### 2. 评分组件
+
+```tsx
+function Rating({ max = 5 }) {
+  const [rating, { set }] = useCounter(0, {
+    min: 0,
+    max: max,
+    step: 1
+  })
+
+  return (
+    <div>
+      {[...Array(max)].map((_, i) => (
+        <Star
+          key={i}
+          filled={i < rating}
+          onClick={() => set(i + 1)}
+        />
+      ))}
+      <p>Rating: {rating}/{max}</p>
+    </div>
+  )
+}
+```
+
+### 3. 倒计时
+
+```tsx
+function Countdown({ seconds }: { seconds: number }) {
+  const [remaining, { decrement }] = useCounter(seconds, {
+    min: 0,
+    step: 1
+  })
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      decrement()
+    }, 1000)
+
+    return () => clearInterval(timer)
+  }, [decrement])
+
+  return <div>Time remaining: {remaining}s</div>
+}
+```
+
+### 4. 进度条控制
+
+```tsx
+function ProgressBar() {
+  const [progress, { increment, set }] = useCounter(0, {
+    min: 0,
+    max: 100,
+    step: 5
+  })
+
+  return (
+    <div>
+      <div style={{ width: `${progress}%`, background: 'blue', height: '20px' }} />
+      <button onClick={() => increment()}>+5%</button>
+      <button onClick={() => set(0)}>Reset</button>
+      <button onClick={() => set(100)}>Complete</button>
+    </div>
+  )
+}
+```
+
+## 注意事项
+
+### 边界值处理
+
+- 当值超过 `max` 时，会被限制为 `max`
+- 当值小于 `min` 时，会被限制为 `min`
+- 步长 `step` 会自动取绝对值，确保增量始终为正数
+
+### 数据验证
+
+- 如果传入的初始值或选项值不是有效数字，会使用默认值并输出警告日志
+- 使用 `Number.isNaN()` 进行严格的数字验证
+
+### 性能优化
+
+- 使用 `useEffectEvent` 确保操作方法引用稳定
+- 使用 `useMemo` 缓存操作方法对象，避免不必要的重新创建
+
+### 重置行为
+
+- `reset()` 方法会将计数器重置为**初始值**（即调用 `useCounter` 时传入的 `initialValue`）
+- 重置时会考虑当前的 `min/max` 配置，确保重置后的值在有效范围内
+
+### 与 useState 的区别
+
+`useCounter` 提供了比 `useState` 更丰富的计数器功能：
+- 内置边界值限制
+- 提供增减、重置等常用方法
+- 自动处理步长
+- 更好的类型推断
+
+## Comparison
+
+### vs 自定义实现
+
+```tsx
+// ❌ 手动实现
+function ManualCounter() {
+  const [count, setCount] = useState(0)
+  const min = 0
+  const max = 100
+  const step = 10
+
+  const increment = () => {
+    setCount((prev) => Math.min(prev + step, max))
+  }
+
+  const decrement = () => {
+    setCount((prev) => Math.max(prev - step, min))
+  }
+
+  const reset = () => {
+    setCount(0)
+  }
+
+  // ...
+}
+
+// ✅ 使用 useCounter
+function BetterCounter() {
+  const [count, { increment, decrement, reset }] = useCounter(0, {
+    min: 0,
+    max: 100,
+    step: 10
+  })
+
+  // ...
+}
+```
+
+`useCounter` 提供了更简洁、更可靠的实现，内置了边界处理和错误处理逻辑。

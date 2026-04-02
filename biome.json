@@ -338,6 +338,18 @@
               },
               {
                 "selector": {
+                  "kind": "objectLiteralMember"
+                },
+                "match": "[$]+|[$].*|(.*)"
+              },
+              {
+                "selector": {
+                  "kind": "typeProperty"
+                },
+                "match": "[$]+|[$].*|(.*)"
+              },
+              {
+                "selector": {
                   "kind": "typeParameter"
                 },
                 "formats": ["PascalCase", "CONSTANT_CASE"]
@@ -363,7 +375,7 @@
                 "selector": {
                   "kind": "typeProperty"
                 },
-                "match": "__.*|(.*)",
+                "match": "__.*|[$]|(.*)",
                 "formats": ["camelCase", "CONSTANT_CASE", "PascalCase"]
               }
             ]

@@ -6,6 +6,17 @@
 
 > author: cmtlyt
 
+`createStorageHandler` 是一个类型安全的存储处理器工具，支持 localStorage、sessionStorage 和内存存储。提供完整的 TypeScript 类型推断、自动保存、降级处理等功能，适用于配置管理、状态持久化、数据缓存等场景。
+
+## 特性
+
+- **类型安全**：完整的 TypeScript 类型支持和推断
+- **多种存储类型**：支持 localStorage、sessionStorage 和内存存储
+- **自动保存**：支持自动保存间隔配置
+- **降级处理**：当 localStorage/sessionStorage 不可用时自动降级到内存存储
+- **简洁 API**：提供 get、set、clear 三个核心方法
+- **清除保护**：清除后再次访问会抛出错误，避免误操作
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +34,476 @@ import { createStorageHandler } from '@cmtlyt/lingshu-toolkit/shared'
 // or
 import { createStorageHandler } from '@cmtlyt/lingshu-toolkit/shared/create-storage-handler'
 ```
+
+## 基础用法
+
+### localStorage 存储
+
+```ts
+// 定义存储数据类型
+interface AppConfig {
+  theme: 'light' | 'dark';
+  language: string;
+  fontSize: number;
+}
+
+// 创建存储处理器
+const storage = createStorageHandler<AppConfig>('app-config', {
+  theme: 'light',
+  language: 'zh-CN',
+  fontSize: 14,
+});
+
+// 获取整个配置
+const config = storage.get();
+console.log(config); // { theme: 'light', language: 'zh-CN', fontSize: 14 }
+
+// 获取单个属性
+const theme = storage.get('theme');
+console.log(theme); // 'light'
+
+// 设置整个配置
+storage.set({
+  theme: 'dark',
+  language: 'en-US',
+  fontSize: 16,
+});
+
+// 设置单个属性
+storage.set('dark', 'theme');
+
+// 清除存储
+storage.clear();
+```
+
+### sessionStorage 存储
+
+```ts
+const storage = createStorageHandler('session-data', {
+  userId: '123',
+  timestamp: Date.now(),
+}, {
+  storageType: 'session',
+});
+
+// 数据只在当前会话有效
+storage.set({ userId: '456' });
+```
+
+### 内存存储
+
+```ts
+const storage = createStorageHandler('temp-data', {
+  count: 0,
+}, {
+  storageType: 'memory',
+});
+
+// 数据只存储在内存中，刷新页面会丢失
+storage.set({ count: 1 });
+```
+
+## 高级特性
+
+### 自动保存间隔
+
+```ts
+const storage = createStorageHandler('debounced-data', {
+  input: '',
+}, {
+  autoSaveInterval: 300, // 300ms 后自动保存
+});
+
+// 频繁更新不会立即写入存储
+storage.set({ input: 'h' });
+storage.set({ input: 'he' });
+storage.set({ input: 'hel' });
+storage.set({ input: 'hell' });
+storage.set({ input: 'hello' });
+
+// 300ms 后才会保存到存储中
+```
+
+### 类型推断
+
+```ts
+interface UserSettings {
+  notifications: boolean;
+  autoPlay: boolean;
+  volume: number;
+}
+
+const storage = createStorageHandler<UserSettings>('user-settings');
+
+// TypeScript 会自动推断类型
+storage.set({ notifications: true }); // ✅ 正确
+storage.set({ notifications: 'true' }); // ❌ 类型错误
+
+const notifications = storage.get('notifications'); // 类型为 boolean
+```
+
+### 清除保护
+
+```ts
+const storage = createStorageHandler('protected-data', {
+  value: 42,
+});
+
+storage.clear();
+
+// 清除后再次访问会抛出错误
+try {
+  storage.get();
+} catch (error) {
+  console.error(error.message); // 'Storage has been cleared.'
+}
+```
+
+## 使用场景
+
+### 用户配置持久化
+
+```ts
+interface UserPreferences {
+  theme: 'light' | 'dark';
+  language: string;
+  sidebarCollapsed: boolean;
+}
+
+const preferences = createStorageHandler<UserPreferences>('user-preferences', {
+  theme: 'light',
+  language: 'en',
+  sidebarCollapsed: false,
+});
+
+// 初始化应用时加载配置
+function initApp() {
+  const config = preferences.get();
+  applyTheme(config.theme);
+  applyLanguage(config.language);
+  toggleSidebar(config.sidebarCollapsed);
+}
+
+// 用户修改配置时保存
+function updateTheme(theme: UserPreferences['theme']) {
+  preferences.set(theme, 'theme');
+  applyTheme(theme);
+}
+```
+
+### 表单数据暂存
+
+```ts
+interface FormData {
+  username: string;
+  email: string;
+  bio: string;
+}
+
+const formStorage = createStorageHandler<FormData>('draft-form', {
+  username: '',
+  email: '',
+  bio: '',
+}, {
+  autoSaveInterval: 500, // 防抖保存
+});
+
+// 表单输入时自动保存
+usernameInput.addEventListener('input', (e) => {
+  formStorage.set(e.target.value, 'username');
+});
+
+emailInput.addEventListener('input', (e) => {
+  formStorage.set(e.target.value, 'email');
+});
+
+bioInput.addEventListener('input', (e) => {
+  formStorage.set(e.target.value, 'bio');
+});
+
+// 页面加载时恢复表单
+function loadDraft() {
+  const draft = formStorage.get();
+  usernameInput.value = draft.username;
+  emailInput.value = draft.email;
+  bioInput.value = draft.bio;
+}
+```
+
+### 购物车数据缓存
+
+```ts
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+interface CartData {
+  items: CartItem[];
+  total: number;
+}
+
+const cartStorage = createStorageHandler<CartData>('shopping-cart', {
+  items: [],
+  total: 0,
+});
+
+// 添加商品到购物车
+function addToCart(item: CartItem) {
+  const cart = cartStorage.get();
+  const existingItem = cart.items.find(i => i.id === item.id);
+  
+  if (existingItem) {
+    existingItem.quantity += item.quantity;
+  } else {
+    cart.items.push(item);
+  }
+  
+  cart.total = cart.items.reduce((sum, i) => sum + i.price * i.quantity, 0);
+  cartStorage.set(cart);
+}
+
+// 清空购物车
+function clearCart() {
+  cartStorage.clear();
+}
+```
+
+### 应用状态管理
+
+```ts
+interface AppState {
+  isAuthenticated: boolean;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  lastActive: number;
+}
+
+const appState = createStorageHandler<AppState>('app-state', {
+  isAuthenticated: false,
+  user: null,
+  lastActive: Date.now(),
+});
+
+// 用户登录
+function login(user: AppState['user']) {
+  appState.set({
+    isAuthenticated: true,
+    user,
+    lastActive: Date.now(),
+  });
+}
+
+// 用户登出
+function logout() {
+  appState.clear();
+}
+
+// 检查会话是否过期
+function checkSession() {
+  const state = appState.get();
+  const now = Date.now();
+  const sessionTimeout = 30 * 60 * 1000; // 30分钟
+  
+  if (now - state.lastActive > sessionTimeout) {
+    logout();
+    return false;
+  }
+  
+  return true;
+}
+```
+
+### 多标签页同步
+
+```ts
+interface SyncData {
+  counter: number;
+  lastUpdated: number;
+}
+
+const syncStorage = createStorageHandler<SyncData>('sync-data', {
+  counter: 0,
+  lastUpdated: Date.now(),
+}, {
+  storageType: 'local',
+});
+
+// 监听存储变化
+window.addEventListener('storage', (e) => {
+  if (e.key === 'sync-data') {
+    const data = JSON.parse(e.newValue || '{}');
+    console.log('数据已更新:', data);
+  }
+});
+
+// 更新数据
+function incrementCounter() {
+  const data = syncStorage.get();
+  syncStorage.set({
+    counter: data.counter + 1,
+    lastUpdated: Date.now(),
+  });
+}
+```
+
+## API
+
+### createStorageHandler(storageKey, initialData?, options?)
+
+创建一个类型安全的存储处理器。
+
+#### 参数
+
+- **storageKey**: `string`
+  - 存储键名，用于在存储中标识数据
+- **initialData?**: `T`
+  - 初始数据，当存储中没有数据时使用
+- **options?**: `Partial<CreateStorageOptions>`
+  - **storageType?**: `'local' | 'session' | 'memory'`
+    - 存储类型，默认为 `'local'`
+    - `'local'`: 使用 localStorage
+    - `'session'`: 使用 sessionStorage
+    - `'memory'`: 使用内存存储
+  - **autoSaveInterval?**: `number`
+    - 自动保存间隔（毫秒），默认为 `0`（立即保存）
+    - 设置为大于 0 的值时，会在指定间隔后保存
+
+#### 返回值
+
+- **返回值**: `StorageHandler<T>`
+  - **get**: `<K>(key?: K) => string extends K ? T : T[K]`
+    - 获取存储的数据
+    - 不传参数时返回整个数据对象
+    - 传入 key 时返回对应属性的值
+  - **set**: `<K>(value: string extends K ? T : T[K], key?: K) => void`
+    - 设置存储的数据
+    - 不传 key 时设置整个数据对象
+    - 传入 key 时设置对应属性的值
+  - **clear**: `() => void`
+    - 清除存储数据
+
+#### 类型定义
+
+```ts
+interface CreateStorageOptions {
+  storageType: 'local' | 'session' | 'memory';
+  autoSaveInterval: number;
+}
+
+interface StorageHandler<T extends Record<string, any>> {
+  get: <K extends keyof T | (string & {})>(key?: K) => string extends K ? T : T[K & keyof T];
+  set: <K extends keyof T | (string & {})>(value: string extends K ? T : T[K & keyof T], key?: K) => void;
+  clear: () => void;
+}
+```
+
+## 最佳实践
+
+### 1. 定义明确的接口类型
+
+```ts
+// ✅ 好的做法：定义明确的接口
+interface AppConfig {
+  theme: 'light' | 'dark';
+  language: string;
+  fontSize: number;
+}
+
+const storage = createStorageHandler<AppConfig>('app-config');
+
+// ❌ 不好的做法：使用 any 类型
+const storage = createStorageHandler<any>('app-config');
+```
+
+### 2. 使用有意义的 storageKey
+
+```ts
+// ✅ 好的做法：使用有意义的键名
+const storage = createStorageHandler('user-preferences', initialData);
+
+// ❌ 不好的做法：使用模糊的键名
+const storage = createStorageHandler('data', initialData);
+```
+
+### 3. 合理使用 autoSaveInterval
+
+```ts
+// ✅ 好的做法：频繁更新的场景使用防抖
+const inputStorage = createStorageHandler('input-data', initialData, {
+  autoSaveInterval: 300,
+});
+
+// ✅ 好的做法：重要数据立即保存
+const configStorage = createStorageHandler('config-data', initialData, {
+  autoSaveInterval: 0,
+});
+```
+
+### 4. 选择合适的存储类型
+
+```ts
+// ✅ 好的做法：需要持久化的数据使用 localStorage
+const persistentStorage = createStorageHandler('persistent-data', data, {
+  storageType: 'local',
+});
+
+// ✅ 好的做法：会话数据使用 sessionStorage
+const sessionStorage = createStorageHandler('session-data', data, {
+  storageType: 'session',
+});
+
+// ✅ 好的做法：临时数据使用内存存储
+const tempStorage = createStorageHandler('temp-data', data, {
+  storageType: 'memory',
+});
+```
+
+### 5. 处理清除后的访问
+
+```ts
+const storage = createStorageHandler('data', initialData);
+
+storage.clear();
+
+// ✅ 好的做法：捕获错误
+try {
+  storage.get();
+} catch (error) {
+  console.error('存储已被清除:', error.message);
+  // 重新初始化存储
+  const newStorage = createStorageHandler('data', initialData);
+}
+```
+
+### 6. 使用默认值
+
+```ts
+// ✅ 好的做法：提供合理的默认值
+const storage = createStorageHandler('user-settings', {
+  theme: 'light',
+  language: 'en',
+  fontSize: 14,
+});
+
+// ❌ 不好的做法：不提供默认值
+const storage = createStorageHandler('user-settings');
+```
+
+## 注意事项
+
+1. **storageKey 必须是字符串**：storageKey 参数必须是有效的字符串
+2. **数据序列化**：数据会被序列化为 JSON 字符串存储，不支持函数、Symbol 等特殊类型
+3. **存储大小限制**：localStorage 和 sessionStorage 有大小限制（通常为 5MB）
+4. **隐私模式**：在浏览器的隐私模式下，localStorage 可能不可用，会自动降级到内存存储
+5. **跨域限制**：localStorage 和 sessionStorage 遵循同源策略，不能跨域访问
+6. **清除后不可恢复**：调用 clear() 后，数据会被永久删除，无法恢复
+7. **类型安全**：TypeScript 类型在运行时不会进行验证，需要开发者确保类型正确
+8. **自动保存延迟**：使用 autoSaveInterval 时，在延迟期间如果页面关闭，数据可能不会保存
+9. **内存存储不持久**：使用内存存储时，数据只存在于当前页面生命周期，刷新页面会丢失
+10. **并发访问**：多标签页同时访问同一存储时，需要通过 storage 事件进行同步

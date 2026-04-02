@@ -6,7 +6,17 @@
 
 > author: cmtlyt
 
-## install
+动态设置页面标题的 React Hook，支持在组件卸载时自动恢复原标题。
+
+## Features
+
+- **动态设置标题**：轻松修改浏览器标签页标题
+- **自动恢复**：组件卸载时可自动恢复原标题
+- **灵活控制**：通过参数控制是否恢复原标题
+- **手动设置**：返回 `setTitle` 函数用于手动设置标题
+- **类型安全**：完整的 TypeScript 类型支持
+
+## Installation
 
 ```bash title="npm"
 npm i @cmtlyt/lingshu-toolkit
@@ -16,10 +26,198 @@ npm i @cmtlyt/lingshu-toolkit
 npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseTitle.json
 ```
 
-## usage
+## Usage
 
 ```ts
 import { useTitle } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useTitle } from '@cmtlyt/lingshu-toolkit/react/use-title'
 ```
+
+## 基础用法
+
+### 简单使用
+
+直接传入标题字符串即可设置页面标题：
+
+```tsx
+function UserProfile() {
+  useTitle('用户资料');
+
+  return <div>用户资料页面</div>;
+}
+```
+
+### 动态标题
+
+根据状态动态设置标题：
+
+```tsx
+function ArticleDetail({ article }) {
+  useTitle(`文章：${article.title}`);
+
+  return <div>{article.content}</div>;
+}
+```
+
+## 高级用法
+
+### 不恢复原标题
+
+当设置 `restoreOnUnmount` 为 `false` 时，组件卸载后不会恢复原标题：
+
+```tsx
+function LoadingPage() {
+  useTitle('加载中...', { restoreOnUnmount: false });
+
+  return <div>正在加载...</div>;
+}
+```
+
+### 手动设置标题
+
+使用返回的 `setTitle` 函数手动设置标题：
+
+```tsx
+function TimerPage() {
+  const [seconds, setSeconds] = useState(0);
+  const setTitle = useTitle('计时器');
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSeconds((s) => s + 1);
+      setTitle(`计时器：${seconds}秒`);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [seconds, setTitle]);
+
+  return <div>已运行：{seconds}秒</div>;
+}
+```
+
+### 条件设置标题
+
+根据条件动态设置标题：
+
+```tsx
+function ProductPage({ product }) {
+  const title = product
+    ? `${product.name} - 商品详情`
+    : '商品未找到';
+
+  useTitle(title);
+
+  return product ? <div>{product.description}</div> : <div>商品不存在</div>;
+}
+```
+
+## API Reference
+
+### useTitle
+
+```ts
+function useTitle(title?: string, options?: Partial<UseTitleOptions>): (title?: string) => void
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `title` | `string` | 否 | `undefined` | 要设置的页面标题 |
+| `options` | `Partial<UseTitleOptions>` | 否 | `{ restoreOnUnmount: true }` | 配置选项 |
+
+#### Options
+
+| 属性 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `restoreOnUnmount` | `boolean` | 否 | `true` | 组件卸载时是否恢复原标题 |
+
+#### 返回值
+
+返回一个 `setTitle` 函数，用于手动设置标题：
+
+```ts
+type SetTitleFunction = (title?: string) => void;
+```
+
+## 使用场景
+
+### 场景一：多页面应用
+
+在路由切换时设置不同的页面标题：
+
+```tsx
+function App() {
+  const location = useLocation();
+  const titles: Record<string, string> = {
+    '/': '首页',
+    '/about': '关于我们',
+    '/contact': '联系我们',
+  };
+
+  useTitle(titles[location.pathname] || '我的应用');
+
+  return <Routes>{/* 路由配置 */}</Routes>;
+}
+```
+
+### 场景二：表单编辑
+
+根据编辑状态动态更新标题：
+
+```tsx
+function EditForm({ document }) {
+  const [isDirty, setIsDirty] = useState(false);
+  const setTitle = useTitle(`编辑：${document.name}`);
+
+  useEffect(() => {
+    const title = isDirty
+      ? `编辑：${document.name} (未保存)`
+      : `编辑：${document.name}`;
+    setTitle(title);
+  }, [isDirty, document.name, setTitle]);
+
+  return <form>{/* 表单内容 */}</form>;
+}
+```
+
+### 场景三：模态框
+
+在模态框打开时临时修改标题：
+
+```tsx
+function ModalExample() {
+  const [isOpen, setIsOpen] = useState(false);
+  const setTitle = useTitle('主页');
+
+  const handleOpen = () => {
+    setIsOpen(true);
+    setTitle('模态框');
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    setTitle('主页');
+  };
+
+  return (
+    <div>
+      <button onClick={handleOpen}>打开模态框</button>
+      {isOpen && (
+        <Modal onClose={handleClose}>
+          <div>模态框内容</div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+```
+
+## 注意事项
+
+1. **标题为空**：当传入的 `title` 为空字符串或 `undefined` 时，不会修改页面标题
+2. **性能优化**：标题变化时会触发 `useEffect`，避免在渲染循环中频繁调用
+3. **服务端渲染**：在 SSR 环境中使用时，确保在客户端渲染后再调用
+4. **浏览器兼容性**：使用标准的 `document.title` API，兼容所有现代浏览器
+5. **多标签页**：每个标签页的标题是独立的，互不影响

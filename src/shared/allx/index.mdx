@@ -1,0 +1,347 @@
+# allx
+
+> package version >0.3.0
+>
+> shadcn any version
+
+> author: cmtlyt
+
+`allx` 是一个支持自动依赖优化和完整类型推断的 Promise.all 增强版工具。它能够智能地处理任务之间的依赖关系，自动优化执行顺序，支持并行执行和链式依赖。
+
+## 特性
+
+- **自动依赖解析**：自动识别任务间的依赖关系，按最优顺序执行
+- **完整类型推断**：提供完整的 TypeScript 类型支持
+- **并行执行**：独立任务并行执行，提升性能
+- **错误处理**：支持 allSettled 模式，即使部分任务失败也能获取所有结果
+- **灵活的输入**：支持函数、Promise、普通值等多种输入类型
+- **链式依赖**：支持复杂的多层依赖关系
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedAllx.json
+```
+
+## usage
+
+```ts
+import { allx } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { allx } from '@cmtlyt/lingshu-toolkit/shared/allx'
+```
+
+## 基础用法
+
+### 简单并行任务
+
+```ts
+const result = await allx({
+  task1: async () => 1,
+  task2: async () => 2,
+  task3: async () => 3,
+});
+
+console.log(result); // { task1: 1, task2: 2, task3: 3 }
+```
+
+### 混合同步和异步任务
+
+```ts
+const result = await allx({
+  sync: () => 'hello',
+  async: async () => 'world',
+});
+
+console.log(result); // { sync: 'hello', async: 'world' }
+```
+
+### 非函数任务
+
+```ts
+const result = await allx({
+  number: 42,
+  promise: Promise.resolve('value'),
+  task: () => 'computed',
+});
+
+console.log(result); // { number: 42, promise: 'value', task: 'computed' }
+```
+
+## 任务依赖
+
+### 基础依赖
+
+通过 `this. 访问其他任务的结果：
+
+```ts
+const result = await allx({
+  base: async () => 10,
+  double: async function () {
+    const value = await this.$.base;
+    return value * 2;
+  },
+});
+
+console.log(result); // { base: 10, double: 20 }
+```
+
+### 多任务依赖
+
+```ts
+const result = await allx({
+  a: async () => 1,
+  b: async () => 2,
+  sum: async function () {
+    const [aVal, bVal] = await Promise.all([this.$.a, this.$.b]);
+    return aVal + bVal;
+  },
+});
+
+console.log(result); // { a: 1, b: 2, sum: 3 }
+```
+
+### 链式依赖
+
+```ts
+const result = await allx({
+  task1: async () => 1,
+  task2: async function () {
+    return (await this.$.task1) + 1;
+  },
+  task3: async function () {
+    return (await this.$.task2) + 1;
+  },
+});
+
+console.log(result); // { task1: 1, task2: 2, task3: 3 }
+```
+
+## 错误处理
+
+### 默认行为
+
+默认情况下，任何任务失败都会导致整个 Promise.reject：
+
+```ts
+try {
+  await allx({
+    task1: async () => {
+      throw new Error('Task failed');
+    },
+    task2: async () => 'success',
+  });
+} catch (error) {
+  console.error(error); // Error: Task failed
+}
+```
+
+### allSettled 模式
+
+使用 `allSettled: true` 选项，即使部分任务失败也能获取所有结果：
+
+```ts
+const result = await allx(
+  {
+    task1: async () => {
+      throw new Error('error1');
+    },
+    task2: async () => 'value2',
+    task3: async () => 'value3',
+  },
+  { allSettled: true },
+);
+
+console.log(result);
+// {
+//   task1: { status: 'rejected', reason: Error: error1 },
+//   task2: { status: 'fulfilled', value: 'value2' },
+//   task3: { status: 'fulfilled', value: 'value3' }
+// }
+```
+
+## 使用场景
+
+### 数据获取
+
+```ts
+const result = await allx({
+  user: async () => {
+    const res = await fetch('/api/user');
+    return res.json();
+  },
+  posts: async function () {
+    const user = await this.$.user;
+    const res = await fetch(`/api/user/${user.id}/posts`);
+    return res.json();
+  },
+  comments: async function () {
+    const posts = await this.$.posts;
+    const res = await fetch(`/api/posts/${posts[0].id}/comments`);
+    return res.json();
+  },
+});
+```
+
+### 配置加载
+
+```ts
+const result = await allx({
+  baseConfig: async () => {
+    return { apiUrl: 'https://api.example.com' };
+  },
+  userConfig: async () => {
+    return { theme: 'dark' };
+  },
+  mergedConfig: async function () {
+    const [base, user] = await Promise.all([
+      this.$.baseConfig,
+      this.$.userConfig,
+    ]);
+    return { ...base, ...user };
+  },
+});
+```
+
+### 并行 API 调用
+
+```ts
+const result = await allx({
+  api1: async () => {
+    const res = await fetch('/api/data1');
+    return res.json();
+  },
+  api2: async () => {
+    const res = await fetch('/api/data2');
+    return res.json();
+  },
+  api3: async () => {
+    const res = await fetch('/api/data3');
+    return res.json();
+  },
+  combined: async function () {
+    const [r1, r2, r3] = await Promise.all([
+      this.$.api1,
+      this.$.api2,
+      this.$.api3,
+    ]);
+    return [r1.data, r2.data, r3.data];
+  },
+});
+```
+
+## API
+
+### allx(tasks, options?)
+
+执行多个任务，自动处理依赖关系。
+
+#### 参数
+
+- **tasks**: `Record<string, AnyFunc | Promise<any> | any>`
+  - 任务对象，键为任务名，值为任务函数、Promise 或普通值
+  - 任务函数中可以通过 `this. 访问其他任务的结果
+
+- **options?**: `AllxOptions`
+  - **allSettled?**: `boolean`
+    - 是否使用 allSettled 模式，默认为 `false`
+    - 启用后，即使部分任务失败也会返回所有任务的结果
+
+#### 返回值
+
+- **返回值**: `Promise<AllxResult<M, O>>`
+  - 当 `allSettled` 为 `false` 时，返回所有任务的结果对象
+  - 当 `allSettled` 为 `true` 时，返回包含每个任务状态的 `PromiseSettledResult` 对象
+
+#### 类型定义
+
+```ts
+interface AllxOptions {
+  allSettled?: boolean;
+}
+
+interface AllxContext<M extends Record<string, AnyFunc>> {
+  $: {
+    [P in keyof M]: M[P] extends AnyFunc
+      ? ReturnType<M[P]> extends Promise<infer R>
+        ? Promise<R>
+        : Promise<ReturnType<M[P]>>
+      : Promise<Awaited<M[P]>>;
+  };
+}
+```
+
+## 最佳实践
+
+### 1. 合理使用依赖
+
+只在实际需要依赖时才使用 `this.，避免不必要的依赖链：
+
+```ts
+// ✅ 好的做法：独立任务并行执行
+const result = await allx({
+  task1: async () => getData1(),
+  task2: async () => getData2(),
+});
+
+// ❌ 不好的做法：不必要的依赖
+const result = await allx({
+  task1: async () => getData1(),
+  task2: async function () {
+    await this.$.task1; // 不必要的依赖
+    return getData2();
+  },
+});
+```
+
+### 2. 使用 allSettled 处理容错场景
+
+当需要处理可能失败的任务时，使用 allSettled 模式：
+
+```ts
+const result = await allx(
+  {
+    primary: async () => fetchFromPrimary(),
+    backup: async () => fetchFromBackup(),
+  },
+  { allSettled: true },
+);
+
+if (result.primary.status === 'fulfilled') {
+  return result.primary.value;
+} else if (result.backup.status === 'fulfilled') {
+  return result.backup.value;
+} else {
+  throw new Error('All sources failed');
+}
+```
+
+### 3. 避免循环依赖
+
+循环依赖会导致死锁，设计任务时要避免：
+
+```ts
+// ❌ 循环依赖（会导致死锁）
+const result = await allx({
+  task1: async function () {
+    await this.$.task2;
+    return 1;
+  },
+  task2: async function () {
+    await this.$.task1;
+    return 2;
+  },
+});
+```
+
+## 注意事项
+
+1. **任务执行顺序**：`allx` 会自动优化执行顺序，有依赖的任务会等待依赖完成后执行
+2. **错误传播**：默认模式下，任何任务失败都会导致整个 Promise.reject
+3. **类型安全**：TypeScript 会自动推断返回类型，确保类型安全
+4. **性能优化**：独立任务会并行执行，充分利用异步能力
+5. **Symbol 键名**：支持使用 Symbol 作为任务名，但访问时需要注意类型

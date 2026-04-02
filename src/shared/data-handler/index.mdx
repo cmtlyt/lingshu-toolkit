@@ -6,6 +6,17 @@
 
 > author: cmtlyt
 
+`dataHandler` 是一个强大的数据验证和转换工具，提供类型安全的数据处理能力。支持灵活的验证规则、类型转换、错误处理和默认值设置，适用于表单验证、配置管理、API 响应处理等场景。
+
+## 特性
+
+- **类型安全**：完整的 TypeScript 类型支持和推断
+- **灵活验证**：支持多种内置类型检查和自定义验证
+- **自动转换**：支持类型转换和默认值设置
+- **错误处理**：提供详细的错误信息和自定义错误处理
+- **简洁 API**：提供 `$t`、`$dt` 等便捷工具函数
+- **两种模式**：支持包装模式和直接返回模式
+
 ## install
 
 ```bash title="npm"
@@ -19,7 +30,792 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedDataHandl
 ## usage
 
 ```ts
-import { dataHandler } from '@cmtlyt/lingshu-toolkit/shared'
+import { dataHandler, defineTransform, $dt, $t } from '@cmtlyt/lingshu-toolkit/shared'
 // or
-import { dataHandler } from '@cmtlyt/lingshu-toolkit/shared/data-handler'
+import { dataHandler, defineTransform, $dt, $t } from '@cmtlyt/lingshu-toolkit/shared/data-handler'
 ```
+
+## 基础用法
+
+### 简单验证
+
+```ts
+const data = {
+  name: 'John',
+  age: 30,
+  isAdmin: true,
+};
+
+const { result, errors } = dataHandler(data, {
+  name: (value, actions) => {
+    actions.assert(typeof value === 'string', 'name must be a string');
+    actions.assert(value.length > 0, 'name cannot be empty');
+    return value;
+  },
+  age: (value, actions) => {
+    actions.assert(typeof value === 'number', 'age must be a number');
+    actions.assert(value >= 0 && value <= 150, 'age must be between 0 and 150');
+    return value;
+  },
+  isAdmin: (value, actions) => {
+    actions.assert(typeof value === 'boolean', 'isAdmin must be a boolean');
+    return value;
+  },
+});
+
+console.log(result); // { name: 'John', age: 30, isAdmin: true }
+console.log(errors); // []
+```
+
+### 使用 $t 类型检查器
+
+```ts
+import { $t } from '@cmtlyt/lingshu-toolkit/shared/data-handler';
+
+const data = {
+  name: 'John',
+  age: '30',
+  email: 'john@example.com',
+};
+
+const { result, errors } = dataHandler(data, {
+  name: $t.string(),
+  age: $t.number((value) => Number.parseInt(value, 10)),
+  email: $t.validString(),
+});
+
+console.log(result); // { name: 'John', age: 30, email: 'john@example.com' }
+console.log(errors); // []
+```
+
+### 使用 $dt 定义转换器
+
+```ts
+import { $dt } from '@cmtlyt/lingshu-toolkit/shared/data-handler';
+
+const validInfo = $dt({
+  name: $t.validString(),
+  age: $t.number(),
+  isAdmin: $t.boolean(),
+});
+
+const data = {
+  name: 'John',
+  age: 30,
+  isAdmin: true,
+};
+
+const { result, errors } = dataHandler(data, validInfo);
+
+console.log(result); // { name: 'John', age: 30, isAdmin: true }
+console.log(errors); // []
+```
+
+### 使用字符串引用类型检查器
+
+`$dt` 支持使用字符串直接引用 `$t` 的类型检查器，提供更简洁的语法：
+
+```ts
+import { $dt } from '@cmtlyt/lingshu-toolkit/shared/data-handler';
+
+const validInfo = $dt({
+  name: 'validString',  // 等同于 $t.validString()
+  age: 'number',        // 等同于 $t.number()
+  isAdmin: 'boolean',   // 等同于 $t.boolean()
+  email: 'string',      // 等同于 $t.string()
+  tags: 'array',        // 等同于 $t.array()
+  config: 'object',     // 等同于 $t.object()
+});
+
+const data = {
+  name: 'John',
+  age: 30,
+  isAdmin: true,
+  email: 'john@example.com',
+  tags: ['tag1', 'tag2'],
+  config: { key: 'value' },
+};
+
+const { result, errors } = dataHandler(data, validInfo);
+
+console.log(result); // { name: 'John', age: 30, isAdmin: true, email: 'john@example.com', tags: ['tag1', 'tag2'], config: { key: 'value' } }
+console.log(errors); // []
+```
+
+#### 支持的字符串类型
+
+| 字符串 | 等同于 | 说明 |
+|--------|--------|------|
+| `'string'` | `$t.string()` | 检查是否为字符串 |
+| `'validString'` | `$t.validString()` | 检查是否为非空字符串 |
+| `'number'` | `$t.number()` | 检查是否为数字 |
+| `'validNumber'` | `$t.validNumber()` | 检查是否为有效数字（非 NaN） |
+| `'boolean'` | `$t.boolean()` | 检查是否为布尔值 |
+| `'object'` | `$t.object()` | 检查是否为对象 |
+| `'array'` | `$t.array()` | 检查是否为数组 |
+| `'function'` | `$t.function()` | 检查是否为函数 |
+| `'symbol'` | `$t.symbol()` | 检查是否为 Symbol |
+| `'notNullable'` | `$t.notNullable()` | 检查是否不为 null 或 undefined |
+
+#### 混合使用字符串和函数
+
+```ts
+const validInfo = $dt({
+  name: 'validString',           // 使用字符串
+  age: 'number',                 // 使用字符串
+  isAdmin: $t.boolean(),         // 使用函数
+  status: $t.enum(['active', 'inactive']),  // 使用函数（enum 不支持字符串）
+  email: $t.validString(),       // 使用函数
+});
+
+// 字符串形式不支持默认值，需要默认值时使用函数形式
+const validInfoWithDefaults = $dt({
+  name: $t.validString('Anonymous'),  // 提供默认值
+  age: $t.number(0),                   // 提供默认值
+  isAdmin: $t.boolean(false),          // 提供默认值
+});
+```
+
+### 函数式处理器
+
+```ts
+const data = {
+  name: 'John',
+  age: 30,
+};
+
+const { result, errors } = dataHandler(data, (value, key, actions) => {
+  if (key === 'name') {
+    actions.assert(typeof value === 'string', 'name must be a string');
+    return value.toUpperCase();
+  }
+  if (key === 'age') {
+    actions.assert(typeof value === 'number', 'age must be a number');
+    return value;
+  }
+  return value;
+});
+
+console.log(result); // { name: 'JOHN', age: 30 }
+```
+
+## 高级用法
+
+### 错误处理
+
+```ts
+const data = {
+  name: '',
+  age: -5,
+};
+
+const { result, errors } = dataHandler(data, {
+  name: $t.validString(),
+  age: $t.number(),
+});
+
+console.log(errors);
+// ['name is not valid', 'age is not valid']
+
+console.log(result);
+// { name: '', age: -5 }
+```
+
+### 自定义错误处理
+
+```ts
+const data = {
+  name: '',
+  age: -5,
+};
+
+const { result, errors } = dataHandler(
+  data,
+  {
+    name: $t.validString(),
+    age: $t.number(),
+  },
+  {
+    errorHandler: (errors) => {
+      console.error('Validation failed:', errors);
+      // 自定义错误处理逻辑
+    },
+  },
+);
+```
+
+### 严格模式
+
+```ts
+const data = {
+  name: '',
+  age: -5,
+};
+
+try {
+  const result = dataHandler(
+    data,
+    {
+      name: $t.validString(),
+      age: $t.number(),
+    },
+    {
+      strict: true, // 严格模式，验证失败时抛出错误
+      unwrap: true,
+    },
+  );
+} catch (error) {
+  console.error(error.message);
+  // 'name is not valid\nage is not valid'
+}
+```
+
+### 默认值
+
+```ts
+const data = {
+  name: 'John',
+};
+
+const { result, errors } = dataHandler(
+  data,
+  {
+    name: $t.validString(),
+    age: $t.number(),
+    isAdmin: $t.boolean(),
+  },
+  {
+    defaultValue: {
+      age: 0,
+      isAdmin: false,
+    },
+  },
+);
+
+console.log(result);
+// { name: 'John', age: 0, isAdmin: false }
+```
+
+### Unwrap 模式
+
+```ts
+const data = {
+  name: 'John',
+  age: 30,
+};
+
+// 包装模式（默认）
+const { result, errors } = dataHandler(data, {
+  name: $t.validString(),
+  age: $t.number(),
+});
+
+// Unwrap 模式
+const result = dataHandler(
+  data,
+  {
+    name: $t.validString(),
+    age: $t.number(),
+  },
+  {
+    unwrap: true,
+  },
+);
+```
+
+## 类型检查器
+
+### $t 类型检查器
+
+`$t` 提供了一系列内置的类型检查器：
+
+#### $t.notNullable()
+
+检查值不为 null 或 undefined。
+
+```ts
+const { result } = dataHandler(
+  { value: null },
+  {
+    value: $t.notNullable('default value'),
+  },
+);
+```
+
+#### $t.string()
+
+检查值是否为字符串。
+
+```ts
+const { result } = dataHandler(
+  { name: 123 },
+  {
+    name: $t.string(),
+  },
+);
+// name 会被验证失败
+```
+
+#### $t.validString()
+
+检查值是否为非空字符串。
+
+```ts
+const { result } = dataHandler(
+  { name: '' },
+  {
+    name: $t.validString(),
+  },
+);
+// name 会被验证失败
+```
+
+#### $t.number()
+
+检查值是否为数字。
+
+```ts
+const { result } = dataHandler(
+  { age: '30' },
+  {
+    age: $t.number((value) => Number(value)),
+  },
+);
+// age 会被转换为 30
+```
+
+#### $t.validNumber()
+
+检查值是否为有效数字（非 NaN）。
+
+```ts
+const { result } = dataHandler(
+  { value: NaN },
+  {
+    value: $t.validNumber(),
+  },
+);
+// value 会被验证失败
+```
+
+#### $t.boolean()
+
+检查值是否为布尔值。
+
+```ts
+const { result } = dataHandler(
+  { isAdmin: 'true' },
+  {
+    isAdmin: $t.boolean(),
+  },
+);
+// isAdmin 会被验证失败
+```
+
+#### $t.object()
+
+检查值是否为对象。
+
+```ts
+const { result } = dataHandler(
+  { config: null },
+  {
+    config: $t.object(),
+  },
+);
+// config 会被验证失败
+```
+
+#### $t.array()
+
+检查值是否为数组。
+
+```ts
+const { result } = dataHandler(
+  { items: null },
+  {
+    items: $t.array(),
+  },
+);
+// items 会被验证失败
+```
+
+#### $t.function()
+
+检查值是否为函数。
+
+```ts
+const { result } = dataHandler(
+  { callback: null },
+  {
+    callback: $t.function(),
+  },
+);
+// callback 会被验证失败
+```
+
+#### $t.symbol()
+
+检查值是否为 Symbol。
+
+```ts
+const { result } = dataHandler(
+  { key: null },
+  {
+    key: $t.symbol(),
+  },
+);
+// key 会被验证失败
+```
+
+#### $t.enum()
+
+检查值是否在枚举列表中。
+
+```ts
+const { result } = dataHandler(
+  { status: 'pending' },
+  {
+    status: $t.enum(['active', 'inactive', 'pending'], 'active'),
+  },
+);
+// status 会被保留为 'pending'
+
+const { result } = dataHandler(
+  { status: 'unknown' },
+  {
+    status: $t.enum(['active', 'inactive', 'pending'], 'active'),
+  },
+);
+// status 会被转换为 'active'
+```
+
+### 自定义类型检查器
+
+```ts
+const customValidator = $t.enum(['small', 'medium', 'large'], 'medium');
+
+const { result } = dataHandler(
+  { size: 'extra-large' },
+  {
+    size: customValidator,
+  },
+);
+
+console.log(result.size); // 'medium'
+```
+
+## 使用场景
+
+### 表单验证
+
+```ts
+interface FormData {
+  username: string;
+  email: string;
+  age: number;
+  agree: boolean;
+}
+
+const formData = {
+  username: 'john_doe',
+  email: 'john@example.com',
+  age: '25',
+  agree: 'true',
+};
+
+const { result, errors } = dataHandler(
+  formData,
+  $dt({
+    username: $t.validString(),
+    email: $t.validString(),
+    age: $t.number((value) => Number.parseInt(value, 10)),
+    agree: $t.boolean(),
+  }),
+  {
+    strict: true,
+    unwrap: true,
+  },
+);
+
+console.log(result);
+// { username: 'john_doe', email: 'john@example.com', age: 25, agree: true }
+```
+
+### API 响应处理
+
+```ts
+interface ApiResponse {
+  id: string;
+  name: string;
+  price: string;
+  inStock: number;
+  tags: string[];
+}
+
+const response = {
+  id: '123',
+  name: 'Product',
+  price: '99.99',
+  inStock: '10',
+  tags: 'tag1,tag2,tag3',
+};
+
+const { result } = dataHandler(
+  response,
+  {
+    id: $t.string(),
+    name: $t.validString(),
+    price: $t.number((value) => Number.parseFloat(value)),
+    inStock: $t.number((value) => Number.parseInt(value, 10)),
+    tags: (value, actions) => {
+      if (typeof value === 'string') {
+        return value.split(',');
+      }
+      actions.assert(Array.isArray(value), 'tags must be an array');
+      return value;
+    },
+  },
+  {
+    unwrap: true,
+  },
+);
+
+console.log(result);
+// { id: '123', name: 'Product', price: 99.99, inStock: 10, tags: ['tag1', 'tag2', 'tag3'] }
+```
+
+### 配置验证
+
+```ts
+interface Config {
+  apiUrl: string;
+  timeout: number;
+  retryCount: number;
+  debugMode: boolean;
+}
+
+const config = {
+  apiUrl: 'https://api.example.com',
+  timeout: '5000',
+  retryCount: '3',
+  debugMode: 'true',
+};
+
+const validConfig = $dt({
+  apiUrl: $t.validString(),
+  timeout: $t.number((value) => Number.parseInt(value, 10)),
+  retryCount: $t.number((value) => Number.parseInt(value, 10)),
+  debugMode: $t.boolean(),
+});
+
+const { result } = dataHandler(config, validConfig, {
+  defaultValue: {
+    timeout: 3000,
+    retryCount: 0,
+    debugMode: false,
+  },
+  unwrap: true,
+});
+
+console.log(result);
+// { apiUrl: 'https://api.example.com', timeout: 5000, retryCount: 3, debugMode: true }
+```
+
+### 复杂验证逻辑
+
+```ts
+interface UserData {
+  username: string;
+  password: string;
+  confirmPassword: string;
+  email: string;
+}
+
+const userData = {
+  username: 'john_doe',
+  password: 'password123',
+  confirmPassword: 'password123',
+  email: 'john@example.com',
+};
+
+const { result, errors } = dataHandler(
+  userData,
+  {
+    username: (value, actions, data) => {
+      actions.assert(value.length >= 3, 'username must be at least 3 characters');
+      actions.assert(value.length <= 20, 'username must be at most 20 characters');
+      return value;
+    },
+    password: (value, actions) => {
+      actions.assert(value.length >= 8, 'password must be at least 8 characters');
+      return value;
+    },
+    confirmPassword: (value, actions, data) => {
+      actions.assert(value === data.password, 'passwords do not match');
+      return value;
+    },
+    email: (value, actions) => {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      actions.assert(emailRegex.test(value), 'invalid email format');
+      return value;
+    },
+  },
+);
+
+console.log(errors); // []
+console.log(result); // { username: 'john_doe', password: 'password123', confirmPassword: 'password123', email: 'john@example.com' }
+```
+
+## API
+
+### dataHandler(data, handler, options?)
+
+处理数据验证和转换。
+
+#### 参数
+
+- **data**: `M & Partial<O['defaultValue']>`
+  - 要处理的数据
+- **handler**: `Handler<M>`
+  - 处理器，可以是对象或函数
+  - 对象形式：每个字段对应一个处理函数
+  - 函数形式：统一处理所有字段
+- **options?**: `DataHandlerOptions<M>`
+  - **strict?**: `boolean`
+    - 是否启用严格模式，默认为 `false`
+    - 启用后验证失败会抛出错误
+  - **errorHandler?**: `(errors: string[]) => void`
+    - 自定义错误处理函数
+  - **defaultValue?**: `M`
+    - 默认值，验证失败的字段会使用默认值
+  - **unwrap?**: `boolean`
+    - 是否直接返回结果，默认为 `false`
+    - 启用后直接返回处理后的数据，不包装在对象中
+
+#### 返回值
+
+- **返回值**: `MergeResult<M & O['defaultValue'], Transform2Type<H>>` | `{ result: MergeResult<M & O['defaultValue'], Transform2Type<H>>; errors: string[] }`
+  - 当 `unwrap` 为 `true` 时，直接返回处理后的数据
+  - 当 `unwrap` 为 `false` 时，返回包含 `result` 和 `errors` 的对象
+
+### defineTransform(dataInfo)
+
+定义数据转换器。
+
+#### 参数
+
+- **dataInfo**: `D`
+  - 转换器定义对象，键为字段名，值为类型检查器或处理函数
+
+#### 返回值
+
+- **返回值**: `DataTransformResult<D>`
+  - 转换器对象，可用于 `dataHandler`
+
+### $t
+
+类型检查器集合，提供各种内置类型检查器。
+
+### $dt
+
+`defineTransform` 的别名，用于定义数据转换器。
+
+## 最佳实践
+
+### 1. 使用 $dt 定义验证规则
+
+```ts
+// ✅ 好的做法：使用 $dt 定义验证规则
+const validInfo = $dt({
+  name: $t.validString(),
+  age: $t.number(),
+  isAdmin: $t.boolean(),
+});
+
+const { result } = dataHandler(data, validInfo);
+
+// ❌ 不好的做法：每次都内联定义
+const { result } = dataHandler(data, {
+  name: $t.validString(),
+  age: $t.number(),
+  isAdmin: $t.boolean(),
+});
+```
+
+### 2. 提供合理的默认值
+
+```ts
+// ✅ 好的做法：提供默认值
+const { result } = dataHandler(data, validInfo, {
+  defaultValue: {
+    age: 0,
+    isAdmin: false,
+  },
+});
+
+// ❌ 不好的做法：不提供默认值
+const { result } = dataHandler(data, validInfo);
+```
+
+### 3. 使用严格模式处理关键数据
+
+```ts
+// ✅ 好的做法：关键数据使用严格模式
+const config = dataHandler(data, validInfo, {
+  strict: true,
+  unwrap: true,
+});
+
+// ❌ 不好的做法：关键数据不使用严格模式
+const { result, errors } = dataHandler(data, validInfo);
+if (errors.length > 0) {
+  // 手动处理错误
+}
+```
+
+### 4. 自定义错误处理
+
+```ts
+// ✅ 好的做法：自定义错误处理
+const { result } = dataHandler(data, validInfo, {
+  errorHandler: (errors) => {
+    // 记录错误日志
+    logger.error('Validation failed:', errors);
+    // 发送错误通知
+    showErrorNotification(errors);
+  },
+});
+```
+
+### 5. 复用验证规则
+
+```ts
+// ✅ 好的做法：复用验证规则
+const commonValidators = {
+  id: $t.string(),
+  name: $t.validString(),
+  createdAt: $t.number(),
+};
+
+const userValidator = $dt({
+  ...commonValidators,
+  email: $t.validString(),
+});
+
+const productValidator = $dt({
+  ...commonValidators,
+  price: $t.number(),
+});
+```
+
+## 注意事项
+
+1. **类型安全**：TypeScript 类型在运行时不会进行验证，需要开发者确保类型正确
+2. **错误处理**：默认模式下验证失败不会抛出错误，需要检查 `errors` 数组
+3. **严格模式**：严格模式下验证失败会抛出错误，适合关键数据处理
+4. **默认值**：默认值只在验证失败时使用，不会覆盖有效数据
+5. **转换顺序**：转换只在验证通过后应用，验证失败的字段不会应用转换
+6. **函数式处理器**：函数式处理器会处理所有字段，需要根据 key 进行区分
+7. **性能考虑**：对于大量数据，建议使用对象形式的处理器以提高性能
+8. **类型推断**：TypeScript 会根据验证规则自动推断返回值的类型

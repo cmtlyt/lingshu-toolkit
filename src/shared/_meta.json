@@ -1,8 +1,18 @@
 [
   {
     "type": "file",
+    "label": "utils",
+    "name": "utils/index.mdx"
+  },
+  {
+    "type": "file",
     "label": "dataHandler",
     "name": "data-handler/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "dataMixedManager",
+    "name": "data-mixed-manager/index.mdx"
   },
   {
     "type": "file",
@@ -36,7 +46,7 @@
   },
   {
     "type": "file",
-    "label": "dataMixedManager",
-    "name": "data-mixed-manager/index.mdx"
+    "label": "allx",
+    "name": "allx/index.mdx"
   }
 ]

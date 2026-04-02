@@ -9,9 +9,7 @@ export interface UseRefStateCtrl<T> {
   reset: (update?: boolean) => void;
 }
 
-function clone<T>(_v: T) {
-  return structuredClone(_v);
-}
+const clone = structuredClone;
 
 export function useRefState<T>(initialState: T) {
   const stateRef = useRef(initialState);

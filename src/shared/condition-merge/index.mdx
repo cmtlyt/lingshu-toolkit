@@ -6,6 +6,16 @@
 
 > author: cmtlyt
 
+`conditionMerge` 是一个基于条件合并对象或数组的工具，支持灵活的语法和完整的类型推断。可以根据条件动态合并多个数据源，适用于配置管理、样式组合、数据聚合等场景。
+
+## 特性
+
+- **灵活的语法**：支持数组和对象两种条件定义方式
+- **类型安全**：完整的 TypeScript 类型推断
+- **默认值支持**：通过 `fullback` 提供条件不满足时的默认值
+- **自动过滤**：自动过滤值为 `undefined` 的属性
+- **多类型支持**：同时支持对象和数组的条件合并
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +33,405 @@ import { conditionMerge } from '@cmtlyt/lingshu-toolkit/shared'
 // or
 import { conditionMerge } from '@cmtlyt/lingshu-toolkit/shared/condition-merge'
 ```
+
+## 基础用法
+
+### 数组语法
+
+使用数组格式定义条件：`[condition, value, fullback?]`
+
+```ts
+const result = conditionMerge([
+  [true, { a: 1 }],
+  [false, { b: 2 }, { b: 0 }],
+  [true, { c: 3 }],
+]);
+
+console.log(result);
+// { a: 1, b: 0, c: 3 }
+```
+
+### 对象语法
+
+使用对象格式定义条件：`{ condition, value, fullback? }`
+
+```ts
+const result = conditionMerge([
+  { condition: true, value: { a: 1 } },
+  { condition: false, value: { b: 2 }, fullback: { b: 0 } },
+  { condition: true, value: { c: 3 } },
+]);
+
+console.log(result);
+// { a: 1, b: 0, c: 3 }
+```
+
+### 多参数调用
+
+也可以直接传递多个条件项作为参数：
+
+```ts
+const result = conditionMerge(
+  [true, { a: 1 }],
+  [false, { b: 2 }, { b: 0 }],
+  [true, { c: 3 }],
+);
+
+console.log(result);
+// { a: 1, b: 0, c: 3 }
+```
+
+## 对象合并
+
+### 基础对象合并
+
+```ts
+const result = conditionMerge([
+  [true, { name: 'John', age: 30 }],
+  [true, { age: 31, city: 'New York' }],
+]);
+
+console.log(result);
+// { name: 'John', age: 31, city: 'New York' }
+```
+
+### 条件不满足时使用默认值
+
+```ts
+const isAdmin = false;
+
+const result = conditionMerge([
+  [true, { name: 'John' }],
+  [isAdmin, { role: 'admin' }, { role: 'user' }],
+]);
+
+console.log(result);
+// { name: 'John', role: 'user' }
+```
+
+### 自动过滤 undefined
+
+```ts
+const result = conditionMerge([
+  [true, { name: 'John', age: 30 }],
+  [false, { email: 'john@example.com' }],
+  [true, { age: undefined }], // age 会被过滤
+]);
+
+console.log(result);
+// { name: 'John' }
+```
+
+## 数组合并
+
+### 基础数组合并
+
+```ts
+const result = conditionMerge([
+  [true, [1, 2, 3]],
+  [true, [4, 5]],
+  [false, [6, 7]],
+]);
+
+console.log(result);
+// [1, 2, 3, 4, 5]
+```
+
+### 条件不满足时使用默认值
+
+```ts
+const hasExtra = false;
+
+const result = conditionMerge([
+  [true, [1, 2, 3]],
+  [hasExtra, [4, 5], []],
+]);
+
+console.log(result);
+// [1, 2, 3]
+```
+
+## 使用场景
+
+### 配置管理
+
+根据环境变量动态合并配置：
+
+```ts
+const isProduction = process.env.NODE_ENV === 'production';
+const isDevelopment = process.env.NODE_ENV === 'development';
+
+const config = conditionMerge([
+  [true, {
+    name: 'My App',
+    version: '1.0.0',
+  }],
+  [isProduction, {
+    apiUrl: 'https://api.example.com',
+    debug: false,
+  }, {
+    apiUrl: 'http://localhost:3000',
+    debug: true,
+  }],
+  [isDevelopment, {
+    hotReload: true,
+  }],
+]);
+
+console.log(config);
+// 开发环境: { name: 'My App', version: '1.0.0', apiUrl: 'http://localhost:3000', debug: true, hotReload: true }
+// 生产环境: { name: 'My App', version: '1.0.0', apiUrl: 'https://api.example.com', debug: false }
+```
+
+### 样式组合
+
+根据条件动态组合样式对象：
+
+```ts
+const isHovered = false;
+const isActive = true;
+const isDisabled = false;
+
+const styles = conditionMerge([
+  [true, {
+    padding: '10px',
+    borderRadius: '4px',
+  }],
+  [isHovered, {
+    backgroundColor: '#f0f0f0',
+  }],
+  [isActive, {
+    backgroundColor: '#1890ff',
+    color: '#fff',
+  }],
+  [isDisabled, {
+    opacity: 0.5,
+    cursor: 'not-allowed',
+  }],
+]);
+
+console.log(styles);
+// { padding: '10px', borderRadius: '4px', backgroundColor: '#1890ff', color: '#fff' }
+```
+
+### 权限控制
+
+根据用户权限动态生成菜单：
+
+```ts
+const user = {
+  role: 'admin',
+  permissions: ['read', 'write', 'delete'],
+};
+
+const menu = conditionMerge([
+  [true, {
+    dashboard: '/dashboard',
+  }],
+  [user.permissions.includes('read'), {
+    view: '/view',
+  }],
+  [user.permissions.includes('write'), {
+    edit: '/edit',
+  }],
+  [user.permissions.includes('delete'), {
+    delete: '/delete',
+  }],
+  [user.role === 'admin', {
+    settings: '/settings',
+  }],
+]);
+
+console.log(menu);
+// { dashboard: '/dashboard', view: '/view', edit: '/edit', delete: '/delete', settings: '/settings' }
+```
+
+### API 请求参数
+
+根据条件构建请求参数：
+
+```ts
+const params = {
+  page: 1,
+  pageSize: 10,
+};
+
+const searchParams = conditionMerge([
+  [true, {
+    page: params.page,
+    pageSize: params.pageSize,
+  }],
+  [params.keyword, {
+    keyword: params.keyword,
+  }],
+  [params.category, {
+    category: params.category,
+  }],
+  [params.sortBy, {
+    sortBy: params.sortBy,
+  }],
+]);
+
+console.log(searchParams);
+// { page: 1, pageSize: 10 }
+```
+
+### 组件属性组合
+
+根据条件组合组件属性：
+
+```ts
+const isLoading = false;
+const hasError = false;
+const isDisabled = true;
+
+const buttonProps = conditionMerge([
+  [true, {
+    type: 'button',
+    className: 'btn',
+  }],
+  [isLoading, {
+    disabled: true,
+    children: 'Loading...',
+  }],
+  [hasError, {
+    className: 'btn btn-error',
+    children: 'Error',
+  }],
+  [isDisabled, {
+    disabled: true,
+  }],
+]);
+
+console.log(buttonProps);
+// { type: 'button', className: 'btn', disabled: true }
+```
+
+## API
+
+### conditionMerge(...input)
+
+根据条件合并对象或数组。
+
+#### 参数
+
+- **input**: `ConditionItem[]` | `ConditionItem[]`
+  - 条件项数组，或多个条件项作为参数传递
+  - 每个条件项可以是数组格式 `[condition, value, fullback?]` 或对象格式 `{ condition, value, fullback? }`
+
+#### 返回值
+
+- **返回值**: `T`
+  - 合并后的对象或数组
+
+#### 类型定义
+
+```ts
+type ConditionArrayItem = [boolean, AssertValue, AssertValue?];
+type ConditionObjItem = { condition: boolean; value: AssertValue; fullback?: AssertValue };
+type ConditionItem = ConditionObjItem | ConditionArrayItem;
+
+function conditionMerge<T extends ConditionItem[]>(...input: T): FormatResult<MergedResult<T>>;
+function conditionMerge<T extends ConditionItem[]>(input: T): FormatResult<MergedResult<T>>;
+```
+
+#### 参数说明
+
+- **condition**: `boolean`
+  - 条件判断，为 `true` 时使用 `value`，为 `false` 时使用 `fullback`
+- **value**: `Record<PropertyKey, any> | any[]`
+  - 条件满足时的值，必须是对象或数组
+- **fullback?**: `Record<PropertyKey, any> | any[]`
+  - 条件不满足时的默认值，必须是对象或数组，可选
+
+## 最佳实践
+
+### 1. 使用有意义的条件变量
+
+```ts
+// ✅ 好的做法
+const isAdmin = user.role === 'admin';
+const result = conditionMerge([
+  [isAdmin, { permissions: adminPermissions }],
+]);
+
+// ❌ 不好的做法
+const result = conditionMerge([
+  [user.role === 'admin', { permissions: adminPermissions }],
+]);
+```
+
+### 2. 合理使用 fullback
+
+```ts
+// ✅ 好的做法：为所有条件提供合理的默认值
+const result = conditionMerge([
+  [isAdmin, { role: 'admin' }, { role: 'user' }],
+  [isPremium, { features: premiumFeatures }, { features: basicFeatures }],
+]);
+
+// ❌ 不好的做法：缺少默认值可能导致意外的结果
+const result = conditionMerge([
+  [isAdmin, { role: 'admin' }],
+]);
+```
+
+### 3. 避免条件冲突
+
+```ts
+// ✅ 好的做法：条件互斥，清晰明确
+const result = conditionMerge([
+  [status === 'active', { color: 'green' }],
+  [status === 'inactive', { color: 'gray' }],
+  [status === 'error', { color: 'red' }],
+]);
+
+// ❌ 不好的做法：条件可能同时满足
+const result = conditionMerge([
+  [status === 'active', { color: 'green' }],
+  [!status, { color: 'gray' }],
+]);
+```
+
+### 4. 使用对象语法提高可读性
+
+```ts
+// ✅ 好的做法：对象语法更清晰
+const result = conditionMerge([
+  { condition: isAdmin, value: { role: 'admin' }, fullback: { role: 'user' } },
+  { condition: isPremium, value: { features: premiumFeatures } },
+]);
+
+// ❌ 不太好的做法：数组语法在复杂场景下可读性较差
+const result = conditionMerge([
+  [isAdmin, { role: 'admin' }, { role: 'user' }],
+  [isPremium, { features: premiumFeatures }],
+]);
+```
+
+### 5. 链式使用条件
+
+```ts
+// ✅ 好的做法：分层处理条件
+const baseConfig = { name: 'App', version: '1.0.0' };
+const envConfig = conditionMerge([
+  [true, baseConfig],
+  [isProduction, { apiUrl: 'https://api.example.com' }, { apiUrl: 'http://localhost:3000' }],
+]);
+const featureConfig = conditionMerge([
+  [true, envConfig],
+  [hasFeatureA, { featureA: true }],
+  [hasFeatureB, { featureB: true }],
+]);
+```
+
+## 注意事项
+
+1. **value 和 fullback 必须是对象或数组**：如果不是对象或数组，会抛出错误
+2. **类型必须一致**：所有条件项的 value 类型必须一致（都是对象或都是数组）
+3. **undefined 会被自动过滤**：值为 `undefined` 的属性不会出现在最终结果中
+4. **条件顺序很重要**：后面的条件会覆盖前面条件中相同的属性
+5. **布尔类型的条件**：如果条件是布尔类型（`boolean`），TypeScript 会推断为联合类型
+6. **fullback 是可选的**：如果不提供 fullback，条件不满足时会使用空对象或空数组
+7. **多参数调用**：可以使用多参数调用方式，但所有参数必须是条件项
+8. **类型推断**：TypeScript 会根据条件自动推断返回值的类型

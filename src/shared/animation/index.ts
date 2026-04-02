@@ -1,30 +1,8 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { throwError } from '@/shared/throw-error';
+import { identity, noop } from '@/shared/utils/base';
 import type { AnimationBaseOptions, AnimationOptions, AnimationResult } from './types';
-import {
-  createNextTick,
-  createRunningControllerSignal,
-  getNextValueHandler,
-  identity,
-  matchValid,
-  noop,
-} from './utils';
-
-export function* stepAnimation<T>(from: T, to: T, step: number, options: AnimationBaseOptions = {}) {
-  if (!Number.isInteger(step) || step <= 0) {
-    throwError('stepAnimation', 'step must be a positive integer', RangeError);
-  }
-
-  const { parser: valueParser = identity, formatter: valueFormatter = identity } = options;
-  const [validFrom, validTo] = matchValid(from, to, valueParser);
-
-  const getNextValue = getNextValueHandler(validFrom, validTo, valueFormatter);
-
-  for (let i = 0; i <= step; i++) {
-    const value = getNextValue(i / step) as T;
-    yield value;
-  }
-}
+import { createNextTick, createRunningControllerSignal, getNextValueHandler, matchValid } from './utils';
 
 const validInfo = $dt({
   autoStart: $t.boolean(true),
@@ -37,11 +15,29 @@ const validInfo = $dt({
   onUpdate: $t.function(() => noop),
   onComplete: $t.function(() => noop),
 
+  formatterValue: $t.function(() => identity),
   formatter: $t.function(() => identity),
   parser: $t.function(() => identity),
 });
 
-export function animation<T>(from: T, to: T, duration: number, options: AnimationOptions = {}): AnimationResult {
+export function* stepAnimation<T>(from: T, to: T, step: number, options: AnimationBaseOptions<T> = {}) {
+  if (!Number.isInteger(step) || step <= 0) {
+    throwError('stepAnimation', 'step must be a positive integer', RangeError);
+  }
+
+  const validOptions = dataHandler(options, validInfo, { unwrap: true });
+  const { parser: valueParser = identity, formatterValue = identity, formatter } = validOptions;
+  const [validFrom, validTo] = matchValid(from, to, valueParser);
+
+  const getNextValue = getNextValueHandler(validFrom, validTo, formatterValue);
+
+  for (let i = 0; i <= step; i++) {
+    const value = formatter(getNextValue(i / step) as T);
+    yield value;
+  }
+}
+
+export function animation<T>(from: T, to: T, duration: number, options: AnimationOptions<T> = {}): AnimationResult {
   if (duration <= 0 || !Number.isInteger(duration)) {
     throwError('animation', 'duration must be a positive integer', RangeError);
   }
@@ -49,8 +45,9 @@ export function animation<T>(from: T, to: T, duration: number, options: Animatio
   const validOptions = dataHandler(options, validInfo, { unwrap: true });
   const [validFrom, validTo] = matchValid(from, to, validOptions.parser);
 
-  const { autoStart, easing, onComplete, onUpdate, formatter: valueFormatter } = validOptions;
-  const getNextValue = getNextValueHandler(validFrom, validTo, valueFormatter);
+  const { autoStart, easing, onComplete, onUpdate, formatterValue, formatter } = validOptions;
+  const _getNextValue = getNextValueHandler(validFrom, validTo, formatterValue);
+  const getNextValue = (...args: Parameters<typeof _getNextValue>) => formatter(_getNextValue(...args) as T);
 
   let startTime = 0;
   let hasStarted = false;

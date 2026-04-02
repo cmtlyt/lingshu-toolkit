@@ -44,8 +44,8 @@
     "preview:docs": "rspress preview",
     "format": "biome format --write",
     "test": "vitest --config=vitest.project.config.ts --coverage.enabled --ui",
-    "test:ci": "cross-env gen_file_disabled=true vitest run --config=vitest.project.config.ts",
-    "test:lib:ci": "cross-env gen_file_disabled=true vitest run",
+    "test:ci": "cross-env skip_type_check=true gen_file_disabled=true vitest run --config=vitest.project.config.ts",
+    "test:lib:ci": "cross-env skip_type_check=true gen_file_disabled=true vitest run",
     "prepare": "husky",
     "test:lib": "vitest --coverage.enabled --ui",
     "script:gen-file": "esno scripts/gen-file.ts",
@@ -61,6 +61,7 @@
     "@commitlint/cli": "^20.3.1",
     "@commitlint/config-conventional": "^20.3.1",
     "@rslib/core": "^0.19.3",
+    "@rspress/core": "^2.0.8",
     "@types/node": "^24.10.9",
     "@types/react": "^19.2.9",
     "@vitejs/plugin-react": "^5.1.2",
@@ -76,7 +77,6 @@
     "playwright": "^1.58.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "rspress": "^1.47.1",
     "typescript": "^5.9.3",
     "vite-tsconfig-paths": "^6.0.4",
     "vitest": "4.0.18",
@@ -91,7 +91,7 @@
   "devEngines": {
     "runtime": {
       "name": "node",
-      "version": ">=18.0.0"
+      "version": ">=22.12.0"
     },
     "packageManager": {
       "name": "pnpm"

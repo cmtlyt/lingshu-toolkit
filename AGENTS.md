@@ -23,3 +23,7 @@ You are an expert in JavaScript, Rspack, Rsbuild, Rslib, and library development
 
 - Run `pnpm run lint` to lint your code
 - Run `pnpm run format` to format your code
+
+## 代码规范
+
+- 报错始终应该使用 `shared/throw-error` 模块导出的函数, 而不是直接 `throw new Error`

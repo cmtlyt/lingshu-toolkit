@@ -6,6 +6,16 @@
 
 > author: cmtlyt
 
+`throwError` 是一个用于创建和抛出错误的工具函数，自动为错误消息添加 `@cmtlyt/lingshu-toolkit` 包名前缀，便于追踪和调试。**推荐在 lingshu-toolkit 包内部使用**。
+
+## 特性
+
+- **自动添加包名前缀**：错误消息自动包含 `@cmtlyt/lingshu-toolkit` 包名
+- **支持自定义错误类型**：可以指定 `Error`、`TypeError` 等错误类型
+- **提供错误创建函数**：`createError` 只创建错误对象，不抛出
+- **类型安全**：完整的 TypeScript 类型支持
+- **推荐内部使用**：专为 lingshu-toolkit 包内部设计
+
 ## install
 
 ```bash title="npm"
@@ -19,7 +29,286 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedThrowErro
 ## usage
 
 ```ts
-import { throwError } from '@cmtlyt/lingshu-toolkit/shared'
+import { throwError, createError, throwType } from '@cmtlyt/lingshu-toolkit/shared'
 // or
-import { throwError } from '@cmtlyt/lingshu-toolkit/shared/throw-error'
+import { throwError, createError, throwType } from '@cmtlyt/lingshu-toolkit/shared/throw-error'
 ```
+
+## 基础用法
+
+### throwError - 抛出错误
+
+```ts
+import { throwError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+// 抛出普通错误
+throwError('myFunction', 'Invalid parameter');
+
+// 错误消息: [@cmtlyt/lingshu-toolkit#myFunction]: Invalid parameter
+```
+
+### throwType - 抛出类型错误
+
+```ts
+import { throwType } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+// 抛出 TypeError
+throwType('myFunction', 'Expected a string but got a number');
+
+// 错误消息: [@cmtlyt/lingshu-toolkit#myFunction]: Expected a string but got a number
+```
+
+### createError - 创建错误对象
+
+```ts
+import { createError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+// 创建错误对象（不抛出）
+const error = createError('myFunction', 'Invalid parameter');
+
+// 错误消息: [@cmtlyt/lingshu-toolkit#myFunction]: Invalid parameter
+console.log(error.message);
+
+// 可以稍后抛出
+throw error;
+```
+
+## 高级用法
+
+### 使用自定义错误类型
+
+```ts
+import { throwError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+// 抛出 TypeError
+throwError('myFunction', 'Invalid type', TypeError);
+
+// 抛出 RangeError
+throwError('myFunction', 'Value out of range', RangeError);
+
+// 抛出自定义错误类型
+class CustomError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CustomError';
+  }
+}
+
+throwError('myFunction', 'Custom error occurred', CustomError);
+```
+
+### 在函数中使用
+
+```ts
+import { throwError, throwType } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+function processData(data: unknown) {
+  // 类型检查
+  if (typeof data !== 'string') {
+    throwType('processData', 'Expected data to be a string');
+  }
+
+  // 值验证
+  if (data.length === 0) {
+    throwError('processData', 'Data cannot be empty');
+  }
+
+  return data.toUpperCase();
+}
+```
+
+### 创建错误对象后延迟抛出
+
+```ts
+import { createError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+function validateInput(input: string) {
+  const errors: Error[] = [];
+
+  if (input.length < 3) {
+    errors.push(createError('validateInput', 'Input too short'));
+  }
+
+  if (input.length > 10) {
+    errors.push(createError('validateInput', 'Input too long'));
+  }
+
+  if (errors.length > 0) {
+    // 可以选择抛出第一个错误或所有错误
+    throw errors[0];
+  }
+
+  return true;
+}
+```
+
+## API
+
+### throwError(fnName, message, ErrorClass?)
+
+抛出一个错误，错误消息会自动添加包名前缀。
+
+#### 参数
+
+- **fnName**: `string`
+  - 函数名称，用于标识错误的来源
+- **message**: `string`
+  - 错误消息
+- **ErrorClass?**: `ErrorConstructor`
+  - 错误类型构造函数，默认为 `Error`
+
+#### 返回值
+
+- **返回值**: `never`
+  - 永远不会返回，总是会抛出错误
+
+#### 示例
+
+```ts
+throwError('myFunction', 'Something went wrong');
+// 抛出: Error: [@cmtlyt/lingshu-toolkit#myFunction]: Something went wrong
+
+throwError('myFunction', 'Invalid type', TypeError);
+// 抛出: TypeError: [@cmtlyt/lingshu-toolkit#myFunction]: Invalid type
+```
+
+### throwType(fnName, message)
+
+抛出一个 `TypeError`，错误消息会自动添加包名前缀。
+
+#### 参数
+
+- **fnName**: `string`
+  - 函数名称，用于标识错误的来源
+- **message**: `string`
+  - 错误消息
+
+#### 返回值
+
+- **返回值**: `never`
+  - 永远不会返回，总是会抛出错误
+
+#### 示例
+
+```ts
+throwType('myFunction', 'Expected a string');
+// 抛出: TypeError: [@cmtlyt/lingshu-toolkit#myFunction]: Expected a string
+```
+
+### createError(fnName, message, ErrorClass?)
+
+创建一个错误对象，错误消息会自动添加包名前缀，但不会抛出。
+
+#### 参数
+
+- **fnName**: `string`
+  - 函数名称，用于标识错误的来源
+- **message**: `string`
+  - 错误消息
+- **ErrorClass?**: `ErrorConstructor`
+  - 错误类型构造函数，默认为 `Error`
+
+#### 返回值
+
+- **返回值**: `Error`
+  - 错误对象
+
+#### 示例
+
+```ts
+const error = createError('myFunction', 'Something went wrong');
+// Error: [@cmtlyt/lingshu-toolkit#myFunction]: Something went wrong
+
+console.log(error.message);
+// [@cmtlyt/lingshu-toolkit#myFunction]: Something went wrong
+
+throw error;
+```
+
+## 使用场景
+
+### 参数验证
+
+```ts
+import { throwError, throwType } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+function divide(a: number, b: number): number {
+  if (typeof a !== 'number' || typeof b !== 'number') {
+    throwType('divide', 'Both parameters must be numbers');
+  }
+
+  if (b === 0) {
+    throwError('divide', 'Division by zero is not allowed');
+  }
+
+  return a / b;
+}
+```
+
+### 配置验证
+
+```ts
+import { throwError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+interface Config {
+  apiUrl: string;
+  timeout: number;
+}
+
+function validateConfig(config: unknown): Config {
+  if (!config || typeof config !== 'object') {
+    throwError('validateConfig', 'Config must be an object');
+  }
+
+  const { apiUrl, timeout } = config as Partial<Config>;
+
+  if (!apiUrl || typeof apiUrl !== 'string') {
+    throwError('validateConfig', 'apiUrl is required and must be a string');
+  }
+
+  if (!timeout || typeof timeout !== 'number') {
+    throwError('validateConfig', 'timeout is required and must be a number');
+  }
+
+  return config as Config;
+}
+```
+
+### 批量错误收集
+
+```ts
+import { createError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+function validateUser(user: unknown): void {
+  const errors: Error[] = [];
+
+  if (!user || typeof user !== 'object') {
+    errors.push(createError('validateUser', 'User must be an object'));
+  } else {
+    const u = user as Record<string, unknown>;
+
+    if (!u.name || typeof u.name !== 'string') {
+      errors.push(createError('validateUser', 'name is required'));
+    }
+
+    if (!u.age || typeof u.age !== 'number') {
+      errors.push(createError('validateUser', 'age is required'));
+    }
+  }
+
+  if (errors.length > 0) {
+    throw errors[0];
+  }
+}
+```
+
+## 注意事项
+
+1. **推荐内部使用**：此工具专为 lingshu-toolkit 包内部设计，自动添加包名前缀便于追踪错误来源
+2. **包名前缀**：所有错误消息都会自动添加 `[@cmtlyt/lingshu-toolkit#fnName]:` 前缀
+3. **函数名称**：`fnName` 参数应该使用实际的函数名称，便于调试和追踪
+4. **错误类型**：使用 `throwType` 抛出类型错误，使用 `throwError` 抛出通用错误
+5. **性能考虑**：`createError` 只创建错误对象，不抛出，适合批量错误收集场景
+6. **类型安全**：TypeScript 会正确推断 `throwError` 和 `throwType` 永远不会返回
+7. **错误堆栈**：错误堆栈会包含正确的调用信息，便于调试
+8. **一致性**：在包内部统一使用此工具，保持错误消息格式一致

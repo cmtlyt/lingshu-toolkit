@@ -6,7 +6,19 @@
 
 > author: cmtlyt
 
-## install
+一个用于管理浏览器存储的 React Hook，支持 `localStorage`、`sessionStorage` 和内存存储。它提供了类型安全的存储操作接口，自动处理数据序列化和反序列化，并支持延迟保存以优化性能。
+
+## 特性
+
+- **多种存储类型**：支持 `localStorage`、`sessionStorage` 和内存存储
+- **类型安全**：完整的 TypeScript 类型支持，确保数据类型一致性
+- **自动序列化**：自动处理 JSON 序列化和反序列化
+- **延迟保存**：支持配置自动保存间隔，减少频繁写入操作
+- **错误降级**：当浏览器存储不可用时自动降级到内存存储
+- **初始化数据**：支持设置默认初始数据
+- **引用稳定**：使用 `useRef` 和 `useMemo` 确保引用稳定性
+
+## 安装
 
 ```bash title="npm"
 npm i @cmtlyt/lingshu-toolkit
@@ -16,10 +28,889 @@ npm i @cmtlyt/lingshu-toolkit
 npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseStorage.json
 ```
 
-## usage
+## 用法
+
+### 基础用法
 
 ```ts
 import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
-// or
-import { useStorage } from '@cmtlyt/lingshu-toolkit/react/use-storage'
+
+function App() {
+  const storage = useStorage('user-preferences', {
+    storageType: 'local',
+  }, {
+    theme: 'light',
+    language: 'zh-CN',
+  });
+
+  const handleThemeChange = (theme: string) => {
+    storage.set({ ...storage.get(), theme });
+  };
+
+  return (
+    <div>
+      <p>当前主题: {storage.get().theme}</p>
+      <button onClick={() => handleThemeChange('dark')}>切换到暗色模式</button>
+    </div>
+  );
+}
+```
+
+### 使用 sessionStorage
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
+
+function TemporaryForm() {
+  const storage = useStorage('form-data', {
+    storageType: 'session',
+  }, {
+    name: '',
+    email: '',
+  });
+
+  const handleChange = (field: string, value: string) => {
+    storage.set(value, field as any);
+  };
+
+  return (
+    <form>
+      <input
+        value={storage.get().name}
+        onChange={(e) => handleChange('name', e.target.value)}
+        placeholder="姓名"
+      />
+      <input
+        value={storage.get().email}
+        onChange={(e) => handleChange('email', e.target.value)}
+        placeholder="邮箱"
+      />
+    </form>
+  );
+}
+```
+
+### 使用内存存储
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
+
+function TemporaryCache() {
+  const storage = useStorage('cache', {
+    storageType: 'memory',
+  }, {
+    data: null,
+    timestamp: 0,
+  });
+
+  const fetchData = async () => {
+    const response = await fetch('/api/data');
+    const data = await response.json();
+    storage.set({
+      data,
+      timestamp: Date.now(),
+    });
+  };
+
+  return (
+    <div>
+      <button onClick={fetchData}>加载数据</button>
+      {storage.get().data && <pre>{JSON.stringify(storage.get().data, null, 2)}</pre>}
+    </div>
+  );
+}
+```
+
+### 延迟保存优化性能
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
+
+function SearchHistory() {
+  const storage = useStorage('search-history', {
+    storageType: 'local',
+    autoSaveInterval: 500, // 延迟 500ms 保存
+  }, {
+    history: [] as string[],
+  });
+
+  const handleSearch = (query: string) => {
+    const current = storage.get();
+    storage.set({
+      history: [query, ...current.history.slice(0, 9)], // 保留最近 10 条
+    });
+    // 500ms 后才会实际写入 localStorage
+  };
+
+  return (
+    <div>
+      <input
+        type="text"
+        placeholder="搜索..."
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            handleSearch((e.target as HTMLInputElement).value);
+          }
+        }}
+      />
+      <ul>
+        {storage.get().history.map((item, index) => (
+          <li key={index}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+### 单个键值操作
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
+
+function Settings() {
+  const storage = useStorage('settings', {
+    storageType: 'local',
+  }, {
+    notifications: true,
+    autoPlay: false,
+    volume: 80,
+  });
+
+  const toggleNotifications = () => {
+    const current = storage.get('notifications');
+    storage.set(!current, 'notifications');
+  };
+
+  const adjustVolume = (delta: number) => {
+    const current = storage.get('volume');
+    const newVolume = Math.max(0, Math.min(100, current + delta));
+    storage.set(newVolume, 'volume');
+  };
+
+  return (
+    <div>
+      <label>
+        <input
+          type="checkbox"
+          checked={storage.get('notifications')}
+          onChange={toggleNotifications}
+        />
+        通知
+      </label>
+      <div>
+        <button onClick={() => adjustVolume(-10)}>-</button>
+        <span>{storage.get('volume')}</span>
+        <button onClick={() => adjustVolume(10)}>+</button>
+      </div>
+    </div>
+  );
+}
+```
+
+### 清除存储
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react'
+
+function UserSession() {
+  const storage = useStorage('session', {
+    storageType: 'local',
+  }, {
+    isLoggedIn: false,
+    token: '',
+  });
+
+  const handleLogin = () => {
+    storage.set({
+      isLoggedIn: true,
+      token: 'mock-token',
+    });
+  };
+
+  const handleLogout = () => {
+    storage.clear(); // 清除所有数据
+  };
+
+  return (
+    <div>
+      {storage.get().isLoggedIn ? (
+        <button onClick={handleLogout}>退出登录</button>
+      ) : (
+        <button onClick={handleLogin}>登录</button>
+      )}
+    </div>
+  );
+}
+```
+
+### 配合 React 状态使用
+
+```ts
+import { useStorage } from '@cmtlyt/lingshu-toolkit/react';
+import { useState, useEffect } from 'react';
+
+function PersistentState() {
+  const storage = useStorage('app-state', {
+    storageType: 'local',
+  }, {
+    counter: 0,
+    items: [] as string[],
+  });
+
+  const [state, setState] = useState(storage.get());
+
+  // 当存储数据变化时更新状态
+  useEffect(() => {
+    setState(storage.get());
+  }, [storage]);
+
+  const increment = () => {
+    const newState = {
+      counter: state.counter + 1,
+      items: state.items,
+    };
+    setState(newState);
+    storage.set(newState);
+  };
+
+  const addItem = (item: string) => {
+    const newState = {
+      counter: state.counter,
+      items: [...state.items, item],
+    };
+    setState(newState);
+    storage.set(newState);
+  };
+
+  return (
+    <div>
+      <p>计数: {state.counter}</p>
+      <button onClick={increment}>增加</button>
+      <button onClick={() => addItem(`Item ${state.items.length + 1}`)}>
+        添加项目
+      </button>
+      <ul>
+        {state.items.map((item, index) => (
+          <li key={index}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+## API
+
+### useStorage
+
+```ts
+function useStorage<T extends Record<string, any>>(
+  storageKey: string,
+  options?: Partial<CreateStorageOptions>,
+  initialData?: T
+): StorageHandler<T>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| storageKey | `string` | 是 | 存储数据的键名 |
+| options | `Partial<CreateStorageOptions>` | 否 | 存储配置选项 |
+| initialData | `T` | 否 | 初始数据，默认值为 `{}` |
+
+#### CreateStorageOptions
+
+| 属性 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| storageType | `'local' \| 'session' \| 'memory'` | `'local'` | 存储类型 |
+| autoSaveInterval | `number` | `0` | 自动保存间隔（毫秒），0 表示立即保存 |
+
+#### 返回值
+
+返回一个 `StorageHandler<T>` 对象，包含以下方法：
+
+### StorageHandler
+
+#### get
+
+```ts
+get<K extends keyof T | (string & {})>(key?: K): string extends K ? T : T[K & keyof T]
+```
+
+获取存储的数据。
+
+**参数：**
+- `key`（可选）：要获取的键名。如果不提供，返回整个数据对象。
+
+**返回值：**
+- 如果提供 `key`，返回对应键的值
+- 如果不提供 `key`，返回整个数据对象
+
+#### set
+
+```ts
+set<K extends keyof T | (string & {})>(value: string extends K ? T : T[K & keyof T], key?: K): void
+```
+
+设置存储的数据。
+
+**参数：**
+- `value`：要设置的值
+- `key`（可选）：要设置的键名。如果不提供，替换整个数据对象
+
+**返回值：**
+- `void`
+
+#### clear
+
+```ts
+clear(): void
+```
+
+清除所有存储数据。
+
+**返回值：**
+- `void`
+
+## 实际使用场景
+
+### 1. 用户偏好设置
+
+持久化用户的界面偏好设置：
+
+```ts
+function UserPreferences() {
+  const storage = useStorage('preferences', {
+    storageType: 'local',
+  }, {
+    theme: 'light',
+    fontSize: 16,
+    sidebarCollapsed: false,
+  });
+
+  const updatePreference = <K extends keyof typeof storage.get()>(
+    key: K,
+    value: typeof storage.get()[K]
+  ) => {
+    storage.set({ ...storage.get(), [key]: value });
+  };
+
+  return (
+    <div>
+      <select
+        value={storage.get().theme}
+        onChange={(e) => updatePreference('theme', e.target.value)}
+      >
+        <option value="light">浅色主题</option>
+        <option value="dark">深色主题</option>
+      </select>
+      <input
+        type="range"
+        min="12"
+        max="24"
+        value={storage.get().fontSize}
+        onChange={(e) => updatePreference('fontSize', Number(e.target.value))}
+      />
+    </div>
+  );
+}
+```
+
+### 2. 表单草稿保存
+
+自动保存表单草稿，防止数据丢失：
+
+```ts
+function DraftForm() {
+  const storage = useStorage('form-draft', {
+    storageType: 'local',
+    autoSaveInterval: 1000, // 1秒延迟保存
+  }, {
+    title: '',
+    content: '',
+    tags: [] as string[],
+  });
+
+  const handleChange = (field: string, value: any) => {
+    storage.set({ ...storage.get(), [field]: value });
+  };
+
+  const handleSubmit = () => {
+    // 提交表单
+    submitForm(storage.get());
+    // 清除草稿
+    storage.clear();
+  };
+
+  const restoreDraft = () => {
+    // 恢复草稿逻辑
+  };
+
+  return (
+    <form>
+      <input
+        value={storage.get().title}
+        onChange={(e) => handleChange('title', e.target.value)}
+        placeholder="标题"
+      />
+      <textarea
+        value={storage.get().content}
+        onChange={(e) => handleChange('content', e.target.value)}
+        placeholder="内容"
+      />
+      <button type="button" onClick={handleSubmit}>提交</button>
+      <button type="button" onClick={restoreDraft}>恢复草稿</button>
+    </form>
+  );
+}
+```
+
+### 3. 购物车管理
+
+管理用户的购物车数据：
+
+```ts
+interface CartItem {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+}
+
+function ShoppingCart() {
+  const storage = useStorage('shopping-cart', {
+    storageType: 'local',
+  }, {
+    items: [] as CartItem[],
+  });
+
+  const addItem = (item: CartItem) => {
+    const current = storage.get();
+    const existingIndex = current.items.findIndex(i => i.id === item.id);
+
+    if (existingIndex >= 0) {
+      // 更新数量
+      const updatedItems = [...current.items];
+      updatedItems[existingIndex].quantity += item.quantity;
+      storage.set({ items: updatedItems });
+    } else {
+      // 添加新商品
+      storage.set({ items: [...current.items, item] });
+    }
+  };
+
+  const removeItem = (id: string) => {
+    const current = storage.get();
+    storage.set({
+      items: current.items.filter(item => item.id !== id),
+    });
+  };
+
+  const updateQuantity = (id: string, quantity: number) => {
+    const current = storage.get();
+    const updatedItems = current.items.map(item =>
+      item.id === id ? { ...item, quantity } : item
+    );
+    storage.set({ items: updatedItems });
+  };
+
+  const total = storage.get().items.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0
+  );
+
+  return (
+    <div>
+      <h2>购物车</h2>
+      <ul>
+        {storage.get().items.map(item => (
+          <li key={item.id}>
+            {item.name} - ¥{item.price} x {item.quantity}
+            <button onClick={() => updateQuantity(item.id, item.quantity - 1)}>-</button>
+            <button onClick={() => updateQuantity(item.id, item.quantity + 1)}>+</button>
+            <button onClick={() => removeItem(item.id)}>删除</button>
+          </li>
+        ))}
+      </ul>
+      <p>总计: ¥{total}</p>
+    </div>
+  );
+}
+```
+
+### 4. 分页状态保存
+
+保存分页状态，刷新页面后保持：
+
+```ts
+function DataTable() {
+  const storage = useStorage('table-state', {
+    storageType: 'local',
+  }, {
+    page: 1,
+    pageSize: 10,
+    sortField: 'id',
+    sortOrder: 'asc',
+  });
+
+  const handlePageChange = (page: number) => {
+    storage.set({ ...storage.get(), page });
+  };
+
+  const handleSort = (field: string) => {
+    const current = storage.get();
+    const sortOrder = current.sortField === field && current.sortOrder === 'asc'
+      ? 'desc'
+      : 'asc';
+    storage.set({ ...current, sortField: field, sortOrder });
+  };
+
+  // 使用 storage.get() 获取当前状态并加载数据
+  const { page, pageSize, sortField, sortOrder } = storage.get();
+
+  return (
+    <div>
+      <table>
+        <thead>
+          <tr>
+            <th onClick={() => handleSort('id')}>
+              ID {sortField === 'id' && sortOrder}
+            </th>
+            <th onClick={() => handleSort('name')}>
+              名称 {sortField === 'name' && sortOrder}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* 表格内容 */}
+        </tbody>
+      </table>
+      <Pagination
+        current={page}
+        pageSize={pageSize}
+        onChange={handlePageChange}
+      />
+    </div>
+  );
+}
+```
+
+### 5. 临时会话数据
+
+使用 sessionStorage 存储临时会话数据：
+
+```ts
+function MultiStepForm() {
+  const storage = useStorage('multi-step-form', {
+    storageType: 'session',
+  }, {
+    step: 1,
+    step1Data: {} as Record<string, any>,
+    step2Data: {} as Record<string, any>,
+    step3Data: {} as Record<string, any>,
+  });
+
+  const nextStep = () => {
+    const current = storage.get();
+    storage.set({ ...current, step: current.step + 1 });
+  };
+
+  const prevStep = () => {
+    const current = storage.get();
+    storage.set({ ...current, step: current.step - 1 });
+  };
+
+  const { step } = storage.get();
+
+  return (
+    <div>
+      {step === 1 && <Step1 storage={storage} />}
+      {step === 2 && <Step2 storage={storage} />}
+      {step === 3 && <Step3 storage={storage} />}
+      <div>
+        {step > 1 && <button onClick={prevStep}>上一步</button>}
+        {step < 3 && <button onClick={nextStep}>下一步</button>}
+      </div>
+    </div>
+  );
+}
+```
+
+## 注意事项
+
+### ⚠️ 存储容量限制
+
+浏览器的 `localStorage` 和 `sessionStorage` 有容量限制（通常为 5-10MB），存储大量数据时需要注意：
+
+```ts
+// ❌ 错误示例：存储大量数据
+const storage = useStorage('large-data', {
+  storageType: 'local',
+}, {
+  largeArray: new Array(100000).fill('data'), // 可能超出限制
+});
+
+// ✅ 正确做法：分块存储或使用 IndexedDB
+const storage = useStorage('data-chunks', {
+  storageType: 'local',
+}, {
+  chunks: {} as Record<string, any>,
+});
+```
+
+### ⚠️ 数据序列化
+
+存储的数据必须是可序列化的 JSON，不能包含函数、循环引用等：
+
+```ts
+// ❌ 错误示例：包含函数
+const storage = useStorage('invalid', {
+  storageType: 'local',
+}, {
+  data: {
+    value: 1,
+    fn: () => console.log('hello'), // 无法序列化
+  },
+});
+
+// ✅ 正确做法：只存储可序列化的数据
+const storage = useStorage('valid', {
+  storageType: 'local',
+}, {
+  data: {
+    value: 1,
+    timestamp: Date.now(),
+  },
+});
+```
+
+### ⚠️ 清除后无法使用
+
+调用 `clear()` 后，再次调用 `get()` 或 `set()` 会抛出错误：
+
+```ts
+const storage = useStorage('example', {
+  storageType: 'local',
+}, { value: 1 });
+
+storage.clear();
+
+// ❌ 错误：会抛出异常
+storage.get();
+
+// ✅ 正确做法：清除后重新创建或检查状态
+if (storage.get() !== null) {
+  storage.set({ value: 2 });
+}
+```
+
+### ⚠️ 隐私模式限制
+
+在某些浏览器的隐私模式下，`localStorage` 和 `sessionStorage` 可能不可用，此时会自动降级到内存存储：
+
+```ts
+const storage = useStorage('data', {
+  storageType: 'local',
+}, { value: 1 });
+
+// 在隐私模式下，数据不会持久化，刷新页面后会丢失
+// 这是正常行为，无需特殊处理
+```
+
+### ⚠️ 延迟保存的时机
+
+使用 `autoSaveInterval` 时，需要注意数据可能在延迟期间丢失：
+
+```ts
+const storage = useStorage('draft', {
+  storageType: 'local',
+  autoSaveInterval: 5000, // 5秒延迟
+}, { content: '' });
+
+storage.set({ content: 'new content' });
+// 此时数据还未写入 localStorage
+// 如果用户在 5 秒内关闭页面，数据会丢失
+
+// ✅ 对于重要数据，建议使用立即保存（autoSaveInterval: 0）
+// 或在页面卸载前手动触发保存
+window.addEventListener('beforeunload', () => {
+  storage.set(storage.get()); // 强制立即保存
+});
+```
+
+### ⚠️ 类型安全
+
+确保 `initialData` 的类型与泛型参数 `T` 一致：
+
+```ts
+// ❌ 错误示例：类型不匹配
+const storage = useStorage('mismatch', {
+  storageType: 'local',
+}, {
+  value: 1,
+  name: 'test', // 与泛型参数不一致
+});
+
+// ✅ 正确做法：定义明确的类型
+interface Data {
+  value: number;
+  name: string;
+}
+
+const storage = useStorage<Data>('typed', {
+  storageType: 'local',
+}, {
+  value: 1,
+  name: 'test',
+});
+```
+
+### ⚠️ 并发更新
+
+在多个地方同时更新存储数据时，需要注意并发问题：
+
+```ts
+// ❌ 错误示例：可能导致数据覆盖
+const storage = useStorage('counter', {
+  storageType: 'local',
+}, { count: 0 });
+
+// 在组件 A 中
+storage.set({ count: storage.get().count + 1 });
+
+// 在组件 B 中同时执行
+storage.set({ count: storage.get().count + 1 });
+
+// 可能导致只增加 1 而不是 2
+
+// ✅ 正确做法：使用单一数据源或状态管理
+function Counter() {
+  const [count, setCount] = useState(0);
+  const storage = useStorage('counter', {
+    storageType: 'local',
+  }, { count: 0 });
+
+  const increment = () => {
+    const newCount = count + 1;
+    setCount(newCount);
+    storage.set({ count: newCount });
+  };
+
+  return <button onClick={increment}>{count}</button>;
+}
+```
+
+## 常见问题
+
+### Q: useStorage 和直接使用 localStorage 有什么区别？
+
+A: `useStorage` 提供了以下优势：
+- 自动处理 JSON 序列化和反序列化
+- 类型安全的 TypeScript 支持
+- 支持延迟保存优化性能
+- 自动降级到内存存储
+- 更简洁的 API 设计
+
+### Q: 如何监听存储数据的变化？
+
+A: `useStorage` 本身不提供监听功能，但可以配合 `useEffect` 使用：
+
+```ts
+function StorageListener() {
+  const storage = useStorage('data', {
+    storageType: 'local',
+  }, { value: 0 });
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'data') {
+        console.log('Storage changed:', e.newValue);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
+
+  return <div>{storage.get().value}</div>;
+}
+```
+
+### Q: 可以在服务端渲染（SSR）中使用吗？
+
+A: 不建议。`useStorage` 依赖浏览器的存储 API，在服务端环境中不可用。如果需要在 SSR 中使用，请确保只在客户端渲染时调用：
+
+```ts
+function ClientComponent() {
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  const storage = useStorage('data', {
+    storageType: 'local',
+  }, { value: 0 });
+
+  if (!isClient) return null;
+
+  return <div>{storage.get().value}</div>;
+}
+```
+
+### Q: 如何迁移旧的存储数据？
+
+A: 可以在组件挂载时检查并迁移数据：
+
+```ts
+function MigrateStorage() {
+  const storage = useStorage('new-format', {
+    storageType: 'local',
+  }, { value: 0 });
+
+  useMount(() => {
+    // 检查旧格式数据
+    const oldData = localStorage.getItem('old-format');
+    if (oldData && !localStorage.getItem('new-format')) {
+      const parsed = JSON.parse(oldData);
+      storage.set({ value: parsed.oldValue });
+      localStorage.removeItem('old-format');
+    }
+  });
+
+  return <div>{storage.get().value}</div>;
+}
+```
+
+### Q: 内存存储的数据会在什么时候丢失？
+
+A: 内存存储的数据在页面刷新或关闭后会丢失。它适用于：
+- 临时数据
+- 测试环境
+- 存储不可用时的降级方案
+
+### Q: 如何处理存储配额超出错误？
+
+A: `useStorage` 会自动降级到内存存储，但你可以添加额外的错误处理：
+
+```ts
+function SafeStorage() {
+  const storage = useStorage('data', {
+    storageType: 'local',
+  }, { value: 0 });
+
+  const safeSet = (data: any) => {
+    try {
+      storage.set(data);
+    } catch (error) {
+      console.error('Storage quota exceeded:', error);
+      // 清理旧数据或提示用户
+      storage.clear();
+    }
+  };
+
+  return <div>{storage.get().value}</div>;
+}
 ```

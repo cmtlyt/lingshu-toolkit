@@ -42,7 +42,7 @@ describe('dataMixedManager - 定坑配置', () => {
     // 再添加数据，appendList 会触发构建
     // 由于 prevDataLength = 0，会全量构建，定坑会被插入
     manager.appendList([1, 2, 3, 4, 5]);
-    // 混合结果: [1, 100, 2, 200, 3, 4, 300, 5] (定坑位置基于混合结果)
+    // 混合结果: [1, 100, 2, 200, 3, 300, 4, 5] (定坑位置基于混合结果)
     // deleteFixedSlots 删除的是定坑配置的位置（position 1 和 5）
     // 删除后只保留 position 3 的定坑
     manager.deleteFixedSlots([1, 5]);

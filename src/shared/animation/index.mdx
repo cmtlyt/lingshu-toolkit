@@ -6,6 +6,19 @@
 
 > author: cmtlyt
 
+`animation` 是一个轻量级、高性能的动画工具库，支持数值、数组、对象的平滑过渡动画。提供完整的动画控制能力，包括暂停、恢复、清除等功能，以及丰富的回调函数和缓动函数支持。
+
+## 特性
+
+- **简单易用**：简洁的 API，快速上手
+- **完整控制**：支持 start、stop、clear 等控制方法
+- **类型安全**：完整的 TypeScript 类型支持
+- **灵活的数据类型**：支持数值、数组、对象及其嵌套组合
+- **自定义缓动**：内置缓动函数，支持自定义 easing
+- **回调丰富**：提供 onStart、onUpdate、onComplete 等生命周期回调
+- **暂停恢复**：支持动画的暂停和恢复，保持时间准确性
+- **高性能**：基于 requestAnimationFrame 实现，流畅高效
+
 ## install
 
 ```bash title="npm"
@@ -19,7 +32,519 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedAnimation
 ## usage
 
 ```ts
-import { animation } from '@cmtlyt/lingshu-toolkit/shared'
+import { animation, stepAnimation } from '@cmtlyt/lingshu-toolkit/shared'
 // or
-import { animation } from '@cmtlyt/lingshu-toolkit/shared/animation'
+import { animation, stepAnimation } from '@cmtlyt/lingshu-toolkit/shared/animation'
 ```
+
+## 基础用法
+
+### 数值动画
+
+```ts
+const anim = animation(0, 100, 1000, {
+  onUpdate: (value) => {
+    console.log(value); // 0 -> 100 之间的数值
+  },
+});
+
+await anim.promise;
+```
+
+### 数组动画
+
+```ts
+const anim = animation([0, 0], [100, 200], 1000, {
+  onUpdate: (value) => {
+    console.log(value); // [0, 0] -> [100, 200] 之间的数组
+  },
+});
+```
+
+### 对象动画
+
+```ts
+const anim = animation({ x: 0, y: 0 }, { x: 100, y: 200 }, 1000, {
+  onUpdate: (value) => {
+    console.log(value); // { x: 0, y: 0 } -> { x: 100, y: 200 } 之间的对象
+  },
+});
+```
+
+## 动画控制
+
+### 暂停和恢复
+
+```ts
+const anim = animation(0, 100, 1000, {
+  onUpdate: (value) => console.log(value),
+});
+
+// 运行 500ms 后暂停
+setTimeout(() => {
+  anim.stop();
+}, 500);
+
+// 暂停 200ms 后恢复
+setTimeout(() => {
+  anim.start();
+}, 700);
+```
+
+### 清除动画
+
+```ts
+const anim = animation(0, 100, 1000);
+
+// 清除动画，立即停止并 resolve
+anim.clear();
+await anim.promise; // resolve 为 true
+```
+
+### 手动启动
+
+```ts
+const anim = animation(0, 100, 1000, {
+  autoStart: false, // 不自动启动
+  onUpdate: (value) => console.log(value),
+});
+
+// 手动启动动画
+anim.start();
+```
+
+## 回调函数
+
+### 生命周期回调
+
+```ts
+const anim = animation(0, 100, 1000, {
+  onStart: () => {
+    console.log('动画开始');
+  },
+  onUpdate: (value) => {
+    console.log('更新:', value);
+  },
+  onComplete: () => {
+    console.log('动画完成');
+  },
+  onStop: () => {
+    console.log('动画停止');
+  },
+  onClear: () => {
+    console.log('动画清除');
+  },
+});
+```
+
+## 缓动函数
+
+### 使用内置缓动
+
+```ts
+// 线性缓动（默认）
+const anim1 = animation(0, 100, 1000, {
+  easing: (t) => t,
+});
+
+// 缓入缓出
+const anim2 = animation(0, 100, 1000, {
+  easing: (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+});
+
+// 缓入
+const anim3 = animation(0, 100, 1000, {
+  easing: (t) => t * t,
+});
+
+// 缓出
+const anim4 = animation(0, 100, 1000, {
+  easing: (t) => t * (2 - t),
+});
+```
+
+### 自定义缓动
+
+```ts
+const customEasing = (t: number) => {
+  // 自定义缓动逻辑
+  return Math.sin(t * Math.PI / 2);
+};
+
+const anim = animation(0, 100, 1000, {
+  easing: customEasing,
+});
+```
+
+## 数据处理
+
+### Parser 和 Formatter
+
+```ts
+const anim = animation('0px', '100px', 1000, {
+  // 解析输入值为数值
+  parser: (value) => Number.parseInt(value, 10),
+  // 格式化数值（在插值计算后、最终格式化前）
+  formatterValue: (value) => Math.round(value),
+  // 格式化最终输出值
+  formatter: (value) => `${value}px`,
+  onUpdate: (value) => {
+    console.log(value); // "0px" -> "100px"
+  },
+});
+```
+
+**说明：**
+- `formatterValue`：对插值计算后的数值进行格式化，如果和 `formatter` 同用建议返回数值类型
+- `formatter`：对 formatterValue 处理后的值进行最终格式化，可以返回任意类型
+- 如果只需要一次格式化，可以只使用 `formatter`，省略 `formatterValue`
+
+### 嵌套数据结构
+
+```ts
+// 嵌套数组
+const anim1 = animation(
+  [[0, 0], [10, 10]],
+  [[100, 200], [110, 210]],
+  1000,
+  {
+    onUpdate: (value) => console.log(value),
+  },
+);
+
+// 嵌套对象
+const anim2 = animation(
+  { pos: { x: 0, y: 0 } },
+  { pos: { x: 100, y: 200 } },
+  1000,
+  {
+    onUpdate: (value) => console.log(value),
+  },
+);
+```
+
+## stepAnimation
+
+生成指定步数的动画值序列。
+
+```ts
+import { stepAnimation } from '@cmtlyt/lingshu-toolkit/shared/animation';
+
+// 生成 10 个步骤的值
+const generator = stepAnimation(0, 100, 10);
+const values = Array.from(generator);
+
+console.log(values);
+// [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+```
+
+### 部分迭代
+
+```ts
+const generator = stepAnimation(0, 100, 10);
+
+// 只获取前 3 个值
+const iterator = generator[Symbol.iterator]();
+console.log(iterator.next().value); // 0
+console.log(iterator.next().value); // 10
+console.log(iterator.next().value); // 20
+```
+
+### 支持数组和对象
+
+```ts
+// 数组
+const arrayGen = stepAnimation([0, 0], [100, 200], 4);
+const arrayValues = Array.from(arrayGen);
+// [[0, 0], [25, 50], [50, 100], [75, 150], [100, 200]]
+
+// 对象
+const objGen = stepAnimation({ x: 0, y: 0 }, { x: 100, y: 200 }, 4);
+const objValues = Array.from(objGen);
+// [{ x: 0, y: 0 }, { x: 25, y: 50 }, { x: 50, y: 100 }, { x: 75, y: 150 }, { x: 100, y: 200 }]
+```
+
+## API
+
+### animation(from, to, duration, options?)
+
+创建一个动画实例。
+
+#### 参数
+
+- **from**: `T`
+  - 起始值，支持数值、数组、对象
+- **to**: `T`
+  - 结束值，必须与 from 类型相同
+- **duration**: `number`
+  - 动画持续时间（毫秒），必须为正整数
+- **options?**: `AnimationOptions`
+  - **autoStart?**: `boolean`
+    - 是否自动启动动画，默认为 `true`
+  - **easing?**: `(time: number) => number`
+    - 缓动函数，默认为线性缓动 `(t) => t`
+  - **onStart?**: `() => void`
+    - 动画开始时的回调
+  - **onStop?**: `() => void`
+    - 动画停止时的回调
+  - **onClear?**: `() => void`
+    - 动画清除时的回调
+  - **onUpdate?**: `(value: any) => void`
+    - 动画更新时的回调，接收当前值
+  - **onComplete?**: `() => void`
+    - 动画完成时的回调
+  - **parser?**: `(value: any) => number`
+    - 解析函数，将输入值转换为数值
+  - **formatterValue?**: `(value: number) => any`
+    - 数值格式化函数，对插值计算后的数值进行格式化
+  - **formatter?**: `(value: T) => any`
+    - 最终格式化函数，对 formatterValue 处理后的值进行二次格式化
+
+#### 返回值
+
+- **返回值**: `AnimationResult`
+  - **promise**: `Promise<boolean>`
+    - 动画 Promise，完成时 resolve 为 `false`，清除时 resolve 为 `true`
+  - **start**: `() => void`
+    - 启动动画
+  - **stop**: `() => void`
+    - 暂停动画
+  - **clear**: `() => void`
+    - 清除动画
+
+#### 类型定义
+
+```ts
+interface AnimationOptions<T> {
+  autoStart?: boolean;
+  easing?: (time: number) => number;
+  onStart?: () => void;
+  onStop?: () => void;
+  onClear?: () => void;
+  onUpdate?: (value: any) => void;
+  onComplete?: () => void;
+  parser?: (value: any) => number;
+  formatterValue?: (value: number) => any;
+  formatter?: (value: T) => any;
+}
+
+interface AnimationResult {
+  promise: Promise<boolean>;
+  start: () => void;
+  stop: () => void;
+  clear: () => void;
+}
+```
+
+### stepAnimation(from, to, step, options?)
+
+生成指定步数的动画值序列。
+
+#### 参数
+
+- **from**: `T`
+  - 起始值，支持数值、数组、对象
+- **to**: `T`
+  - 结束值，必须与 from 类型相同
+- **step**: `number`
+  - 步数，必须为正整数
+- **options?**: `AnimationBaseOptions`
+  - **parser?**: `(value: any) => number`
+    - 解析函数
+  - **formatterValue?**: `(value: number) => any`
+    - 数值格式化函数，对插值计算后的数值进行格式化
+  - **formatter?**: `(value: T) => any`
+    - 最终格式化函数，对 formatterValue 处理后的值进行二次格式化
+
+#### 返回值
+
+- **返回值**: `Generator<T, void, unknown>`
+  - 生成器，可以迭代获取每个步骤的值
+
+## 使用场景
+
+### 数字计数动画
+
+```ts
+const counter = document.getElementById('counter');
+
+const anim = animation(0, 1000, 2000, {
+  formatterValue: (value) => Math.round(value),
+  formatter: (value) => value.toLocaleString(),
+  onUpdate: (value) => {
+    counter.textContent = value;
+  },
+});
+```
+
+### 进度条动画
+
+```ts
+const progressBar = document.getElementById('progress-bar');
+
+const anim = animation(0, 100, 3000, {
+  formatterValue: (value) => Math.round(value),
+  formatter: (value) => `${value}%`,
+  onUpdate: (value) => {
+    progressBar.style.width = value;
+  },
+});
+```
+
+### 元素位置动画
+
+```ts
+const element = document.getElementById('element');
+
+const anim = animation(
+  { x: 0, y: 0 },
+  { x: 200, y: 100 },
+  1000,
+  {
+    onUpdate: (value) => {
+      element.style.transform = `translate(${value.x}px, ${value.y}px)`;
+    },
+  },
+);
+```
+
+### 颜色动画
+
+```ts
+const anim = animation(
+  { r: 255, g: 0, b: 0 },
+  { r: 0, g: 255, b: 0 },
+  2000,
+  {
+    formatterValue: (value) => Math.round(value),
+    formatter: (value) => {
+      const { r, g, b } = value;
+      return `rgb(${r}, ${g}, ${b})`;
+    },
+    onUpdate: (color) => {
+      element.style.backgroundColor = color;
+    },
+  },
+);
+```
+
+### 响应用户交互
+
+```ts
+let currentAnim: AnimationResult | null = null;
+
+button.addEventListener('mouseenter', () => {
+  if (currentAnim) {
+    currentAnim.stop();
+  }
+  currentAnim = animation(1, 1.2, 300, {
+    onUpdate: (scale) => {
+      element.style.transform = `scale(${scale})`;
+    },
+  });
+});
+
+button.addEventListener('mouseleave', () => {
+  if (currentAnim) {
+    currentAnim.stop();
+  }
+  currentAnim = animation(1.2, 1, 300, {
+    onUpdate: (scale) => {
+      element.style.transform = `scale(${scale})`;
+    },
+  });
+});
+```
+
+## 最佳实践
+
+### 1. 清理动画
+
+在组件卸载或不再需要动画时，及时清理：
+
+```ts
+const anim = animation(0, 100, 1000);
+
+// 组件卸载时清理
+onUnmounted(() => {
+  anim.clear();
+});
+```
+
+### 2. 避免内存泄漏
+
+确保在适当的时候调用 `clear()` 方法：
+
+```ts
+let anim: AnimationResult | null = null;
+
+function startAnimation() {
+  // 清理之前的动画
+  if (anim) {
+    anim.clear();
+  }
+  
+  anim = animation(0, 100, 1000, {
+    onUpdate: (value) => {
+      console.log(value);
+    },
+  });
+}
+```
+
+### 3. 合理使用缓动函数
+
+根据动画类型选择合适的缓动函数：
+
+```ts
+// 平滑过渡
+const smoothAnim = animation(0, 100, 1000, {
+  easing: (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t,
+});
+
+// 快速进入
+const fastInAnim = animation(0, 100, 1000, {
+  easing: (t) => t * t,
+});
+
+// 快速退出
+const fastOutAnim = animation(0, 100, 1000, {
+  easing: (t) => t * (2 - t),
+});
+```
+
+### 4. 使用 formatterValue 和 formatter 格式化输出
+
+确保输出值符合预期格式：
+
+```ts
+const anim = animation(0, 100, 1000, {
+  // 先对数值进行格式化
+  formatterValue: (value) => {
+    // 四舍五入到整数
+    return Math.round(value);
+  },
+  // 再对格式化后的值进行二次格式化
+  formatter: (value) => {
+    // 转换为字符串
+    return `${value}px`;
+  },
+  onUpdate: (value) => {
+    element.textContent = value;
+  },
+});
+```
+
+**提示：** 如果只需要一次格式化，可以只使用 `formatter`，省略 `formatterValue`。
+
+## 注意事项
+
+1. **duration 必须为正整数**：duration 参数必须是正整数，否则会抛出错误
+2. **from 和 to 类型必须一致**：from 和 to 的类型必须相同，否则会抛出错误
+3. **数组长度必须匹配**：如果 from 和 to 是数组，它们的长度必须相同
+4. **对象 key 必须匹配**：如果 from 和 to 是对象，to 的所有 key 必须在 from 中存在
+5. **stop() 后会有一次额外的 update**：调用 stop() 后，当前帧会继续执行完成，会有一次额外的 update 调用
+6. **clear() 会立即停止动画**：clear() 方法会立即停止动画并 resolve promise，不会触发 onComplete 回调
+7. **requestAnimationFrame 降级**：在不支持 requestAnimationFrame 的环境中，会降级使用 setTimeout（16ms 间隔）
+8. **暂停恢复的时间准确性**：暂停和恢复功能会保持时间的准确性，不会因为暂停时间而影响动画进度
+9. **formatter**: formatterValue 是对每个值进行格式化, formatter 是对这一帧的完整计算结果进行格式化

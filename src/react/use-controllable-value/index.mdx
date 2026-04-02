@@ -6,6 +6,16 @@
 
 > author: cmtlyt
 
+`useControllableValue` 是一个用于管理受控/非受控组件状态的 React Hook，自动根据 props 决定使用受控模式还是非受控模式。
+
+## 特性
+
+- **自动模式切换**：根据是否传递 `value` prop 自动切换受控/非受控模式
+- **灵活的配置**：支持自定义 prop 名称和触发函数名称
+- **默认值支持**：支持通过 prop 或选项设置默认值
+- **类型安全**：完整的 TypeScript 类型支持
+- **稳定的事件处理**：使用 `useEffectEvent` 确保事件处理函数引用稳定
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +33,407 @@ import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value'
 ```
+
+## 基础用法
+
+### 受控模式
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+function ControlledInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const [internalValue, setValue] = useControllableValue({ value, onChange });
+
+  return (
+    <input
+      value={internalValue}
+      onChange={(e) => setValue(e.target.value)}
+    />
+  );
+}
+
+// 使用
+function App() {
+  const [value, setValue] = useState('Hello');
+
+  return <ControlledInput value={value} onChange={setValue} />;
+}
+```
+
+### 非受控模式
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+function UncontrolledInput({ defaultValue }: { defaultValue?: string }) {
+  const [internalValue, setValue] = useControllableValue({ defaultValue });
+
+  return (
+    <input
+      value={internalValue}
+      onChange={(e) => setValue(e.target.value)}
+    />
+  );
+}
+
+// 使用
+function App() {
+  return <UncontrolledInput defaultValue="Hello" />;
+}
+```
+
+### 使用默认值
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+function MyComponent({ value, onChange }: { value?: string; onChange?: (value: string) => void }) {
+  const [internalValue, setValue] = useControllableValue(
+    { value, onChange },
+    {
+      defaultValue: 'default value',
+    }
+  );
+
+  return (
+    <div>
+      <input
+        value={internalValue}
+        onChange={(e) => setValue(e.target.value)}
+      />
+      <p>当前值: {internalValue}</p>
+    </div>
+  );
+}
+```
+
+## 高级用法
+
+### 自定义 prop 名称
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+function CustomComponent({
+  open,
+  onOpenChange,
+  defaultOpen,
+}: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+}) {
+  const [isOpen, setIsOpen] = useControllableValue(
+    { open, onOpenChange, defaultOpen },
+    {
+      valuePropName: 'open',
+      trigger: 'onOpenChange',
+      defaultValuePropName: 'defaultOpen',
+    }
+  );
+
+  return (
+    <div>
+      <button onClick={() => setIsOpen(!isOpen)}>
+        {isOpen ? '关闭' : '打开'}
+      </button>
+      {isOpen && <p>内容已显示</p>}
+    </div>
+  );
+}
+```
+
+### 复杂组件
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+interface SelectProps {
+  value?: string;
+  onChange?: (value: string) => void;
+  defaultValue?: string;
+  options: string[];
+}
+
+function Select({ value, onChange, defaultValue, options }: SelectProps) {
+  const [internalValue, setValue] = useControllableValue(
+    { value, onChange, defaultValue },
+    {
+      defaultValue: options[0],
+    }
+  );
+
+  return (
+    <select value={internalValue} onChange={(e) => setValue(e.target.value)}>
+      {options.map((option) => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// 受控使用
+function ControlledExample() {
+  const [value, setValue] = useState('option1');
+
+  return (
+    <Select
+      value={value}
+      onChange={setValue}
+      options={['option1', 'option2', 'option3']}
+    />
+  );
+}
+
+// 非受控使用
+function UncontrolledExample() {
+  return (
+    <Select
+      defaultValue="option1"
+      options={['option1', 'option2', 'option3']}
+    />
+  );
+}
+```
+
+### 多个可控值
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+function MultiValueComponent({
+  value1,
+  onChange1,
+  value2,
+  onChange2,
+}: {
+  value1?: string;
+  onChange1?: (value: string) => void;
+  value2?: number;
+  onChange2?: (value: number) => void;
+}) {
+  const [internalValue1, setValue1] = useControllableValue({ value1, onChange1 }, { defaultValue: '' });
+  const [internalValue2, setValue2] = useControllableValue({ value2, onChange2 }, { defaultValue: 0 });
+
+  return (
+    <div>
+      <input
+        value={internalValue1}
+        onChange={(e) => setValue1(e.target.value)}
+        placeholder="输入文本"
+      />
+      <input
+        type="number"
+        value={internalValue2}
+        onChange={(e) => setValue2(Number(e.target.value))}
+        placeholder="输入数字"
+      />
+    </div>
+  );
+}
+```
+
+## API
+
+### useControllableValue(props, options?)
+
+创建一个可控值状态和设置函数。
+
+#### 参数
+
+- **props**: `T`
+  - 组件的 props 对象
+- **options?**: `PublicUseControllableValueOptions<Ks, P>`
+  - 配置选项
+  - **defaultValue?**: `any`
+    - 默认值
+  - **defaultValuePropName?**: `Ks`
+    - 默认值 prop 名称，默认为 `'defaultValue'`
+  - **valuePropName?**: `P`
+    - 值 prop 名称，默认为 `'value'`
+  - **trigger?**: `Ks`
+    - 触发函数 prop 名称，默认为 `'onChange'`
+
+#### 返回值
+
+- **返回值**: `[ValueType<T, O>, typeof setValue]`
+  - **value**: `ValueType<T, O>`
+    - 当前值
+  - **setValue**: `(value: ValueType<T, O>, ...args: any[]) => void`
+    - 设置值的函数
+
+#### 类型定义
+
+```ts
+interface UseControllableValueOptions<Ks extends PropertyKey = PropertyKey, P extends Ks | (string & {}) = 'value'> {
+  defaultValue: any;
+  defaultValuePropName: Ks;
+  valuePropName: P;
+  trigger: Ks;
+}
+
+type PublicUseControllableValueOptions<
+  Ks extends PropertyKey = PropertyKey,
+  P extends Ks | (string & {}) = 'value',
+> = Partial<UseControllableValueOptions<Ks, P>>;
+
+function useControllableValue<
+  T extends Record<PropertyKey, any>,
+  P extends keyof T | (string & {}) = PropertyKey,
+  O extends PublicUseControllableValueOptions<keyof T, P> = PublicUseControllableValueOptions<keyof T, P>,
+>(props?: T, options?: O): [ValueType<T, O>, typeof setValue]
+```
+
+## 使用场景
+
+### 通用输入组件
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+interface InputProps {
+  value?: string;
+  onChange?: (value: string) => void;
+  defaultValue?: string;
+  placeholder?: string;
+}
+
+function Input({ value, onChange, defaultValue, placeholder }: InputProps) {
+  const [internalValue, setValue] = useControllableValue({ value, onChange, defaultValue });
+
+  return (
+    <input
+      value={internalValue}
+      onChange={(e) => setValue(e.target.value)}
+      placeholder={placeholder}
+    />
+  );
+}
+
+// 可以同时支持受控和非受控模式
+```
+
+### 开关组件
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+interface SwitchProps {
+  checked?: boolean;
+  onCheckedChange?: (checked: boolean) => void;
+  defaultChecked?: boolean;
+}
+
+function Switch({ checked, onCheckedChange, defaultChecked }: SwitchProps) {
+  const [internalChecked, setChecked] = useControllableValue(
+    { checked, onChange: onCheckedChange, defaultChecked },
+    {
+      valuePropName: 'checked',
+      trigger: 'onChange',
+      defaultValuePropName: 'defaultChecked',
+    }
+  );
+
+  return (
+    <button
+      onClick={() => setChecked(!internalChecked)}
+      style={{
+        backgroundColor: internalChecked ? 'green' : 'gray',
+      }}
+    >
+      {internalChecked ? 'ON' : 'OFF'}
+    </button>
+  );
+}
+```
+
+### 模态框组件
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+interface ModalProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}
+
+function Modal({ open, onOpenChange, defaultOpen, children }: ModalProps) {
+  const [isOpen, setIsOpen] = useControllableValue(
+    { open, onChange: onOpenChange, defaultOpen },
+    {
+      valuePropName: 'open',
+      trigger: 'onChange',
+      defaultValuePropName: 'defaultOpen',
+    }
+  );
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="modal">
+      <div className="modal-content">{children}</div>
+      <button onClick={() => setIsOpen(false)}>关闭</button>
+    </div>
+  );
+}
+```
+
+### 选择器组件
+
+```ts
+import { useControllableValue } from '@cmtlyt/lingshu-toolkit/react/use-controllable-value';
+
+interface SelectorProps {
+  selected?: string[];
+  onSelectedChange?: (selected: string[]) => void;
+  defaultSelected?: string[];
+  options: string[];
+}
+
+function Selector({ selected, onSelectedChange, defaultSelected, options }: SelectorProps) {
+  const [internalSelected, setSelected] = useControllableValue(
+    { selected, onChange: onSelectedChange, defaultSelected },
+    {
+      defaultValue: [],
+    }
+  );
+
+  const toggleOption = (option: string) => {
+    if (internalSelected.includes(option)) {
+      setSelected(internalSelected.filter((item) => item !== option));
+    } else {
+      setSelected([...internalSelected, option]);
+    }
+  };
+
+  return (
+    <div>
+      {options.map((option) => (
+        <label key={option}>
+          <input
+            type="checkbox"
+            checked={internalSelected.includes(option)}
+            onChange={() => toggleOption(option)}
+          />
+          {option}
+        </label>
+      ))}
+    </div>
+  );
+}
+```
+
+## 注意事项
+
+1. **模式自动切换**：根据是否传递 `value` prop 自动切换受控/非受控模式
+2. **默认值优先级**：prop 中的默认值优先于 options 中的默认值
+3. **事件处理**：`setValue` 会触发 `onChange` 回调（如果提供）
+4. **非受控模式**：在非受控模式下，`setValue` 会更新内部状态
+5. **受控模式**：在受控模式下，`setValue` 只会触发 `onChange` 回调
+6. **类型安全**：确保 props 和 options 的类型正确
+7. **引用稳定**：使用 `useEffectEvent` 确保事件处理函数引用稳定
+8. **首次渲染**：首次渲染时不会触发 `onChange` 回调

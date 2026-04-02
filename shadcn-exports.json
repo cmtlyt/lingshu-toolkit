@@ -2,6 +2,11 @@
   "$schema": "./node_modules/@cmtlyt/unplugin-shadcn-registry-generate/configuration-schema.json",
   "exports": [
     {
+      "name": "sharedUtils",
+      "author": "cmtlyt",
+      "path": "src/shared/utils/index.ts"
+    },
+    {
       "name": "sharedDataHandler",
       "author": "cmtlyt",
       "path": "src/shared/data-handler/index.ts"
@@ -40,6 +45,11 @@
       "name": "sharedWithResolvers",
       "author": "cmtlyt",
       "path": "src/shared/with-resolvers/index.ts"
+    },
+    {
+      "name": "sharedAllx",
+      "author": "cmtlyt",
+      "path": "src/shared/allx/index.ts"
     },
     {
       "name": "reactUseControllableValue",

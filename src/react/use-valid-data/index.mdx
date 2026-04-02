@@ -6,6 +6,17 @@
 
 > author: cmtlyt
 
+一个强大的 React Hook，用于数据验证、转换和清理。它基于 `dataHandler` 工具构建，提供了声明式的数据验证方式，支持类型推断、错误处理和数据转换。
+
+## 特性
+
+- **声明式验证**：使用简洁的验证函数定义数据验证规则
+- **类型推断**：自动推断验证后的数据类型，提供完整的类型安全
+- **数据转换**：支持在验证过程中转换数据类型
+- **错误处理**：灵活的错误处理机制，支持严格模式或自定义错误处理
+- **默认值支持**：可为验证失败的字段提供默认值
+- **React 优化**：使用 `useMemo` 和 `useRef` 优化性能，避免不必要的重新计算
+
 ## install
 
 ```bash title="npm"
@@ -22,4 +33,519 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseValidDa
 import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useValidData } from '@cmtlyt/lingshu-toolkit/react/use-valid-data'
+```
+
+## 基础用法
+
+### 对象验证
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function UserForm() {
+  const formData = {
+    name: 'John Doe',
+    age: 25,
+    email: 'john@example.com'
+  }
+
+  const validatedData = useValidData(formData, {
+    name: (value) => typeof value === 'string' && value.length > 0,
+    age: (value) => typeof value === 'number' && value >= 18,
+    email: (value) => typeof value === 'string' && value.includes('@')
+  })
+
+  return <div>{JSON.stringify(validatedData)}</div>
+}
+```
+
+### 数据转换
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function NumberForm() {
+  const formData = {
+    price: '99.99',
+    quantity: '10',
+    discount: '0.1'
+  }
+
+  const validatedData = useValidData(formData, {
+    price: (value, { transform }) => {
+      const num = Number(value)
+      return transform(num)
+    },
+    quantity: (value, { transform }) => {
+      const num = Number(value)
+      return transform(num)
+    },
+    discount: (value, { transform }) => {
+      const num = Number(value)
+      return transform(num)
+    }
+  })
+
+  // validatedData.price, quantity, discount 都是 number 类型
+  return <div>{JSON.stringify(validatedData)}</div>
+}
+```
+
+### 错断言
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function StrictForm() {
+  const formData = {
+    username: 'john_doe',
+    password: '123456'
+  }
+
+  const validatedData = useValidData(formData, {
+    username: (value, { assert }) => {
+      return assert(value.length >= 3, '用户名至少3个字符')
+    },
+    password: (value, { assert }) => {
+      return assert(value.length >= 6, '密码至少6个字符')
+    }
+  })
+
+  return <div>{JSON.stringify(validatedData)}</div>
+}
+```
+
+## 高级用法
+
+### 函数式验证器
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function DynamicForm() {
+  const formData = {
+    field1: 'value1',
+    field2: 'value2',
+    field3: 'value3'
+  }
+
+  const validatedData = useValidData(formData, (value, key, { assert, transform }) => {
+    if (key === 'field1') {
+      return assert(typeof value === 'string', 'field1 必须是字符串')
+    }
+    if (key === 'field2') {
+      return transform(Number(value))
+    }
+    return true
+  })
+
+  return <div>{JSON.stringify(validatedData)}</div>
+}
+```
+
+### 默认值设置
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function FormWithDefaults() {
+  const formData = {
+    name: 'John',
+    age: 25
+    // email 缺失
+  }
+
+  const validatedData = useValidData(
+    formData,
+    {
+      name: (value) => typeof value === 'string' && value.length > 0,
+      age: (value, { transform }) => transform(Number(value)),
+      email: (value, { assert }) => assert(value && value.includes('@'))
+    },
+    {
+      defaultValue: {
+        email: 'default@example.com'
+      }
+    }
+  )
+
+  return <div>{JSON.stringify(validatedData)}</div>
+}
+```
+
+### 自定义错误处理
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function FormWithErrorHandler() {
+  const formData = {
+    username: 'jo',
+    age: 15
+  }
+
+  const [errors, setErrors] = useState<string[]>([])
+
+  const validatedData = useValidData(
+    formData,
+    {
+      username: (value, { assert }) => {
+        return assert(value.length >= 3, '用户名至少3个字符')
+      },
+      age: (value, { assert }) => {
+        return assert(value >= 18, '年龄必须大于等于18岁')
+      }
+    },
+    {
+      errorHandler: (errorList) => {
+        setErrors(errorList)
+      }
+    }
+  )
+
+  return (
+    <div>
+      <div>数据: {JSON.stringify(validatedData)}</div>
+      <div>错误: {errors.join(', ')}</div>
+    </div>
+  )
+}
+```
+
+### 严格模式
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function StrictForm() {
+  const formData = {
+    name: '',
+    age: 15
+  }
+
+  try {
+    const validatedData = useValidData(
+      formData,
+      {
+        name: (value, { assert }) => {
+          return assert(value.length > 0, '姓名不能为空')
+        },
+        age: (value, { assert }) => {
+          return assert(value >= 18, '年龄必须大于等于18岁')
+        }
+      },
+      {
+        strict: true
+      }
+    )
+    return <div>{JSON.stringify(validatedData)}</div>
+  } catch (error) {
+    return <div>验证失败: {error}</div>
+  }
+}
+```
+
+## API 文档
+
+### 参数
+
+#### `data: T`
+
+需要验证的数据对象，必须是 `Record<PropertyKey, any>` 类型。
+
+#### `verifyInfo: H`
+
+验证规则，可以是对象形式的验证器或函数形式的验证器。
+
+**对象形式验证器：**
+
+```ts
+type Handler<M extends Record<PropertyKey, any>> = Partial<{
+  [K in keyof M]: (value: any, action: Actions, option: M) => false | (any & {})
+}>
+```
+
+**函数形式验证器：**
+
+```ts
+type Handler<M extends Record<PropertyKey, any>> = (
+  value: any,
+  key: keyof M,
+  action: Actions,
+  option: M
+) => false | (any & {})
+```
+
+#### `options?: O`
+
+配置选项。
+
+```ts
+interface DataHandlerOptions<M extends Record<PropertyKey, any>> {
+  strict?: boolean; // 是否在验证失败时抛出异常，默认 false
+  errorHandler?: (error: string[]) => void; // 自定义错误处理函数
+  defaultValue?: M; // 默认值，用于验证失败时回退
+  unwrap?: boolean; // 是否直接返回验证结果，默认 true
+}
+```
+
+### 返回值
+
+根据 `unwrap` 选项返回不同的类型：
+
+**`unwrap: true`（默认）**：直接返回验证后的数据对象。
+
+```ts
+type Result = MergeResult<M & O['defaultValue'], Transform2Type<H>>
+```
+
+**`unwrap: false`**：返回包含结果和错误的对象。
+
+```ts
+type Result = {
+  result: MergeResult<M & O['defaultValue'], Transform2Type<H>>;
+  errors: string[];
+}
+```
+
+### Actions
+
+验证器函数接收的第二个参数 `action` 提供了两个方法：
+
+#### `assert(flag: boolean, msg?: string): boolean`
+
+断言方法，用于验证条件。
+
+- `flag`: 验证条件
+- `msg`: 失败时的错误消息，默认为 `${key} is not valid`
+- 返回: 验证结果
+
+#### `transform<T>(value: T): T`
+
+转换方法，用于转换数据类型。
+
+- `value`: 要转换的值
+- 返回: 转换后的值
+
+**注意**：如果被 `assert` 处理为 `false`，则不会应用转换。
+
+## 实际使用场景
+
+### 表单验证
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function RegistrationForm() {
+  const [formData, setFormData] = useState({
+    username: '',
+    email: '',
+    password: '',
+    confirmPassword: ''
+  })
+
+  const validatedData = useValidData(formData, {
+    username: (value, { assert }) => {
+      return assert(
+        /^[a-zA-Z0-9_]{3,20}$/.test(value),
+        '用户名必须是3-20位的字母、数字或下划线'
+      )
+    },
+    email: (value, { assert }) => {
+      return assert(
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
+        '请输入有效的邮箱地址'
+      )
+    },
+    password: (value, { assert }) => {
+      return assert(
+        value.length >= 6,
+        '密码至少6个字符'
+      )
+    },
+    confirmPassword: (value, { assert }, { password }) => {
+      return assert(
+        value === password,
+        '两次输入的密码不一致'
+      )
+    }
+  })
+
+  const handleSubmit = () => {
+    console.log('提交数据:', validatedData)
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <input
+        value={formData.username}
+        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+        placeholder="用户名"
+      />
+      <input
+        value={formData.email}
+        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+        placeholder="邮箱"
+      />
+      <input
+        type="password"
+        value={formData.password}
+        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+        placeholder="密码"
+      />
+      <input
+        type="password"
+        value={formData.confirmPassword}
+        onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+        placeholder="确认密码"
+      />
+      <button type="submit">提交</button>
+    </form>
+  )
+}
+```
+
+### API 响应数据处理
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function UserProfile({ apiData }: { apiData: any }) {
+  const validatedData = useValidData(apiData, {
+    id: (value, { transform }) => transform(Number(value)),
+    name: (value, { assert }) => {
+      return assert(typeof value === 'string' && value.length > 0)
+    },
+    age: (value, { transform }) => transform(Number(value)),
+    isActive: (value, { transform }) => transform(Boolean(value))
+  })
+
+  return (
+    <div>
+      <h1>{validatedData.name}</h1>
+      <p>年龄: {validatedData.age}</p>
+      <p>状态: {validatedData.isActive ? '激活' : '未激活'}</p>
+    </div>
+  )
+}
+```
+
+### 配置文件验证
+
+```tsx
+import { useValidData } from '@cmtlyt/lingshu-toolkit/react'
+
+function ConfigEditor({ config }: { config: any }) {
+  const validatedConfig = useValidData(config, {
+    theme: (value, { assert }) => {
+      return assert(['light', 'dark'].includes(value), '主题必须是 light 或 dark')
+    },
+    language: (value, { assert }) => {
+      return assert(['zh', 'en'].includes(value), '语言必须是 zh 或 en')
+    },
+    fontSize: (value, { transform }) => {
+      const size = Number(value)
+      return transform(Math.max(12, Math.min(24, size)))
+    }
+  })
+
+  return <pre>{JSON.stringify(validatedConfig, null, 2)}</pre>
+}
+```
+
+## 注意事项
+
+### 性能优化
+
+`useValidData` 使用了 `useMemo` 来优化性能，只有在 `data` 对象引用变化时才会重新计算。验证器和配置选项使用 `useRef` 存储，不会触发重新计算。
+
+### 类型推断
+
+验证器会自动推断返回类型：
+
+```tsx
+const validatedData = useValidData(
+  { price: '99.99' },
+  { price: (value, { transform }) => transform(Number(value)) }
+)
+
+// validatedData.price 的类型会被推断为 number
+```
+
+### 错误处理优先级
+
+当使用 `assert` 和 `transform` 时，如果 `assert` 返回 `false`，则不会应用 `transform`：
+
+```tsx
+const validatedData = useValidData(
+  { value: 'abc' },
+  {
+    value: (v, { assert, transform }) => {
+      assert(!isNaN(Number(v)), '必须是数字')
+      return transform(Number(v)) // 如果 assert 失败，这行不会执行
+    }
+  }
+)
+```
+
+### 严格模式
+
+在严格模式下，验证失败会抛出异常。建议在 `try-catch` 块中使用：
+
+```tsx
+try {
+  const validatedData = useValidData(data, validator, { strict: true })
+} catch (error) {
+  console.error('验证失败:', error)
+}
+```
+
+### 默认值应用
+
+默认值只在验证失败时应用，不会覆盖有效的数据：
+
+```tsx
+const validatedData = useValidData(
+  { name: 'John' },
+  { name: (value) => typeof value === 'string' },
+  { defaultValue: { name: 'Default' } }
+)
+
+// 结果: { name: 'John' } - 使用原始值，因为验证通过
+```
+
+### 空值处理
+
+对于缺失的字段，验证器不会自动调用。如果需要验证必填字段，请使用 `assert`：
+
+```tsx
+const validatedData = useValidData(
+  { name: '' },
+  {
+    name: (value, { assert }) => {
+      return assert(value && value.length > 0, '姓名不能为空')
+    }
+  }
+)
+```
+
+### 与 React 状态结合使用
+
+建议将 `useValidData` 与表单状态管理结合使用：
+
+```tsx
+function MyForm() {
+  const [formData, setFormData] = useState(initialData)
+  const validatedData = useValidData(formData, validator)
+
+  const handleChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }))
+  }
+
+  const handleSubmit = () => {
+    // 使用 validatedData 提交
+  }
+
+  // ...
+}
 ```

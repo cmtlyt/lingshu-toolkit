@@ -1,6 +1,7 @@
 {
   "$schema": "../plugins/auto-patch-file/schema.json",
   "shared": [
+    { "name": "utils", "author": "cmtlyt" },
     { "name": "dataHandler", "author": "cmtlyt" },
     { "name": "dataMixedManager", "author": "cmtlyt" },
     { "name": "throwError", "author": "cmtlyt" },
@@ -8,7 +9,8 @@
     { "name": "conditionMerge", "author": "cmtlyt" },
     { "name": "createStorageHandler", "author": "cmtlyt" },
     { "name": "animation", "author": "cmtlyt" },
-    { "name": "withResolvers", "author": "cmtlyt" }
+    { "name": "withResolvers", "author": "cmtlyt" },
+    { "name": "allx", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

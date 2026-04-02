@@ -6,6 +6,15 @@
 
 > author: cmtlyt
 
+`useBoolean` 是一个用于管理布尔值状态的 React Hook，提供了简洁的 API 来切换、设置和重置布尔值状态。
+
+## 特性
+
+- **简洁的 API**：提供 `toggle`、`setTrue`、`setFalse` 等便捷方法
+- **类型安全**：完整的 TypeScript 类型支持
+- **稳定的引用**：使用 `useMemo` 确保操作函数引用稳定
+- **灵活的初始化**：支持自定义初始值
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +32,354 @@ import { useBoolean } from '@cmtlyt/lingshu-toolkit/react'
 // or
 import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean'
 ```
+
+## 基础用法
+
+### 基本使用
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function MyComponent() {
+  const [isOpen, { toggle, setTrue, setFalse }] = useBoolean(false);
+
+  return (
+    <div>
+      <p>状态: {isOpen ? '开启' : '关闭'}</p>
+      <button onClick={toggle}>切换</button>
+      <button onClick={setTrue}>开启</button>
+      <button onClick={setFalse}>关闭</button>
+    </div>
+  );
+}
+```
+
+### 自定义初始值
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function MyComponent() {
+  const [isLoading, { toggle }] = useBoolean(true);
+
+  return (
+    <div>
+      {isLoading ? <p>加载中...</p> : <p>加载完成</p>}
+      <button onClick={toggle}>切换状态</button>
+    </div>
+  );
+}
+```
+
+### 使用 set 方法
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function MyComponent() {
+  const [isVisible, { set }] = useBoolean(false);
+
+  return (
+    <div>
+      <button onClick={() => set(true)}>显示</button>
+      <button onClick={() => set(false)}>隐藏</button>
+      {isVisible && <p>内容可见</p>}
+    </div>
+  );
+}
+```
+
+## 高级用法
+
+### 模态框控制
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function Modal() {
+  const [isOpen, { setTrue: open, setFalse: close }] = useBoolean(false);
+
+  return (
+    <div>
+      <button onClick={open}>打开模态框</button>
+      {isOpen && (
+        <div className="modal">
+          <p>模态框内容</p>
+          <button onClick={close}>关闭</button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 加载状态管理
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function DataFetcher() {
+  const [isLoading, { setTrue: startLoading, setFalse: stopLoading }] = useBoolean(false);
+  const [data, setData] = useState(null);
+
+  const fetchData = async () => {
+    startLoading();
+    try {
+      const response = await fetch('/api/data');
+      const result = await response.json();
+      setData(result);
+    } finally {
+      stopLoading();
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={fetchData} disabled={isLoading}>
+        {isLoading ? '加载中...' : '加载数据'}
+      </button>
+      {data && <pre>{JSON.stringify(data, null, 2)}</pre>}
+    </div>
+  );
+}
+```
+
+### 表单验证
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function Form() {
+  const [isValid, { setTrue: validate, setFalse: invalidate }] = useBoolean(false);
+  const [email, setEmail] = useState('');
+
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value);
+    invalidate();
+  };
+
+  const handleValidate = () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (emailRegex.test(email)) {
+      validate();
+    }
+  };
+
+  return (
+    <div>
+      <input
+        type="email"
+        value={email}
+        onChange={handleEmailChange}
+        placeholder="输入邮箱"
+      />
+      <button onClick={handleValidate}>验证</button>
+      {isValid && <p style={{ color: 'green' }}>邮箱格式正确</p>}
+    </div>
+  );
+}
+```
+
+### 多个布尔状态
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function MultiStateComponent() {
+  const [isEditing, { toggle: toggleEdit }] = useBoolean(false);
+  const [isSaving, { setTrue: startSave, setFalse: stopSave }] = useBoolean(false);
+  const [isDeleting, { toggle: toggleDelete }] = useBoolean(false);
+
+  return (
+    <div>
+      <button onClick={toggleEdit}>
+        {isEditing ? '取消编辑' : '开始编辑'}
+      </button>
+      <button onClick={startSave} disabled={isSaving}>
+        {isSaving ? '保存中...' : '保存'}
+      </button>
+      <button onClick={toggleDelete}>
+        {isDeleting ? '取消删除' : '删除'}
+      </button>
+    </div>
+  );
+}
+```
+
+### 折叠面板
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function Accordion() {
+  const [isExpanded, { toggle }] = useBoolean(false);
+
+  return (
+    <div>
+      <button onClick={toggle}>
+        {isExpanded ? '收起' : '展开'}
+      </button>
+      {isExpanded && (
+        <div>
+          <p>折叠面板内容</p>
+          <p>这里可以放置任何内容</p>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## API
+
+### useBoolean(defaultValue?)
+
+创建一个布尔值状态和相关的操作函数。
+
+#### 参数
+
+- **defaultValue?**: `boolean`
+  - 初始值
+  - 默认值：`false`
+
+#### 返回值
+
+- **返回值**: `[boolean, UseBooleanActions]`
+  - **state**: `boolean`
+    - 当前布尔值状态
+  - **actions**: `UseBooleanActions`
+    - **toggle**: `() => void`
+      - 切换布尔值状态
+    - **setTrue**: `() => void`
+      - 设置为 true
+    - **setFalse**: `() => void`
+      - 设置为 false
+    - **set**: `(value: boolean) => void`
+      - 设置为指定值
+
+#### 类型定义
+
+```ts
+interface UseBooleanActions {
+  toggle: () => void;
+  setTrue: () => void;
+  setFalse: () => void;
+  set: (value: boolean) => void;
+}
+
+function useBoolean(defaultValue?: boolean): [boolean, UseBooleanActions]
+```
+
+## 使用场景
+
+### 模态框和对话框
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function Dialog() {
+  const [isOpen, { setTrue: open, setFalse: close }] = useBoolean(false);
+
+  return (
+    <>
+      <button onClick={open}>打开对话框</button>
+      {isOpen && (
+        <div className="dialog-overlay">
+          <div className="dialog">
+            <h2>对话框标题</h2>
+            <p>对话框内容</p>
+            <button onClick={close}>关闭</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+```
+
+### 加载和错误状态
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function AsyncComponent() {
+  const [isLoading, { setTrue: startLoading, setFalse: stopLoading }] = useBoolean(false);
+  const [hasError, { setTrue: setError, setFalse: clearError }] = useBoolean(false);
+
+  const loadData = async () => {
+    startLoading();
+    clearError();
+    try {
+      // 加载数据
+      await fetchData();
+    } catch (error) {
+      setError();
+    } finally {
+      stopLoading();
+    }
+  };
+
+  return (
+    <div>
+      {isLoading && <p>加载中...</p>}
+      {hasError && <p style={{ color: 'red' }}>加载失败</p>}
+      <button onClick={loadData}>重新加载</button>
+    </div>
+  );
+}
+```
+
+### 主题切换
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function ThemeToggle() {
+  const [isDark, { toggle }] = useBoolean(false);
+
+  useEffect(() => {
+    document.body.className = isDark ? 'dark' : 'light';
+  }, [isDark]);
+
+  return (
+    <button onClick={toggle}>
+      {isDark ? '切换到亮色主题' : '切换到暗色主题'}
+    </button>
+  );
+}
+```
+
+### 表单字段显示/隐藏
+
+```ts
+import { useBoolean } from '@cmtlyt/lingshu-toolkit/react/use-boolean';
+
+function AdvancedSearch() {
+  const [showAdvanced, { toggle }] = useBoolean(false);
+
+  return (
+    <div>
+      <button onClick={toggle}>
+        {showAdvanced ? '隐藏高级选项' : '显示高级选项'}
+      </button>
+      {showAdvanced && (
+        <div className="advanced-options">
+          <input placeholder="高级选项 1" />
+          <input placeholder="高级选项 2" />
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+## 注意事项
+
+1. **稳定的引用**：操作函数使用 `useMemo` 包装，引用保持稳定
+2. **类型转换**：`set` 方法会自动将值转换为布尔值
+3. **性能优化**：避免在渲染函数中创建新的操作函数
+4. **状态同步**：确保布尔状态与 UI 保持同步
+5. **可读性**：使用解构赋值重命名操作函数提高代码可读性
+6. **组合使用**：可以与其他 Hook 组合使用实现复杂逻辑
+7. **默认值**：不提供默认值时，初始值为 `false`
+8. **事件处理**：操作函数可以直接作为事件处理器使用

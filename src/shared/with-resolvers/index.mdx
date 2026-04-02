@@ -6,6 +6,16 @@
 
 > author: cmtlyt
 
+`withResolvers` 是一个用于创建 Promise 及其 resolve 和 reject 函数的工具函数。它提供了一种更简洁的方式来创建可手动控制状态的 Promise，特别适用于需要在异步操作外部控制 Promise 解析或拒绝的场景。
+
+## 特性
+
+- **简洁的 API**：一次性获取 promise、resolve 和 reject
+- **原生支持**：优先使用原生的 `Promise.withResolvers()`（ES2024）
+- **Polyfill 支持**：在不支持原生 API 的环境中提供 polyfill
+- **类型安全**：完整的 TypeScript 类型支持
+- **灵活性**：可以在任何地方调用 resolve 或 reject
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +33,384 @@ import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared'
 // or
 import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers'
 ```
+
+## 基础用法
+
+### 创建 Promise 和控制函数
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+const { promise, resolve, reject } = withResolvers<string>();
+
+// 在异步操作外部控制 Promise
+setTimeout(() => {
+  resolve('Hello, World!');
+}, 1000);
+
+promise.then((value) => {
+  console.log(value); // 'Hello, World!'
+});
+```
+
+### 使用泛型
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+interface User {
+  id: number;
+  name: string;
+}
+
+const { promise, resolve, reject } = withResolvers<User>();
+
+// 模拟异步操作
+fetchUser().then(resolve).catch(reject);
+
+promise.then((user) => {
+  console.log(user.id, user.name);
+});
+```
+
+### 拒绝 Promise
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+const { promise, resolve, reject } = withResolvers<string>();
+
+// 拒绝 Promise
+setTimeout(() => {
+  reject(new Error('Operation failed'));
+}, 1000);
+
+promise.catch((error) => {
+  console.error(error); // Error: Operation failed
+});
+```
+
+## 高级用法
+
+### 事件驱动的 Promise
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function waitForElement(selector: string): Promise<Element> {
+  const { promise, resolve, reject } = withResolvers<Element>();
+
+  const element = document.querySelector(selector);
+  if (element) {
+    resolve(element);
+    return promise;
+  }
+
+  const observer = new MutationObserver(() => {
+    const el = document.querySelector(selector);
+    if (el) {
+      observer.disconnect();
+      resolve(el);
+    }
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  // 设置超时
+  setTimeout(() => {
+    observer.disconnect();
+    reject(new Error(`Element ${selector} not found`));
+  }, 5000);
+
+  return promise;
+}
+
+// 使用
+waitForElement('.my-element').then((element) => {
+  console.log('Element found:', element);
+});
+```
+
+### 手动控制异步流程
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function createManualAsyncTask() {
+  const { promise, resolve, reject } = withResolvers<number>();
+
+  // 可以在任何地方调用 resolve 或 reject
+  function start() {
+    console.log('Task started');
+  }
+
+  function complete(result: number) {
+    console.log('Task completed');
+    resolve(result);
+  }
+
+  function fail(error: Error) {
+    console.log('Task failed');
+    reject(error);
+  }
+
+  return {
+    promise,
+    start,
+    complete,
+    fail,
+  };
+}
+
+const task = createManualAsyncTask();
+
+task.start();
+
+// 模拟异步操作
+setTimeout(() => {
+  task.complete(42);
+}, 1000);
+
+task.promise.then((result) => {
+  console.log('Result:', result); // 42
+});
+```
+
+### 多个 Promise 协调
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function createCoordinatedTasks() {
+  const task1 = withResolvers<string>();
+  const task2 = withResolvers<number>();
+  const task3 = withResolvers<boolean>();
+
+  // 当所有任务完成时
+  Promise.all([task1.promise, task2.promise, task3.promise]).then(([r1, r2, r3]) => {
+    console.log('All tasks completed:', r1, r2, r3);
+  });
+
+  return {
+    completeTask1: task1.resolve,
+    completeTask2: task2.resolve,
+    completeTask3: task3.resolve,
+  };
+}
+
+const tasks = createCoordinatedTasks();
+
+// 在不同的地方完成任务
+setTimeout(() => tasks.completeTask1('Hello'), 1000);
+setTimeout(() => tasks.completeTask2(42), 2000);
+setTimeout(() => tasks.completeTask3(true), 3000);
+```
+
+### 超时控制
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function withTimeout<T>(promise: Promise<T>, timeout: number): Promise<T> {
+  const { promise: timeoutPromise, resolve, reject } = withResolvers<T>();
+
+  const timer = setTimeout(() => {
+    reject(new Error(`Operation timed out after ${timeout}ms`));
+  }, timeout);
+
+  promise
+    .then((value) => {
+      clearTimeout(timer);
+      resolve(value);
+    })
+    .catch((error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+
+  return timeoutPromise;
+}
+
+// 使用
+const originalPromise = new Promise((resolve) => {
+  setTimeout(() => resolve('Done!'), 2000);
+});
+
+withTimeout(originalPromise, 1000)
+  .then((value) => console.log(value))
+  .catch((error) => console.error(error)); // Error: Operation timed out after 1000ms
+```
+
+## API
+
+### withResolvers()
+
+创建一个 Promise 及其 resolve 和 reject 函数。
+
+#### 参数
+
+- **泛型 T**: `unknown`
+  - Promise resolve 的值类型
+
+#### 返回值
+
+- **返回值**: `Resolver<T>`
+  - **promise**: `Promise<T>`
+    - Promise 对象
+  - **resolve**: `(value: T | PromiseLike<T>) => void`
+    - resolve 函数，用于解决 Promise
+  - **reject**: `(reason?: any) => void`
+    - reject 函数，用于拒绝 Promise
+
+#### 示例
+
+```ts
+const { promise, resolve, reject } = withResolvers<string>();
+
+resolve('Hello'); // 解决 Promise
+reject(new Error('Failed')); // 拒绝 Promise
+
+promise.then((value) => {
+  console.log(value); // 'Hello'
+});
+```
+
+## 使用场景
+
+### 等待 DOM 元素
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function waitForElement(selector: string): Promise<Element> {
+  const { promise, resolve } = withResolvers<Element>();
+
+  const checkElement = () => {
+    const element = document.querySelector(selector);
+    if (element) {
+      resolve(element);
+    } else {
+      requestAnimationFrame(checkElement);
+    }
+  };
+
+  checkElement();
+  return promise;
+}
+
+// 使用
+waitForElement('#my-element').then((element) => {
+  console.log('Element found:', element);
+});
+```
+
+### 用户交互控制
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function waitForUserConfirmation(): Promise<boolean> {
+  const { promise, resolve } = withResolvers<boolean>();
+
+  const button = document.createElement('button');
+  button.textContent = 'Confirm';
+  button.onclick = () => resolve(true);
+
+  const cancelButton = document.createElement('button');
+  cancelButton.textContent = 'Cancel';
+  cancelButton.onclick = () => resolve(false);
+
+  document.body.appendChild(button);
+  document.body.appendChild(cancelButton);
+
+  promise.finally(() => {
+    button.remove();
+    cancelButton.remove();
+  });
+
+  return promise;
+}
+
+// 使用
+waitForUserConfirmation().then((confirmed) => {
+  if (confirmed) {
+    console.log('User confirmed');
+  } else {
+    console.log('User cancelled');
+  }
+});
+```
+
+### 测试辅助函数
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function createMockAsyncOperation() {
+  const { promise, resolve, reject } = withResolvers<string>();
+
+  return {
+    promise,
+    success: (data: string) => resolve(data),
+    failure: (error: Error) => reject(error),
+  };
+}
+
+// 在测试中使用
+const operation = createMockAsyncOperation();
+
+operation.promise.then((data) => {
+  console.log('Operation succeeded:', data);
+});
+
+// 模拟成功
+setTimeout(() => operation.success('Test data'), 100);
+```
+
+### 流程控制
+
+```ts
+import { withResolvers } from '@cmtlyt/lingshu-toolkit/shared/with-resolvers';
+
+function createStepController() {
+  const steps = {
+    step1: withResolvers<void>(),
+    step2: withResolvers<void>(),
+    step3: withResolvers<void>(),
+  };
+
+  // 按顺序执行步骤
+  steps.step1.promise
+    .then(() => console.log('Step 1 completed'))
+    .then(() => steps.step2.resolve())
+    .then(() => steps.step2.promise)
+    .then(() => console.log('Step 2 completed'))
+    .then(() => steps.step3.resolve())
+    .then(() => steps.step3.promise)
+    .then(() => console.log('Step 3 completed'));
+
+  return {
+    completeStep1: steps.step1.resolve,
+    completeStep2: steps.step2.resolve,
+    completeStep3: steps.step3.resolve,
+  };
+}
+
+const controller = createStepController();
+
+// 在不同的地方完成步骤
+setTimeout(() => controller.completeStep1(), 1000);
+setTimeout(() => controller.completeStep2(), 2000);
+setTimeout(() => controller.completeStep3(), 3000);
+```
+
+## 注意事项
+
+1. **原生支持优先**：优先使用原生的 `Promise.withResolvers()`，在不支持的环境中自动使用 polyfill
+2. **多次调用**：resolve 或 reject 只能调用一次，多次调用只有第一次有效
+3. **内存泄漏**：确保在不需要时清理引用，避免内存泄漏
+4. **错误处理**：记得添加错误处理，避免未捕获的 Promise 拒绝
+5. **类型安全**：使用泛型参数确保类型安全
+6. **超时处理**：对于可能长时间挂起的 Promise，考虑添加超时机制
+7. **清理资源**：在 Promise 完成后清理相关资源（如事件监听器、定时器等）
+8. **与 async/await 配合**：可以与 async/await 语法配合使用

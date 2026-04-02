@@ -1,3 +1,4 @@
+export * from './allx';
 export * from './animation';
 export * from './condition-merge';
 export * from './create-storage-handler';
@@ -5,4 +6,5 @@ export * from './data-handler';
 export * from './data-mixed-manager';
 export * from './throw-error';
 export * from './types';
+export * from './utils';
 export * from './with-resolvers';

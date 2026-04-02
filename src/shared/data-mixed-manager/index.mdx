@@ -6,6 +6,18 @@
 
 > author: cmtlyt
 
+`dataMixedManager` 是一个强大的数据混合管理器，支持定坑逻辑、数据混合、事件系统和插卡模式。适用于需要在列表中插入固定位置数据的场景，如广告插入、分隔符、特殊标记等。
+
+## 特性
+
+- **定坑逻辑**：支持在指定位置插入固定数据
+- **数据混合**：自动混合定坑数据和普通数据
+- **事件系统**：提供完整的事件监听和分发机制
+- **插卡模式**：支持在指定位置插入数据（before/after/cover）
+- **批量更新**：支持批量操作，减少事件触发次数
+- **增量构建**：智能增量更新，提升性能
+- **类型安全**：完整的 TypeScript 类型支持
+
 ## install
 
 ```bash title="npm"
@@ -23,3 +35,630 @@ import { dataMixedManager } from '@cmtlyt/lingshu-toolkit/shared'
 // or
 import { dataMixedManager } from '@cmtlyt/lingshu-toolkit/shared/data-mixed-manager'
 ```
+
+## 基础用法
+
+### 创建管理器实例
+
+```ts
+const manager = dataMixedManager<number>();
+```
+
+### 添加定坑配置
+
+```ts
+const manager = dataMixedManager<number>();
+
+// 在位置 2 添加定坑数据
+manager.addFixedSlot({ position: 2, data: 100 });
+
+// 添加普通数据
+manager.appendList([1, 2, 3]);
+
+// 获取混合后的数据
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: true, type: 'fixed', data: 100 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+### 批量添加定坑配置
+
+```ts
+const manager = dataMixedManager<number>();
+
+// 批量添加定坑配置
+const positions = manager.addFixedSlots([
+  { position: 1, data: 100 },
+  { position: 3, data: 200 },
+  { position: 5, data: 300 },
+]);
+
+// 添加普通数据
+manager.appendList([1, 2, 3, 4, 5]);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: true, type: 'fixed', data: 100 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: true, type: 'fixed', data: 200 },
+//   { isFixed: false, type: 'plain', data: 3 },
+//   { isFixed: true, type: 'fixed', data: 300 },
+//   { isFixed: false, type: 'plain', data: 4 },
+//   { isFixed: false, type: 'plain', data: 5 }
+// ]
+```
+
+### 删除定坑配置
+
+```ts
+const manager = dataMixedManager<number>();
+
+manager.addFixedSlot({ position: 2, data: 100 });
+manager.appendList([1, 2, 3]);
+
+// 删除定坑配置
+manager.deleteFixedSlot(2);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+### 清除所有定坑配置
+
+```ts
+const manager = dataMixedManager<number>();
+
+manager.addFixedSlots([
+  { position: 1, data: 100 },
+  { position: 2, data: 200 },
+]);
+manager.appendList([1, 2, 3]);
+
+// 清除所有定坑配置
+manager.clearFixedSlots();
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+## 高级用法
+
+### 事件监听
+
+```ts
+const manager = dataMixedManager<number>({ name: 'my-manager' });
+
+// 监听 change 事件
+manager.addEventListener('change', (event) => {
+  console.log('数据变化:', event.detail);
+  // { name: 'my-manager', mode: 'patch', mixedData: [...] }
+});
+
+// 监听 clear 事件
+manager.addEventListener('clear', (event) => {
+  console.log('数据已清除');
+});
+
+manager.appendList([1, 2, 3]);
+```
+
+### 移除事件监听
+
+```ts
+const manager = dataMixedManager<number>();
+const changeHandler = (event) => {
+  console.log('数据变化:', event.detail);
+};
+
+manager.addEventListener('change', changeHandler);
+
+// 移除事件监听
+manager.removeEventListener('change', changeHandler);
+```
+
+### 插卡模式
+
+```ts
+const manager = dataMixedManager<number>();
+
+manager.appendList([1, 2, 3]);
+
+// 在位置 2 之前插入数据
+manager.insertSlot({
+  position: 2,
+  data: 100,
+  insertMode: 'before',
+});
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: true, type: 'insert', data: 100 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+### 批量插卡
+
+```ts
+const manager = dataMixedManager<number>();
+
+manager.appendList([1, 2, 3]);
+
+// 批量插卡
+const positions = manager.insertSlots([
+  { position: 2, data: 100, insertMode: 'before' },
+  { position: 3, data: 200, insertMode: 'before' },
+]);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: true, type: 'insert', data: 100 },
+//   { isFixed: true, type: 'insert', data: 200 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+### 重建模式
+
+```ts
+const manager = dataMixedManager<number>();
+
+// 先添加数据
+manager.appendList([1, 2, 3]);
+
+// 再添加定坑配置（默认不会立即混合到已有数据）
+manager.addFixedSlot({ position: 2, data: 100 });
+
+// 使用 rebuild 模式重新构建
+const mixedData = manager.getMixedData({ mode: 'rebuild' });
+// [
+//   { isFixed: false, type: 'plain', data: 1 },
+//   { isFixed: false, type: 'plain', data: 2 },
+//   { isFixed: true, type: 'fixed', data: 100 },
+//   { isFixed: false, type: 'plain', data: 3 }
+// ]
+```
+
+### 清空数据列表
+
+```ts
+const manager = dataMixedManager<number>();
+
+manager.appendList([1, 2, 3]);
+manager.addFixedSlot({ position: 2, data: 100 });
+
+// 清空普通数据列表
+manager.clearList();
+
+const mixedData = manager.getMixedData();
+// [] (清空后定坑数据也会被清除)
+```
+
+## 使用场景
+
+### 广告插入
+
+```ts
+interface AdItem {
+  id: string;
+  title: string;
+}
+
+interface ContentItem {
+  id: string;
+  content: string;
+}
+
+const manager = dataMixedManager<ContentItem | AdItem>();
+
+// 先添加定坑配置（广告位置）
+manager.addFixedSlots([
+  { position: 2, data: { id: 'ad1', title: 'Advertisement 1' } },
+  { position: 5, data: { id: 'ad2', title: 'Advertisement 2' } },
+]);
+
+// 再添加内容数据（会触发数据混合）
+manager.appendList([
+  { id: '1', content: 'Content 1' },
+  { id: '2', content: 'Content 2' },
+  { id: '3', content: 'Content 3' },
+  { id: '4', content: 'Content 4' },
+  { id: '5', content: 'Content 5' },
+]);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: { id: '1', content: 'Content 1' } },
+//   { isFixed: false, type: 'plain', data: { id: '2', content: 'Content 2' } },
+//   { isFixed: true, type: 'fixed', data: { id: 'ad1', title: 'Advertisement 1' } },
+//   { isFixed: false, type: 'plain', data: { id: '3', content: 'Content 3' } },
+//   { isFixed: false, type: 'plain', data: { id: '4', content: 'Content 4' } },
+//   { isFixed: true, type: 'fixed', data: { id: 'ad2', title: 'Advertisement 2' } },
+//   { isFixed: false, type: 'plain', data: { id: '5', content: 'Content 5' } }
+// ]
+```
+
+### 列表分隔符
+
+```ts
+interface ListItem {
+  id: string;
+  name: string;
+}
+
+interface SeparatorItem {
+  type: 'separator';
+  label: string;
+}
+
+const manager = dataMixedManager<ListItem | SeparatorItem>();
+
+// 先添加定坑配置（分隔符位置）
+manager.addFixedSlot({
+  position: 3,
+  data: { type: 'separator', label: 'Section 3' },
+});
+
+// 再添加列表项（会触发数据混合）
+manager.appendList([
+  { id: '1', name: 'Item 1' },
+  { id: '2', name: 'Item 2' },
+  { id: '3', name: 'Item 3' },
+  { id: '4', name: 'Item 4' },
+  { id: '5', name: 'Item 5' },
+]);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: { id: '1', name: 'Item 1' } },
+//   { isFixed: false, type: 'plain', data: { id: '2', name: 'Item 2' } },
+//   { isFixed: false, type: 'plain', data: { id: '3', name: 'Item 3' } },
+//   { isFixed: true, type: 'fixed', data: { type: 'separator', label: 'Section 3' } },
+//   { isFixed: false, type: 'plain', data: { id: '4', name: 'Item 4' } },
+//   { isFixed: false, type: 'plain', data: { id: '5', name: 'Item 5' } }
+// ]
+```
+
+### 分页加载
+
+```ts
+interface DataItem {
+  id: string;
+  value: number;
+}
+
+const manager = dataMixedManager<DataItem>();
+
+// 加载第一页数据
+manager.appendList([
+  { id: '1', value: 1 },
+  { id: '2', value: 2 },
+  { id: '3', value: 3 },
+]);
+
+// 加载第二页数据
+manager.appendList([
+  { id: '4', value: 4 },
+  { id: '5', value: 5 },
+  { id: '6', value: 6 },
+]);
+
+const mixedData = manager.getMixedData();
+// [
+//   { isFixed: false, type: 'plain', data: { id: '1', value: 1 } },
+//   { isFixed: false, type: 'plain', data: { id: '2', value: 2 } },
+//   { isFixed: false, type: 'plain', data: { id: '3', value: 3 } },
+//   { isFixed: false, type: 'plain', data: { id: '4', value: 4 } },
+//   { isFixed: false, type: 'plain', data: { id: '5', value: 5 } },
+//   { isFixed: false, type: 'plain', data: { id: '6', value: 6 } }
+// ]
+```
+
+### 动态广告插入
+
+```ts
+interface AdItem {
+  id: string;
+  content: string;
+}
+
+interface ContentItem {
+  id: string;
+  title: string;
+}
+
+const manager = dataMixedManager<ContentItem | AdItem>();
+
+// 监听数据变化
+manager.addEventListener('change', (event) => {
+  console.log('数据已更新:', event.detail.mixedData);
+  // 更新 UI
+  renderList(event.detail.mixedData);
+});
+
+// 加载内容数据
+manager.appendList([
+  { id: '1', title: 'Content 1' },
+  { id: '2', title: 'Content 2' },
+  { id: '3', title: 'Content 3' },
+]);
+
+// 动态插入广告
+setTimeout(() => {
+  manager.addFixedSlot({
+    position: 2,
+    data: { id: 'ad1', content: 'Advertisement' },
+  });
+}, 1000);
+```
+
+## API
+
+### dataMixedManager(options?)
+
+创建数据混合管理器实例。
+
+#### 参数
+
+- **options?**: `DataMixedManagerOptions<T>`
+  - **name?**: `string`
+    - 管理器名称，默认为 `'default'`
+  - **fixedSlots?**: `InputSlotConfig<T>[]`
+    - 初始定坑配置数组
+  - **dataList?**: `T[]`
+    - 初始数据列表
+  - **listener?**: `Partial<EventDetailMap<T>>`
+    - 事件监听器对象
+
+#### 返回值
+
+- **返回值**: `DataMixedManager<T>`
+
+### DataMixedManager 实例方法
+
+#### addFixedSlot(config, buildOptions?)
+
+添加单个定坑配置。
+
+##### 参数
+
+- **config**: `InputSlotConfig<T>`
+  - **position**: `number`
+    - 定坑位置
+  - **data**: `T`
+    - 定坑数据
+  - **type?**: `'fixed' | 'insert'`
+    - 类型，默认为 `'fixed'`
+  - **insertMode?**: `'cover' | 'before' | 'after'`
+    - 插入模式，默认为 `'cover'`
+- **buildOptions?**: `BuildOptions`
+  - **lazy?**: `boolean`
+    - 是否延迟构建，默认为 `false`
+  - **mode?**: `'patch' | 'rebuild'`
+    - 构建模式，默认为 `'patch'`
+
+##### 返回值
+
+- **返回值**: `number`
+  - 添加后的定坑位置
+
+#### addFixedSlots(configs, buildOptions?)
+
+批量添加定坑配置。
+
+##### 参数
+
+- **configs**: `InputSlotConfig<T>[]`
+  - 定坑配置数组
+- **buildOptions?**: `BuildOptions`
+  - 构建选项
+
+##### 返回值
+
+- **返回值**: `number[]`
+  - 添加后的定坑位置数组
+
+#### deleteFixedSlot(position, buildOptions?)
+
+删除指定位置的定坑配置。
+
+##### 参数
+
+- **position**: `number`
+  - 要删除的定坑位置
+- **buildOptions?**: `BuildOptions`
+  - 构建选项
+
+#### deleteFixedSlots(positions, buildOptions?)
+
+批量删除定坑配置。
+
+##### 参数
+
+- **positions**: `number[]`
+  - 要删除的定坑位置数组
+- **buildOptions?**: `BuildOptions`
+  - 构建选项
+
+#### clearFixedSlots(buildOptions?)
+
+清除所有定坑配置。
+
+##### 参数
+
+- **buildOptions?**: `BuildOptions`
+  - 构建选项
+
+#### appendList(list, buildOptions?)
+
+追加新的数据列表到普通数据列表末尾。
+
+##### 参数
+
+- **list**: `T[]`
+  - 要追加的数据数组
+- **buildOptions?**: `BuildOptions`
+  - 构建选项
+
+#### clearList()
+
+清空普通数据列表。
+
+#### getMixedData(buildOptions?)
+
+获取混合后的数据。
+
+##### 参数
+
+- **buildOptions?**: `Omit<BuildOptions, 'lazy'>`
+  - **mode?**: `'patch' | 'rebuild'`
+    - 构建模式，默认为 `'patch'`
+
+##### 返回值
+
+- **返回值**: `MixedDataItem<T>[]`
+  - 混合后的数据项数组
+
+#### insertSlot(config)
+
+插入数据（插卡模式）。
+
+##### 参数
+
+- **config**: `PickRequired<InputSlotConfig<T>, 'insertMode'>`
+  - **position**: `number`
+    - 插入位置
+  - **data**: `T`
+    - 插入数据
+  - **insertMode**: `'cover' | 'before' | 'after'`
+    - 插入模式
+
+##### 返回值
+
+- **返回值**: `number`
+  - 插入后的实际位置
+
+#### insertSlots(configs)
+
+批量插入数据。
+
+##### 参数
+
+- **configs**: `PickRequired<InputSlotConfig<T>, 'insertMode'>[]`
+  - 插入配置数组
+
+##### 返回值
+
+- **返回值**: `number[]`
+  - 插入后的实际位置数组
+
+#### addEventListener(type, listener, options?)
+
+添加事件监听器。
+
+##### 参数
+
+- **type**: `'change' | 'clear'`
+  - 事件类型
+- **listener**: `DMMEventHandler<T, E> | null`
+  - 事件监听器函数
+- **options?**: `AddEventListenerOptions | boolean`
+  - 事件监听选项
+
+#### removeEventListener(type, listener, options?)
+
+移除事件监听器。
+
+##### 参数
+
+- **type**: `'change' | 'clear'`
+  - 事件类型
+- **listener**: `DMMEventHandler<T, E> | null`
+  - 事件监听器函数
+- **options?**: `EventListenerOptions | boolean`
+  - 事件监听选项
+
+## 最佳实践
+
+### 1. 合理使用批量操作
+
+```ts
+// ✅ 好的做法：批量添加定坑配置
+manager.addFixedSlots([
+  { position: 1, data: 100 },
+  { position: 3, data: 200 },
+  { position: 5, data: 300 },
+]);
+
+// ❌ 不好的做法：多次单独添加
+manager.addFixedSlot({ position: 1, data: 100 });
+manager.addFixedSlot({ position: 3, data: 200 });
+manager.addFixedSlot({ position: 5, data: 300 });
+```
+
+### 2. 使用事件监听响应数据变化
+
+```ts
+// ✅ 好的做法：监听数据变化
+manager.addEventListener('change', (event) => {
+  updateUI(event.detail.mixedData);
+});
+
+// ❌ 不好的做法：手动检查数据变化
+const oldData = manager.getMixedData();
+// ... 操作 ...
+const newData = manager.getMixedData();
+if (JSON.stringify(oldData) !== JSON.stringify(newData)) {
+  updateUI(newData);
+}
+```
+
+### 3. 合理使用重建模式
+
+```ts
+// ✅ 好的做法：在需要时使用重建模式
+manager.addFixedSlot({ position: 2, data: 100 });
+const mixedData = manager.getMixedData({ mode: 'rebuild' });
+
+// ❌ 不好的做法：频繁使用重建模式
+const data1 = manager.getMixedData({ mode: 'rebuild' });
+const data2 = manager.getMixedData({ mode: 'rebuild' });
+```
+
+### 4. 及时清理资源
+
+```ts
+// ✅ 好的做法：组件卸载时清理资源
+onUnmounted(() => {
+  manager.clearList();
+  manager.clearFixedSlots();
+});
+```
+
+## 注意事项
+
+1. **定坑位置基于混合结果**：定坑位置是相对于混合后的数据列表，不是原始数据列表
+2. **操作顺序很重要**：应该先添加定坑配置（`addFixedSlots`），再添加数据（`appendList`），因为 `appendList` 默认会触发数据混合。如果先添加数据后添加定坑配置，定坑数据不会立即混合到已有数据中，需要使用 `rebuild` 模式
+3. **插卡模式触发重建**：使用插卡模式会触发全量重建，可能影响性能
+4. **事件监听清理**：组件卸载时记得移除事件监听器
+5. **批量操作性能**：批量操作比多次单独操作性能更好
+6. **类型安全**：确保定坑数据和普通数据的类型兼容
+7. **位置冲突**：多个定坑配置不建议使用相同的位置
+8. **数据引用**：混合后的数据是新的数组，不会影响原始数据

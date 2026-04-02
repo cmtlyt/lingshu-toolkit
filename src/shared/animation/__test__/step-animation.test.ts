@@ -47,7 +47,7 @@ describe('stepAnimation', () => {
 
   test('应该使用 formatter 格式化值', () => {
     const formatter = (value: number) => Math.round(value);
-    const generator = stepAnimation(0, 100, 4, { formatter });
+    const generator = stepAnimation(0, 100, 4, { formatterValue: formatter });
     const values = Array.from(generator);
     expect(values).toEqual([0, 25, 50, 75, 100]);
   });

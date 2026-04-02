@@ -6,7 +6,16 @@
 
 > author: cmtlyt
 
-## install
+一个用于在组件挂载时执行一次回调函数的 React Hook。它封装了 `useEffect` 的空依赖数组模式，提供了更清晰的语义和更好的可读性。
+
+## 特性
+
+- **只执行一次**：确保回调函数只在组件首次挂载时执行一次
+- **类型安全**：完整的 TypeScript 类型支持
+- **错误处理**：内置错误处理机制，确保回调执行的安全性
+- **引用稳定**：使用 `useRef` 保存回调引用，避免不必要的闭包问题
+
+## 安装
 
 ```bash title="npm"
 npm i @cmtlyt/lingshu-toolkit
@@ -16,10 +25,378 @@ npm i @cmtlyt/lingshu-toolkit
 npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/reactUseMount.json
 ```
 
-## usage
+## 用法
+
+### 基础用法
 
 ```ts
 import { useMount } from '@cmtlyt/lingshu-toolkit/react'
-// or
-import { useMount } from '@cmtlyt/lingshu-toolkit/react/use-mount'
+
+function App() {
+  useMount(() => {
+    console.log('组件已挂载');
+  });
+
+  return <div>Hello World</div>;
+}
 ```
+
+### 数据初始化
+
+```ts
+import { useMount } from '@cmtlyt/lingshu-toolkit/react';
+import { useState } from 'react';
+
+function UserProfile() {
+  const [user, setUser] = useState(null);
+
+  useMount(() => {
+    // 组件挂载时获取用户数据
+    fetchUserData().then(setUser);
+  });
+
+  if (!user) return <div>Loading...</div>;
+  return <div>{user.name}</div>;
+}
+```
+
+### 事件监听注册
+
+```ts
+import { useMount } from '@cmtlyt/lingshu-toolkit/react';
+import { useEffect } from 'react';
+
+function WindowResizeTracker() {
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  const updateSize = () => {
+    setSize({
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
+  };
+
+  useMount(() => {
+    // 注册窗口大小变化监听
+    window.addEventListener('resize', updateSize);
+    updateSize();
+  });
+
+  useEffect(() => {
+    // 组件卸载时清理监听
+    return () => {
+      window.removeEventListener('resize', updateSize);
+    };
+  }, [updateSize]);
+
+  return <div>{size.width} x {size.height}</div>;
+}
+```
+
+### API 请求
+
+```ts
+import { useMount } from '@cmtlyt/lingshu-toolkit/react';
+import { useState } from 'react';
+
+function PostList() {
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useMount(async () => {
+    try {
+      const response = await fetch('https://api.example.com/posts');
+      const data = await response.json();
+      setPosts(data);
+    } catch (error) {
+      console.error('Failed to fetch posts:', error);
+    } finally {
+      setLoading(false);
+    }
+  });
+
+  if (loading) return <div>Loading...</div>;
+  return (
+    <ul>
+      {posts.map(post => (
+        <li key={post.id}>{post.title}</li>
+      ))}
+    </ul>
+  );
+}
+```
+
+### 第三方库初始化
+
+```ts
+import { useMount } from '@cmtlyt/lingshu-toolkit/react';
+
+function ChartComponent() {
+  useMount(() => {
+    // 初始化图表库
+    const chart = new Chart({
+      container: document.getElementById('chart-container'),
+      data: chartData,
+      // ...其他配置
+    });
+
+    // 注意：这里需要配合 useEffect 进行清理
+    return () => {
+      chart.destroy();
+    };
+  });
+
+  return <div id="chart-container" />;
+}
+```
+
+## API
+
+### useMount
+
+```ts
+function useMount(callback: () => any): void
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| callback | `() => any` | 是 | 在组件挂载时执行的回调函数 |
+
+#### 返回值
+
+`void` - 不返回任何值
+
+## 实际使用场景
+
+### 1. 数据预加载
+
+在组件挂载时预加载必要的数据，避免用户等待：
+
+```ts
+function ProductDetail({ productId }) {
+  const [product, setProduct] = useState(null);
+
+  useMount(() => {
+    // 预加载产品详情和相关推荐
+    Promise.all([
+      fetchProduct(productId),
+      fetchRecommendations(productId),
+    ]).then(([productData, recommendations]) => {
+      setProduct(productData);
+      // 处理推荐数据...
+    });
+  });
+
+  // ...
+}
+```
+
+### 2. 权限检查
+
+在组件挂载时检查用户权限：
+
+```ts
+function AdminPanel() {
+  useMount(() => {
+    if (!hasAdminPermission()) {
+      redirectToLogin();
+    }
+  });
+
+  // ...
+}
+```
+
+### 3. 日志记录
+
+记录组件挂载事件用于分析和调试：
+
+```ts
+function AnalyticsComponent() {
+  useMount(() => {
+    analytics.track('component_mounted', {
+      component: 'AnalyticsComponent',
+      timestamp: Date.now(),
+    });
+  });
+
+  // ...
+}
+```
+
+### 4. 定时器设置
+
+设置一次性定时器：
+
+```ts
+function AutoDismiss({ message, duration = 3000 }) {
+  const [visible, setVisible] = useState(true);
+
+  useMount(() => {
+    const timer = setTimeout(() => {
+      setVisible(false);
+    }, duration);
+
+    return () => clearTimeout(timer);
+  });
+
+  if (!visible) return null;
+  return <div className="message">{message}</div>;
+}
+```
+
+## 注意事项
+
+### ⚠️ 不要用于状态更新
+
+不要在 `useMount` 中直接更新依赖其他状态的状态，这可能导致闭包陷阱：
+
+```ts
+// ❌ 错误示例
+function Counter() {
+  const [count, setCount] = useState(0);
+
+  useMount(() => {
+    // 这里的 count 始终是 0
+    setInterval(() => {
+      console.log(count); // 永远打印 0
+    }, 1000);
+  });
+
+  // ...
+}
+
+// ✅ 正确做法
+function Counter() {
+  const countRef = useRef(0);
+
+  useMount(() => {
+    setInterval(() => {
+      console.log(countRef.current); // 使用 ref
+    }, 1000);
+  });
+
+  // ...
+}
+```
+
+### ⚠️ 异步操作需要错误处理
+
+在 `useMount` 中执行异步操作时，务必添加错误处理：
+
+```ts
+// ❌ 错误示例
+useMount(async () => {
+  const data = await fetchData();
+  setData(data);
+});
+
+// ✅ 正确做法
+useMount(async () => {
+  try {
+    const data = await fetchData();
+    setData(data);
+  } catch (error) {
+    console.error('Failed to fetch data:', error);
+    setError(error);
+  }
+});
+```
+
+### ⚠️ 清理副作用
+
+如果 `useMount` 中的回调创建了副作用（如定时器、事件监听器），记得在 `useEffect` 的清理函数中清理：
+
+```ts
+useMount(() => {
+  const timer = setInterval(() => {
+    // 定时任务
+  }, 1000);
+
+  // ❌ 这样无法清理，useMount 不支持清理函数
+  // return () => clearInterval(timer);
+
+  // ✅ 正确做法：使用 useEffect
+});
+
+// ✅ 对于需要清理的副作用，直接使用 useEffect
+useEffect(() => {
+  const timer = setInterval(() => {
+    // 定时任务
+  }, 1000);
+
+  return () => clearInterval(timer);
+}, []);
+```
+
+### ⚠️ 性能考虑
+
+`useMount` 只在组件首次挂载时执行，如果需要在特定依赖变化时执行，请使用 `useEffect`：
+
+```ts
+// ❌ 错误：useMount 不会响应 id 变化
+function UserProfile({ id }) {
+  const [user, setUser] = useState(null);
+
+  useMount(() => {
+    fetchUser(id).then(setUser);
+  });
+
+  // ...
+}
+
+// ✅ 正确：使用 useEffect 响应依赖变化
+function UserProfile({ id }) {
+  const [user, setUser] = useState(null);
+
+  useEffect(() => {
+    fetchUser(id).then(setUser);
+  }, [id]);
+
+  // ...
+}
+```
+
+## 对比
+
+### useMount vs useEffect
+
+| 特性 | useMount | useEffect |
+|------|----------|-----------|
+| 执行时机 | 仅组件首次挂载 | 挂载 + 依赖变化 |
+| 依赖数组 | 无需指定 | 需要指定 |
+| 清理函数 | 不支持 | 支持 |
+| 语义清晰度 | 高（明确表示挂载时执行） | 中（需要空数组表示挂载） |
+| 适用场景 | 一次性初始化 | 响应式副作用 |
+
+### 何时使用 useMount
+
+- ✅ 只需要执行一次的初始化操作
+- ✅ 不需要清理的副作用
+- ✅ 希望代码语义更清晰
+
+### 何时使用 useEffect
+
+- ✅ 需要响应依赖变化
+- ✅ 需要清理副作用
+- ✅ 需要更灵活的控制
+
+## 常见问题
+
+### Q: useMount 和直接写 useEffect(() => {}, []) 有什么区别？
+
+A: 功能上基本相同，但 `useMount` 提供了更好的语义和可读性。它明确表示"在挂载时执行"，而 `useEffect(() => {}, [])` 需要理解空依赖数组的含义。
+
+### Q: 可以在 useMount 中返回清理函数吗？
+
+A: 不可以。`useMount` 不支持清理函数。如果需要清理副作用，请使用 `useEffect`。
+
+### Q: useMount 中的回调函数可以使用 async/await 吗？
+
+A: 可以，但建议添加错误处理机制，确保异步操作的错误能够被捕获和处理。
+
+### Q: useMount 会在组件重新渲染时执行吗？
+
+A: 不会。`useMount` 只在组件首次挂载时执行一次，之后的重新渲染不会触发它。
