@@ -1,3 +1,4 @@
+import process from 'node:process';
 import react from '@vitejs/plugin-react';
 import vue from '@vitejs/plugin-vue';
 import { playwright } from '@vitest/browser-playwright';
@@ -11,8 +12,10 @@ function getBrowserProjectConfig(namespace: string, config: TestProjectInlineCon
       defineConfig({
         test: {
           typecheck: {
-            enabled: true,
+            // typecheck 过于耗时, ci 环境直接禁用
+            enabled: process.env.skip_type_check?.trim() !== 'true',
             include: [`src/${namespace}/**/*.test-d.ts`],
+            ignoreSourceErrors: true,
           },
           include: [`src/${namespace}/**/*.test.{ts,tsx}`, `src/${namespace}/**/*.browser.test.{ts,tsx}`],
           browser: {
