@@ -386,4 +386,20 @@ describe('apiController', () => {
     // @ts-expect-error
     expect(() => paramApiMap.getCustomNameUserCustom(null, { params: { id: 1 } })).toThrowError(TypeError);
   });
+
+  test('param url with number 0', async () => {
+    // 测试 URL 参数为数字 0 的情况
+    const paramApi = createApi(defineApi({ url: 'https://api.example.com/user/:id' }), {}, true);
+
+    // 数字 0 应该被接受为有效参数
+    // @ts-expect-error
+    const result = await paramApi(null, { params: { id: 0 } });
+    expect(result).toEqual({ id: '0', name: 'John Doe' });
+  });
+
+  test('获取非实例属性', () => {
+    const api = createApi(defineApi({ url: 'https://api.example.com/user/:id' }), {}, true);
+    // @ts-expect-error
+    expect(api.url).toBeUndefined();
+  });
 });

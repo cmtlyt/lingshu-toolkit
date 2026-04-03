@@ -61,13 +61,15 @@ export interface BaseAPIConfig<
   method?: RequestMethod | Lowercase<RequestMethod>;
   /**
    * 响应体解析方式
-   * 如果存在 onResponse 的话, 则会使用 onResponse 的返回值, 如果想要屏蔽 onReponse 的继承, 则应该设置 onReponse 为 null
+   * 如果存在 onResponse 的话, 则会使用 onResponse 的返回值, 如果想要屏蔽 onResponse 的继承, 则应该设置 onResponse 为 null
    *
    * @default 'json'
    */
   parser?: Parser;
   /**
    * transform data transfer object
+   *
+   * @tips GET/HEAD 方法因为是无 body 的请求, 不会触发 tdto 的转换
    *
    * @description hook 顺序: tdto -> onRequest -> onResponse/parser -> tvo
    */

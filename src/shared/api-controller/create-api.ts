@@ -52,9 +52,8 @@ export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = 
 
   const proxy = new Proxy(apiMap, {
     get(target, prop: string, receiver) {
-      const instanceValue = instanceMemberGetter(prop, instanceObj);
-      if (instanceValue) {
-        return instanceValue;
+      if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
+        return instanceMemberGetter(prop, instanceObj);
       }
       const isCustom = isString(prop) && prop.endsWith('Custom');
       const name = isCustom ? prop.slice(0, -'Custom'.length) : prop;
@@ -135,9 +134,8 @@ export function createApi<
 
   return new Proxy(handler, {
     get(target, prop: string, receiver) {
-      const instanceValue = instanceMemberGetter(prop, instanceObj);
-      if (instanceValue) {
-        return instanceValue;
+      if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
+        return instanceMemberGetter(prop, instanceObj);
       }
       return Reflect.get(target, prop, receiver);
     },

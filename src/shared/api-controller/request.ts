@@ -1,7 +1,7 @@
 import { throwType } from '@/shared/throw-error';
 import { tryCall } from '@/shared/try-call';
 import { getType } from '@/shared/utils/base';
-import { isFunction, isNullOrUndef } from '@/shared/utils/verify';
+import { isFunction, isNullOrUndef, isPlainNumber } from '@/shared/utils/verify';
 import type { APIConfig, RequestAPIConfig } from './types';
 
 function getBody(data: any, tdto?: APIConfig['tdto']) {
@@ -106,7 +106,7 @@ function urlParamsParser(url: string, params: Record<string, string> | undefined
     }
     const param = urlSplit[i].slice(1);
     const paramValue = params[param];
-    if (!paramValue) {
+    if (!(isPlainNumber(paramValue) || paramValue)) {
       emptyKeys.push(param);
       continue;
     }
