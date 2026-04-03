@@ -6,7 +6,7 @@ export type Pack<T> = { [__PACK__]: T };
 
 export type Unpack<T extends Pack<any>> = T extends Pack<infer U> ? U : never;
 
-export type SafeUnpack<T extends Pack<any>> = T extends Pack<infer U> ? U : T;
+export type SafeUnpack<T> = T extends Pack<infer U> ? U : T;
 
 export type IsPack<T> = Pack<any> extends T ? true : false;
 

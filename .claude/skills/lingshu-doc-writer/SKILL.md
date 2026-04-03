@@ -59,7 +59,10 @@ Before writing any documentation:
 - Note any TypeScript types
 
 **Read the test file ⚠️ CRITICAL:**
-- Find and read the corresponding test file (usually `src/**/__tests__/*.test.ts` or `src/**/*.test.ts`)
+- Find and read the corresponding test file following lingshu-toolkit naming conventions:
+  - Primary pattern: `src/shared/<utils-name>/index.{node,browser}?.test.{ts,tsx}`
+  - Alternative pattern: `src/shared/<utils-name>/__tests__/*.{node,browser}?.test.{ts,tsx}`
+  - Example: `src/shared/api-controller/index.node.test.ts`
 - Analyze test assertions to understand expected behavior
 - Extract usage patterns from test cases
 - **Code examples in documentation must match test assertions**
@@ -69,7 +72,8 @@ Before writing any documentation:
 ```
 User: "Write docs for allx tool"
 → Read src/shared/allx/index.ts
-→ Read src/shared/allx/__tests__/allx.test.ts (or similar)
+→ Read src/shared/allx/*.test.ts (or similar)
+→ Read src/shared/allx/__tests__/*.test.ts (or similar)
 → Identify namespace: shared
 → Understand: Promise.all enhancement with dependency resolution
 → Extract usage patterns from test assertions
@@ -107,63 +111,57 @@ Update existing documentation:
 - Fix outdated information
 - Maintain existing structure
 
-## Step 3: Load MDX Format Reference ⚠️ REQUIRED
+## Step 3: Load References ⚠️ REQUIRED
 
-Always load the format reference before generating content:
+Always load references before generating content:
 
 → Load references/mdx-format.md for:
-- Required sections order
-- Heading levels (##, ###)
-- Code block syntax
-- Metadata format
+- **Complete MDX structure and format** (THIS IS THE SOURCE OF TRUTH)
+- Required sections order and exact headings
+- All section formats with complete examples
+- Heading levels (##, ###, ####)
+- Code block syntax and language specifiers
+- Metadata format and rules
 - Installation command format
+- API reference table structure
+- Notes/注意事项 format
 - Language consistency (中文 for lingshu-toolkit)
+- Quality checklist
+
+→ Load references/terminology.md (optional, for specific needs):
+- Shadcn URL format patterns
+- Namespace conventions
+- Section heading translations
+- Terminology consistency
 
 ## Step 4: Generate Content
 
-### 4.1 Title and Metadata
+⚠️ **CRITICAL**: Follow references/mdx-format.md EXACTLY. This is the source of truth for all format requirements.
 
-Format:
-```mdx
-# tool-name
+**DO NOT duplicate format examples in this SKILL.md.** All format specifications are maintained in references/mdx-format.md to ensure single source of truth.
 
-> package version >X.X.X
->
-> shadcn any version
->
-> author: cmtlyt
+### 4.1-4.6 Section Formats
 
-Brief description of what this tool does.
-```
+For all section formats (Title/Metadata, Features, Installation, Usage Examples, API Reference, Notes/注意事项):
 
-### 4.2 Features/特性 Section
+→ Load references/mdx-format.md and follow the exact format for each section:
+- Section 1: Title and Metadata
+- Section 2: Features/特性
+- Section 3: Installation (## 安装 + ## 用法)
+- Section 4: Usage Examples (## 基础用法 + ## 高级用法)
+- Section 5: API Reference (with tables and subsections)
+- Section 6: Notes/注意事项 (## 注意事项 with ⚠️ and 🔧)
 
-Use bullet points with **bold** for emphasis:
-- **Feature 1**: Description
-- **Feature 2**: Description
-
-### 4.3 Installation Commands
-
-Always include both npm and shadcn:
-```bash title="npm"
-npm i @cmtlyt/lingshu-toolkit
-```
-
-```bash title="shadcn"
-npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/namespaceToolName.json
-```
-
-### 4.4 Usage Examples
+### Content Generation Guidelines
 
 **For --quick:**
-- 1 basic usage example
-- Simple, straightforward code
+- Generate basic structure only
+- Follow mdx-format.md section formats exactly
 
 **For --full:**
-- Basic usage section
-- Advanced examples section
-- Multiple real-world scenarios
-- Each example with clear title
+- Generate complete documentation
+- Include all sections from mdx-format.md
+- Follow all formatting rules exactly
 
 **⚠️ CRITICAL: Generate examples from test files**
 - Read the corresponding test file for the tool/hook
@@ -173,41 +171,6 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/namespaceToolNa
 - If test shows `expect(func(arg)).toBe(42)`, the example must show `func(arg) // 42`
 - Document edge cases that are tested
 - Include error handling examples if tests cover error scenarios
-
-**Code example format:**
-```tsx/ts
-// Brief comment explaining what this does
-function Example() {
-  // Code here
-}
-```
-
-### 4.5 API Reference
-
-**For --quick:**
-- Function signature
-- Parameter list
-- Return value
-
-**For --full:**
-- Function signature
-- Parameter table (| Parameter | Type | Required | Default | Description |)
-- Options table (if applicable)
-- Return value details
-- Type definitions (if complex)
-
-### 4.6 Notes/注意事项
-
-Use ⚠️ for warnings and 🔧 for implementation details:
-```mdx
-### ⚠️ Warning Title
-
-Warning content.
-
-### 🔧 Implementation Detail
-
-Implementation explanation.
-```
 
 ## Step 5: Verify Quality ⚠️ REQUIRED
 
@@ -225,19 +188,22 @@ Before creating the file, verify:
 - **Examples must match test assertions**
 - **Expected outputs must align with test expectations**
 
-### 5.3 Required Sections
-- [ ] Title and metadata
-- [ ] Features/特性
-- [ ] Installation
-- [ ] Usage
-- [ ] API Reference
-- [ ] Notes/注意事项 (for --full)
+### 5.3 Format Compliance
 
-### 5.4 Formatting Consistency
-- Headings: ## for main sections, ### for subsections
-- Code blocks: Proper language specification (tsx, ts, bash)
-- Tables: Proper markdown table syntax
-- Lists: Use - for bullet points
+⚠️ **CRITICAL**: Follow references/mdx-format.md Quality Checklist exactly
+
+→ Load references/mdx-format.md and verify all items in the Quality Checklist section:
+- All required sections present
+- Correct heading levels (##, ###, ####)
+- Proper code block language specified (tsx, ts, bash, mdx)
+- TypeScript types in all examples
+- Chinese for descriptive text
+- Consistent formatting
+- No placeholder text (TODO, FIXME)
+- Code examples are executable
+- Tables properly formatted with headers
+- No trailing whitespace
+- Blank lines between sections
 
 ## Step 6: Create/Update File
 
@@ -263,7 +229,7 @@ Pattern:
 
 Run lint check:
 ```bash
-pnpm run lint
+pnpm run check
 ```
 
 Fix any formatting issues before completing.

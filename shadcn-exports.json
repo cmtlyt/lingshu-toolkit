@@ -52,6 +52,16 @@
       "path": "src/shared/allx/index.ts"
     },
     {
+      "name": "sharedApiController",
+      "author": "cmtlyt",
+      "path": "src/shared/api-controller/index.ts"
+    },
+    {
+      "name": "sharedTryCall",
+      "author": "cmtlyt",
+      "path": "src/shared/try-call/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
       "path": "src/react/use-controllable-value/index.ts"

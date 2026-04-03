@@ -1,0 +1,536 @@
+# apiController
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+
+强大的 API 请求控制器，提供类型安全的 API 定义、请求拦截、响应转换和 Mock 支持。
+
+## 特性
+
+- **类型安全**: 完整的 TypeScript 类型支持，提供智能提示
+- **灵活配置**: 支持多种请求模式和自定义配置
+- **拦截器**: 支持请求前、响应后的数据转换
+- **Mock 支持**: 内置 Mock 模式，方便开发和测试
+- **URL 参数**: 支持 RESTful 风格的 URL 参数
+- **嵌套结构**: 支持嵌套的 API Map 结构
+
+## 安装
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedApiController.json
+```
+
+## 用法
+
+```ts
+import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '@cmtlyt/lingshu-toolkit/shared/api-controller'
+```
+
+## 基础用法
+
+### 创建单个 API
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API 配置
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+// 创建 API 方法
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 创建 API Map
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API Map
+const apiMap = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      method: 'GET',
+    },
+    getList: {
+      url: '/user/list',
+      method: 'GET',
+    },
+  },
+})
+
+// 创建 API 实例
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const userInfo = await api.user.getInfo({ id: '1' })
+console.log(userInfo) // { id: '1', name: 'John Doe' }
+
+const userList = await api.user.getList()
+console.log(userList) // [{ id: '1', name: 'John Doe' }]
+```
+
+## 高级用法
+
+### 数据转换
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  // 请求前转换数据
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+  // 请求拦截
+  onRequest(req, config) {
+    return req.json() as unknown as { id: number }
+  },
+  // 响应后转换数据
+  tvo(data: any) {
+    return { ...data, age: 18 } as { id: string; name: string; age: number }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe', age: 18 }
+```
+
+### 自定义配置请求
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const api = createApiWithMap(
+  defineApiMap({
+    user: {
+      getInfo: {
+        url: '/user',
+        method: 'GET',
+      },
+    },
+  }),
+  {
+    baseUrl: 'https://api.example.com',
+    requestMode: 'test',
+    requestModeMap: {
+      test: (config) => {
+        const { data } = config
+        return { isTestRequest: true, ...(data || {}) } as Record<'isTestRequest' | (string & {}), any>
+      },
+    },
+  },
+)
+
+// 使用自定义配置
+const result = await api.user.getInfoCustom({ id: '1' }, { requestMode: 'network' })
+console.log(result) // { id: '1', name: 'John Doe', age: 18 }
+```
+
+### URL 参数
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义带参数的 URL
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+// 创建自定义请求（URL 参数必须使用 Custom 方法）
+const getUser = createApi(getUserApi, {}, true)
+
+// 调用时传递 params
+const result = await getUser(null, { params: { id: '1' } })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 响应解析
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+// 解析为 JSON（默认）
+const jsonResult = await getUser({ id: '1' })
+console.log(jsonResult) // { id: '1', name: 'John Doe' }
+
+// 解析为文本
+const textResult = await getUserCustom({ id: '1' }, { parser: 'text' })
+console.log(textResult) // '{"id":"1","name":"John Doe"}'
+
+// 解析为流
+const streamResult = await getUserCustom({ id: '1' }, { parser: 'stream' })
+console.log(streamResult) // ReadableStream
+```
+
+### 动态更新 Base URL
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const api = createApiWithMap(
+  defineApiMap({
+    user: {
+      getInfo: { url: '/user' },
+    },
+  }),
+  {
+    baseUrl: 'https://api.example.com',
+  },
+)
+
+// 更新 Base URL
+api.$updateBaseUrl('https://api.example.com/api')
+
+const result = await api.user.getInfo({ id: '1' })
+// 请求地址: https://api.example.com/api/user?id=1
+```
+
+## 使用场景
+
+### RESTful API 封装
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const userApi = defineApiMap({
+  user: {
+    getById: { url: '/user/:id', method: 'GET' },
+    create: { url: '/user', method: 'POST' },
+    update: { url: '/user/:id', method: 'PUT' },
+    delete: { url: '/user/:id', method: 'DELETE' },
+  },
+})
+
+const api = createApiWithMap(userApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 获取用户
+const user = await api.user.getByIdCustom(null, { params: { id: '1' } })
+
+// 创建用户
+const created = await api.user.create({ name: 'John', email: 'john@example.com' })
+
+// 更新用户
+const updated = await api.user.updateCustom(
+  { name: 'John Doe' },
+  { params: { id: '1' } },
+)
+
+// 删除用户
+const deleted = await api.user.deleteCustom(null, { params: { id: '1' } })
+```
+
+### Mock 数据开发
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const mockApi = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      onRequest() {
+        return { id: '1', name: 'Mock User' }
+      },
+    },
+  },
+})
+
+const api = createApiWithMap(mockApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+// 使用 Mock 数据
+const result = await api.user.getInfo({ id: '1' })
+console.log(result) // { id: '1', name: 'Mock User' }
+```
+
+## 最佳实践
+
+### 1. 使用 defineApi 和 defineApiMap 获取更好的类型提示
+
+```ts
+// ✅ 好的做法：使用 defineApi
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+// ❌ 不好的做法：直接使用对象
+const getUserApi = {
+  url: '/user',
+  method: 'GET',
+}
+```
+
+### 2. 统一管理 API 配置
+
+```ts
+// ✅ 好的做法：集中定义所有 API
+const apiMap = defineApiMap({
+  user: {
+    getInfo: { url: '/user' },
+    getList: { url: '/user/list' },
+  },
+  order: {
+    getById: { url: '/order/:id' },
+  },
+})
+
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+```
+
+### 3. 使用 tdto 和 tvo 进行数据转换
+
+```ts
+// ✅ 好的做法：使用转换函数
+const getUserApi = defineApi({
+  url: '/user',
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+  tvo(data: any) {
+    return { ...data, createdAt: new Date(data.createdAt) }
+  },
+})
+
+// ❌ 不好的做法：在调用时手动转换
+const result = await getUser({ id: Number(id) })
+```
+
+### 4. URL 参数必须使用 Custom 方法
+
+```ts
+// ✅ 好的做法：URL 参数使用 Custom 方法
+const getUser = createApi(defineApi({ url: '/user/:id' }), {}, true)
+await getUser(null, { params: { id: '1' } })
+
+// ❌ 不好的做法：普通方法不支持 URL 参数
+const getUser = createApi(defineApi({ url: '/user/:id' }))
+// 这会抛出错误
+```
+
+### 5. 使用实例属性获取配置
+
+```ts
+// ✅ 好的做法：通过 $ 属性获取配置
+const apiConfig = api.user.getInfo.$
+const defaultConfig = api.user.getInfo.$
+
+// 可以基于配置创建新的 API
+const newApi = createApi(apiConfig, defaultConfig)
+```
+
+## API Reference
+
+### createApi
+
+创建单个 API 请求方法。
+
+```ts
+function createApi<A extends APIConfig, D extends DefaultAPIConfig = DefaultAPIConfig, C extends boolean = false>(
+  api: A,
+  defaultConfig?: D,
+  custom?: C
+): APITransformMethod<A, D, C>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| api | `APIConfig` | 是 | undefined | API 配置对象 |
+| defaultConfig | `DefaultAPIConfig` | 否 | undefined | 默认配置 |
+| custom | `boolean` | 否 | false | 是否为自定义请求（用于 URL 参数） |
+
+#### 返回值
+
+返回一个可调用的 API 方法，支持 `、`$`、`$r` 属性和 `$updateBaseUrl` 方法。
+
+### createApiWithMap
+
+创建 API Map 请求对象。
+
+```ts
+function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = DefaultAPIConfig>(
+  apiMap: M,
+  defaultConfig?: D
+): APIMapTransformMethods<M, D>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| apiMap | `APIMap` | 是 | undefined | API Map 配置对象 |
+| defaultConfig | `DefaultAPIConfig` | 否 | undefined | 默认配置 |
+
+#### 返回值
+
+返回一个代理对象，支持嵌套访问和 `Custom` 后缀的自定义请求方法。
+
+### defineApi
+
+定义 API 配置，获取更好的类型提示。
+
+```ts
+function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: A): A
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| _api | `DefineAPIConfig` | 是 | undefined | API 配置对象 |
+
+#### 返回值
+
+返回配置对象，标记为已定义，提供更好的类型推断。
+
+### defineApiMap
+
+定义 API Map 配置，获取更好的类型提示。
+
+```ts
+function defineApiMap<U extends string, A extends APIMap<U>>(_apiMap: A): A
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| _apiMap | `APIMap` | 是 | undefined | API Map 配置对象 |
+
+#### 返回值
+
+返回配置对象，标记为已定义，提供更好的类型推断。
+
+### request
+
+基础请求方法。
+
+```ts
+function request<R, C extends RequestAPIConfig<any, R> = RequestAPIConfig<any, R>>(config: C): Promise<R>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| config | `RequestAPIConfig` | 是 | undefined | 请求配置对象 |
+
+#### 返回值
+
+返回 Promise，解析为响应数据。
+
+### APIConfig
+
+API 配置接口。
+
+```ts
+interface APIConfig<Input = any, Output = any, ReqOutput = any, ResOutput = any, DefaultConfig extends DefaultAPIConfig = DefaultAPIConfig, ReqModeMapKeys extends string = string & {}, Url extends string = string> extends RequestInit {
+  url: Url
+  params?: Record<URLParamParser<Url>, string>
+  requestMode?: RequestMode<ReqModeMapKeys>
+  method?: RequestMethod | Lowercase<RequestMethod>
+  parser?: Parser
+  tdto?: ((data: Input) => any) | null
+  tvo?: ((data: Awaited<FindNonAny<[ResOutput, ReturnType<NonNullable<DefaultConfig['onResponse']>>]>>) => Output) | null
+  onRequest?: ((req: Request, config: RequestAPIConfig<Input, Output, ReqOutput, ResOutput, ReqModeMapKeys>) => ReqOutput) | null
+  onResponse?: ((res: Response, config: RequestAPIConfig<Input, Output, ReqOutput, ResOutput, ReqModeMapKeys>) => ResOutput) | null
+}
+```
+
+### DefaultAPIConfig
+
+默认配置接口。
+
+```ts
+interface DefaultAPIConfig<Input = any, Output = any, ReqOutput = any, ResOutput = any, ReqModeMapKeys extends string = string & {}> extends Omit<BaseAPIConfig<Input, Output, ReqOutput, ResOutput, DefaultAPIConfig, ReqModeMapKeys>, 'url'> {
+  baseUrl?: string
+  requestModeMap?: Record<ReqModeMapKeys, (config: RequestAPIConfig<Input, Output, ReqOutput, ResOutput, ReqModeMapKeys>) => any>
+}
+```
+
+## 注意事项
+
+### ⚠️ URL 参数
+
+- URL 中包含 `/:param` 格式的参数时，必须使用 `Custom` 方法调用
+- 普通方法不支持 URL 参数，会抛出 `TypeError`
+- 调用时必须通过 `params` 选项传递参数值
+
+### ⚠️ 类型提示
+
+- 建议使用 `defineApi` 和 `defineApiMap` 定义配置，以获得更好的类型提示
+- 不使用 `defineApi` 定义带参数的 URL 时，会输出警告信息
+
+### ⚠️ 请求模式
+
+- `mock` 模式会使用 `onRequest` 返回的数据作为响应
+- `network` 模式会发送真实的网络请求
+- 可以通过 `requestModeMap` 自定义请求模式
+
+### ⚠️ 响应解析
+
+- 默认使用 `json` 解析器
+- `parser` 为 `stream` 时返回 `ReadableStream`
+- `onResponse` 会覆盖 `parser` 的解析方式
+
+### 🔧 Hook 执行顺序
+
+数据转换 Hook 的执行顺序：
+1. `tdto` - 请求前转换数据
+2. `onRequest` - 请求拦截
+3. `onResponse/parser` - 响应拦截/解析
+4. `tvo` - 响应后转换数据
+
+### ⚠️ 实例属性
+
+- `$` - 获取 API 配置对象
+- `$$` - 获取默认配置
+- `$$r` - 获取实际应用的默认配置
+- `$updateBaseUrl` - 动态更新 Base URL
