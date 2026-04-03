@@ -36,7 +36,11 @@ export default mergeConfig(
   defineConfig({
     test: {
       projects: [
-        getBrowserProjectConfig('shared'),
+        getBrowserProjectConfig('shared', {
+          test: {
+            exclude: ['src/shared/**/*.node.test.{ts,tsx}'],
+          },
+        }),
         // shared node test
         getBrowserProjectConfig('shared', {
           test: {

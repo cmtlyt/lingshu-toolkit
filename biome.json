@@ -137,7 +137,7 @@
         "noUndeclaredDependencies": {
           "level": "off",
           "options": {
-            "devDependencies": ["vitest.config.ts", "**/tests/*.{spec,test,bench}.{js,ts,jsx,tsx}", "./*.{ts,js}"]
+            "devDependencies": ["vitest.config.ts", "**/__test__/*.{spec,test,bench}.{js,ts,jsx,tsx}", "./*.{ts,js}"]
           }
         },
         "noUndeclaredVariables": {
@@ -501,7 +501,7 @@
   "overrides": [
     {
       "includes": [
-        "**/tests/**",
+        "**/__test__/**",
         "**/stories/**",
         ".storybook/**",
         "**/*.test.{js,ts,jsx,tsx}",

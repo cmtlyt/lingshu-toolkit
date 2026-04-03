@@ -48,5 +48,15 @@
     "type": "file",
     "label": "allx",
     "name": "allx/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "apiController",
+    "name": "api-controller/index.mdx"
+  },
+  {
+    "type": "file",
+    "label": "tryCall",
+    "name": "try-call/index.mdx"
   }
 ]

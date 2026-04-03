@@ -13,11 +13,13 @@ export default defineConfig({
     coverage: {
       include: ['src/**'],
       exclude: [
+        'src/**/__test__/*',
         'src/**/*.test.{ts,tsx}',
         'src/**/*.{mdx,md}',
         'src/**/*.test-d.{ts,tsx}',
         'src/{test,public}/**',
-        'src/**/*.test.browser.{ts,tsx}',
+        'src/**/*.browser.test.{ts,tsx}',
+        'src/**/*.node.test.{ts,tsx}',
       ],
       provider: 'v8',
       cleanOnRerun: false,
