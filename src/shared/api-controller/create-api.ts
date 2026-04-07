@@ -5,34 +5,15 @@ import { isString, isTrue } from '@/shared/utils/verify';
 import { request } from './request';
 import type {
   APIConfig,
-  APIInstance,
   APIMap,
   APIMapTransformMethods,
   APITransformMethod,
   DefaultAPIConfig,
   DefineAPIConfig,
 } from './types';
+import { apiNamesCheck, createInstance, getInstanceMemberOrApi, instanceMemberGetter } from './utils';
 
 const FROM_DEFINE = Symbol('fromDefine');
-
-function instanceMemberGetter(prop: string, instanceObj: Record<string, any>) {
-  return instanceObj[prop];
-}
-
-function createInstance(
-  apiMap: APIConfig | APIMap,
-  realDefaultConfig: DefaultAPIConfig,
-  defaultConfig?: DefaultAPIConfig,
-) {
-  return {
-    $: apiMap,
-    $$: defaultConfig as any,
-    $$r: realDefaultConfig,
-    $updateBaseUrl(baseUrl) {
-      realDefaultConfig.baseUrl = baseUrl;
-    },
-  } satisfies APIInstance<any, any>;
-}
 
 /**
  * 通过 API config map 创建请求对象
@@ -49,22 +30,27 @@ export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = 
   const proxyCache: Record<string, any> = Object.create(null);
   const realDefaultConfig = defaultConfig || {};
 
+  if (!isTrue(fromDefine)) {
+    apiNamesCheck(apiMap);
+  }
+
   const instanceObj = createInstance(apiMap, realDefaultConfig, defaultConfig);
 
   const proxy = new Proxy(apiMap, {
     get(target, prop: string, receiver) {
-      if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
-        return instanceMemberGetter(prop, instanceObj);
-      }
-      const hasExactProp = isString(prop) && Reflect.has(target, prop);
-      const isCustom = isString(prop) && prop.endsWith('Custom') && !hasExactProp;
-      const name = isCustom ? prop.slice(0, -'Custom'.length) : prop;
-      if (!Reflect.getOwnPropertyDescriptor(target, name)) {
-        return void 0;
-      }
-      const api = Reflect.get(target, name, receiver);
       if (Reflect.getOwnPropertyDescriptor(proxyCache, prop)) {
         return proxyCache[prop];
+      }
+      const {
+        instanceMember,
+        api,
+        isCustom = false,
+      } = getInstanceMemberOrApi(target, prop, receiver, instanceObj) || {};
+      if (instanceMember) {
+        return instanceMember;
+      }
+      if (!api) {
+        return void 0;
       }
       let result: any = null;
       if (isString(api.url)) {
@@ -160,5 +146,6 @@ export function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: 
  * @warn 不应该被复用, 如果希望复用的话请使用 apiInstance.$
  */
 export function defineApiMap<U extends string, A extends APIMap<U>>(_apiMap: A): A {
+  apiNamesCheck(_apiMap);
   return { ..._apiMap, [FROM_DEFINE]: true };
 }

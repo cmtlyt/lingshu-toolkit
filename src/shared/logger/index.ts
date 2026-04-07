@@ -6,8 +6,17 @@ type Logger = {
     : never;
 };
 
+declare global {
+  var $$lingshu$$: {
+    disableLogger: boolean;
+  };
+}
+
 export const logger = new Proxy(console, {
   get(target, prop, receiver) {
+    if ((globalThis.$$lingshu$$ || {}).disableLogger) {
+      return () => void 0;
+    }
     const oldLog = Reflect.get(target, prop, receiver).bind(console);
     return (fnName: string, ...args: any) => {
       oldLog(`[@cmtlyt/lingshu-toolkit#${fnName}]:`, ...args);

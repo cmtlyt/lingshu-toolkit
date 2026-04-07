@@ -1,39 +1,8 @@
 import { throwType } from '@/shared/throw-error';
 import { tryCall } from '@/shared/try-call';
-import { getType } from '@/shared/utils/base';
-import { isFunction, isNullOrUndef, isPlainNumber } from '@/shared/utils/verify';
-import type { APIConfig, RequestAPIConfig } from './types';
-
-function getBody(data: any, tdto?: APIConfig['tdto']) {
-  const _body = tdto ? tdto(data) : data;
-  const bodyType = getType(_body);
-  switch (bodyType) {
-    case 'object':
-    case 'array':
-    case 'number':
-    case 'boolean':
-    case 'function':
-      return JSON.stringify(_body);
-    default:
-      return _body;
-  }
-}
-
-function targetUrlParser(_url: string, _baseUrl: string | undefined) {
-  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(_url)) {
-    return new URL(_url);
-  }
-  const tempBaseUrl = _baseUrl || (globalThis.location || {}).origin;
-  let url = _url;
-  let baseUrl: string | URL | undefined = tempBaseUrl;
-  if (tempBaseUrl) {
-    baseUrl = new URL(tempBaseUrl);
-    const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/, '');
-    const relativePath = _url.startsWith('/') ? _url : `/${_url}`;
-    url = `${basePath}${relativePath}`;
-  }
-  return new URL(url || '/', baseUrl);
-}
+import { isFunction, isNullOrUndef } from '@/shared/utils/verify';
+import type { RequestAPIConfig } from './types';
+import { getBody, targetUrlParser, urlParamsParser } from './utils';
 
 async function baseRequest<R, C extends RequestAPIConfig<any, R> = RequestAPIConfig<any, R>>(
   config: C,
@@ -91,37 +60,6 @@ async function mockRequest<R, C extends RequestAPIConfig<any, R> = RequestAPICon
 
 async function networkRequest<R, C extends RequestAPIConfig<any, R> = RequestAPIConfig<any, R>>(config: C): Promise<R> {
   return baseRequest<R>(config, fetch);
-}
-
-function urlParamsParser(url: string, params: Record<string, string> | undefined) {
-  if (!url.includes('/:')) {
-    return url;
-  }
-  if (!params) {
-    throwType(
-      'apiController.parseParams',
-      'url 中存在 params 参数, params 配置不能为空, 请使用 custom 方法调用并传递 params 配置',
-    );
-  }
-  const urlSplit = url.split('/');
-  const emptyKeys: string[] = [];
-  for (let i = 1; i < urlSplit.length; ++i) {
-    if (urlSplit[i][0] !== ':') {
-      continue;
-    }
-    const param = urlSplit[i].slice(1);
-    const originValue = params[param];
-    if (!(isPlainNumber(originValue) || originValue)) {
-      emptyKeys.push(param);
-      continue;
-    }
-    const paramValue = encodeURIComponent(String(originValue));
-    urlSplit[i] = paramValue;
-  }
-  if (emptyKeys.length) {
-    throwType('apiController.parseParams', `params 配置中缺少 [${emptyKeys.join(', ')}] 参数`);
-  }
-  return urlSplit.join('/');
 }
 
 /**
