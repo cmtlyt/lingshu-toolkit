@@ -1,7 +1,7 @@
 import { logger } from '@/shared/logger';
 import { throwType } from '@/shared/throw-error';
 import type { AnyFunc } from '@/shared/types/base';
-import { isNullOrUndef, isString, isTrue } from '@/shared/utils/verify';
+import { isString, isTrue } from '@/shared/utils/verify';
 import { request } from './request';
 import type {
   APIConfig,
@@ -46,7 +46,7 @@ export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = 
 ): APIMapTransformMethods<M, D> {
   const fromDefine = (apiMap as any)[FROM_DEFINE];
   delete (apiMap as any)[FROM_DEFINE];
-  const proxyCache: Record<string, any> = {};
+  const proxyCache: Record<string, any> = Object.create(null);
   const realDefaultConfig = defaultConfig || {};
 
   const instanceObj = createInstance(apiMap, realDefaultConfig, defaultConfig);
@@ -59,11 +59,11 @@ export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = 
       const hasExactProp = isString(prop) && Reflect.has(target, prop);
       const isCustom = isString(prop) && prop.endsWith('Custom') && !hasExactProp;
       const name = isCustom ? prop.slice(0, -'Custom'.length) : prop;
-      const api = Reflect.get(target, name, receiver);
-      if (isNullOrUndef(api)) {
+      if (!Reflect.getOwnPropertyDescriptor(target, name)) {
         return void 0;
       }
-      if (proxyCache[prop]) {
+      const api = Reflect.get(target, name, receiver);
+      if (Reflect.getOwnPropertyDescriptor(proxyCache, prop)) {
         return proxyCache[prop];
       }
       let result: any = null;
@@ -149,6 +149,7 @@ export function createApi<
 
 /**
  * 定义 API, ts 支持, 获取更好的类型声明
+ * @warn 不应该被复用, 如果希望复用的话请使用 apiInstance.$
  */
 export function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: A): A {
   return { ..._api, [FROM_DEFINE]: true };
@@ -156,6 +157,7 @@ export function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: 
 
 /**
  * 定义 API map, ts 支持, 获取更好的类型声明
+ * @warn 不应该被复用, 如果希望复用的话请使用 apiInstance.$
  */
 export function defineApiMap<U extends string, A extends APIMap<U>>(_apiMap: A): A {
   return { ..._apiMap, [FROM_DEFINE]: true };

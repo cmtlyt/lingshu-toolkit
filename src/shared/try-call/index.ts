@@ -5,11 +5,11 @@ type TryCallResultValue<R, E> = Awaited<[E] extends [never] ? R : R | E>;
 
 type TryCallResult<R, E> = [R] extends [never]
   ? E
-  : R extends Promise<infer P>
+  : R extends PromiseLike<infer P>
     ? Promise<TryCallResultValue<P, E>>
     : TryCallResultValue<R, E>;
 
-type TryCallFinalArgs<R, E> = Awaited<[E] extends [never] ? R | Error : R | E>;
+type TryCallFinalArgs<R, E> = TryCallResultValue<R, E> | Error;
 
 const EMPTY = Symbol('EMPTY');
 
@@ -49,7 +49,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
     return ctx.errorResult;
   };
 
-  const finallyFn = (self: any, ctx: TryCallCtx) => {
+  const finallyFn = (self: any, ctx: TryCallCtx, result: any) => {
     try {
       if (ctx.error !== EMPTY) {
         throw ctx.error;
@@ -61,7 +61,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
         } else if (ctx.error !== EMPTY) {
           Reflect.apply(onFinal, self, [ctx.error]);
         } else {
-          Reflect.apply(onFinal, self, [ctx.oriResult]);
+          Reflect.apply(onFinal, self, [result]);
         }
       }
     }
@@ -92,12 +92,12 @@ export function tryCallFunc<A extends any[], R, E = never>(
     if (isPromiseLike(ctx.oriResult)) {
       // 如果原始结果是 promise 则等待完成再调用 finally
       return fnPromise.then((result) => {
-        finallyFn(this, ctx);
+        finallyFn(this, ctx, result);
         return result;
       });
     }
 
-    finallyFn(this, ctx);
+    finallyFn(this, ctx, ctx.oriResult);
     return ctx.oriResult !== EMPTY ? (ctx.oriResult as any) : ctx.errorResult;
   };
 }

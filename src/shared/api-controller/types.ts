@@ -19,7 +19,7 @@ interface ParserResultMap<UserR = Empty> {
   arrayBuffer: ArrayBuffer;
   formData: FormData;
   bytes: Uint8Array;
-  stream: ReadableStream;
+  stream: ReadableStream | null;
 }
 
 type ParserResult<P extends Parser, UserR = Empty> = P extends keyof ParserResultMap

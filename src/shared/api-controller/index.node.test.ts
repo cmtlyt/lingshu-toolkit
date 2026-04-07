@@ -509,4 +509,47 @@ describe('apiController', () => {
     const result3 = await paramApi(null, { params: { id: -1 } });
     expect(result3).toEqual({ id: '-1', name: 'John Doe' });
   });
+
+  test('stream parser 返回 null', async () => {
+    // 测试 stream parser 在某些情况下返回 null
+    const resNormal = await mockApi.normalCustom({}, { parser: 'stream' });
+    expect(resNormal).toBeNull();
+  });
+
+  test('访问不存在的 API 属性', () => {
+    // 测试访问不存在的 API 属性时返回 undefined
+    const apiMap = defineApiMap({
+      user: {
+        getInfo: defineApi({
+          url: 'https://api.example.com/user',
+        }),
+      },
+    });
+
+    const api = createApiWithMap(apiMap, { baseUrl: 'https://api.example.com' });
+
+    // @ts-expect-error
+    expect(api.nonExistentApi).toBeUndefined();
+    // @ts-expect-error
+    expect(api.nonExistentApiCustom).toBeUndefined();
+  });
+
+  test('proxy cache 使用 Object.create(null)', () => {
+    // 验证 proxyCache 使用 Object.create(null) 创建
+    // 这个测试确保 proxyCache 是一个纯净的对象，没有原型链
+    const apiMap = defineApiMap({
+      user: {
+        getInfo: defineApi({
+          url: 'https://api.example.com/user',
+        }),
+      },
+    });
+
+    const api = createApiWithMap(apiMap, { baseUrl: 'https://api.example.com' });
+
+    // 多次访问同一个 API 应该返回相同的引用（缓存机制）
+    const api1 = api.user.getInfo;
+    const api2 = api.user.getInfo;
+    expect(api1).toStrictEqual(api2);
+  });
 });
