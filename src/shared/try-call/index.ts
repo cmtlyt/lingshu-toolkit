@@ -1,7 +1,23 @@
+import { throwType } from '@/shared/throw-error';
 import { isFunction, isPromiseLike } from '@/shared/utils/verify';
-import { throwType } from '../throw-error';
 
-type TryCallResult<R, E> = [E] extends [never] ? (R extends Promise<any> ? Promise<Awaited<R>> : R) : R | E;
+type TryCallResultValue<R, E> = Awaited<[E] extends [never] ? R : R | E>;
+
+type TryCallResult<R, E> = [R] extends [never]
+  ? E
+  : R extends Promise<infer P>
+    ? Promise<TryCallResultValue<P, E>>
+    : TryCallResultValue<R, E>;
+
+type TryCallFinalArgs<R, E> = Awaited<[E] extends [never] ? R | Error : R | E>;
+
+const EMPTY = Symbol('EMPTY');
+
+interface TryCallCtx {
+  oriResult: any;
+  errorResult: any;
+  error: any;
+}
 
 /**
  * 包装一个拦截错误的函数
@@ -14,67 +30,75 @@ type TryCallResult<R, E> = [E] extends [never] ? (R extends Promise<any> ? Promi
 export function tryCallFunc<A extends any[], R, E = never>(
   cb: (...args: A) => R,
   onError?: ((err: any) => E) | null,
-  onFinal?: (result: TryCallResult<R, E>) => void,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
 ): (...args: A) => TryCallResult<R, E> {
   if (!isFunction(cb)) {
     throwType('tryCallFunc', 'callback is not a function');
   }
 
-  let result = void 0 as TryCallResult<R, E>;
+  const catchFn = (self: any, ctx: TryCallCtx, error: any) => {
+    if (isFunction(onError)) {
+      try {
+        ctx.errorResult = Reflect.apply(onError, self, [error]);
+      } catch (err) {
+        ctx.error = err;
+      }
+    } else {
+      ctx.error = error;
+    }
+    return ctx.errorResult;
+  };
 
-  const tryFn = function (this: any, args: A) {
-    result = Reflect.apply(cb, this, args) as any;
-    if (isPromiseLike(result) && isFunction(onError)) {
-      result = (result as unknown as Promise<any>).catch(onError) as any;
+  const finallyFn = (self: any, ctx: TryCallCtx) => {
+    try {
+      if (ctx.error !== EMPTY) {
+        throw ctx.error;
+      }
+    } finally {
+      if (isFunction(onFinal)) {
+        if (ctx.errorResult !== EMPTY) {
+          Reflect.apply(onFinal, self, [ctx.errorResult]);
+        } else if (ctx.error !== EMPTY) {
+          Reflect.apply(onFinal, self, [ctx.error]);
+        } else {
+          Reflect.apply(onFinal, self, [ctx.oriResult]);
+        }
+      }
     }
   };
 
-  const catchFn = (error: any) => {
-    result = onError!(error) as any;
-  };
-
-  const finallyFn = () => {
-    onFinal!(result);
-  };
-
-  if (isFunction(onFinal) && isFunction(onError)) {
-    return function (this: any, ...args) {
-      try {
-        Reflect.apply(tryFn, this, [args]);
-      } catch (e) {
-        catchFn(e);
-      } finally {
-        finallyFn();
-      }
-      return result;
+  return function (this: any, ...args: A) {
+    const ctx = {
+      oriResult: EMPTY as R,
+      errorResult: EMPTY as E,
+      error: EMPTY as any,
     };
-  }
 
-  if (isFunction(onError)) {
-    return function (this: any, ...args) {
+    const asyncFn = async () => {
       try {
-        Reflect.apply(tryFn, this, [args]);
-      } catch (e) {
-        catchFn(e);
+        ctx.oriResult = Reflect.apply(cb, this, args);
+        // 如果是 promise 状态会被吸收, 否则 promise 直接完成
+        return ctx.oriResult;
+      } catch (error) {
+        return catchFn(this, ctx, error);
       }
-      return result;
     };
-  }
 
-  if (isFunction(onFinal)) {
-    return function (this: any, ...args) {
-      try {
-        Reflect.apply(tryFn, this, [args]);
-      } finally {
-        finallyFn();
-      }
-      return result;
-    };
-  }
+    const fnPromise = asyncFn().catch((error) => {
+      // 捕获异步任务中抛出的错误, 包括异步任务中的同步错误
+      return catchFn(this, ctx, error);
+    });
 
-  return function (this: any, ...args) {
-    Reflect.apply(tryFn, this, [args]);
-    return result;
+    if (isPromiseLike(ctx.oriResult)) {
+      // 如果原始结果是 promise 则等待完成再调用 finally
+      return fnPromise.then((result) => {
+        finallyFn(this, ctx);
+        return result;
+      });
+    }
+
+    finallyFn(this, ctx);
+    return ctx.oriResult !== EMPTY ? (ctx.oriResult as any) : ctx.errorResult;
   };
 }
 
@@ -90,7 +114,7 @@ export function tryCall<R, E = never>(
   this: any,
   cb: () => R,
   onError?: ((err: any) => E) | null,
-  onFinal?: (result: TryCallResult<R, E>) => void,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
 ): TryCallResult<R, E> {
   if (!isFunction(cb)) {
     throwType('tryCall', 'callback is not a function');

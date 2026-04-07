@@ -188,14 +188,8 @@ function useForceUpdate(): ForceUpdateFunction
    - 使用 Context API 管理共享状态
    - 使用状态管理库（如 Redux、Zustand 等）
 
-### 🔧 实现原理
+### 🔧 执行机制
 
-`useForceUpdate` 内部使用 `useReducer` 实现：
-
-```ts
-const [, forceUpdate] = useReducer((prev) => (prev + 1) % 10, 0)
-```
-
-- `useReducer` 每次都会返回新的状态引用
-- 使用计数器模 10 避免数值无限增长
-- 实际上并不使用状态值，只利用其触发重新渲染的副作用
+- 内部使用计数器机制触发组件重新渲染
+- 自动管理计数器以避免数值无限增长
+- 不依赖状态值，仅利用触发重新渲染的副作用

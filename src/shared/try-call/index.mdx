@@ -152,6 +152,54 @@ await tryCall(async () => {
 }) // 抛出 Error
 ```
 
+### 错误传播
+
+```ts
+// onError 中抛出错误会覆盖原始错误
+tryCall(
+  () => {
+    throw new Error('error1')
+  },
+  () => {
+    throw new Error('error2')
+  },
+) // 抛出 Error: error2
+
+// onFinal 中抛出错误会覆盖所有之前的错误
+tryCall(
+  () => {
+    throw new Error('error1')
+  },
+  (err) => err,
+  () => {
+    throw new Error('error3')
+  },
+) // 抛出 Error: error3
+```
+
+### 执行顺序
+
+```ts
+const order: string[] = []
+
+tryCall(
+  () => {
+    order.push('1: 执行函数')
+    return 'result'
+  },
+  (err) => {
+    order.push('2: onError')
+    return err
+  },
+  (result) => {
+    order.push(`3: onFinal - ${result}`)
+  },
+)
+
+console.log(order)
+// ['1: 执行函数', '3: onFinal - result']
+```
+
 ## API Reference
 
 ### tryCall
@@ -172,7 +220,7 @@ function tryCall<R, E = never>(
 |------|------|------|--------|------|
 | cb | `() => R` | 是 | undefined | 要调用的函数，可以是同步或异步 |
 | onError | `(err: any) => E \| null` | 否 | undefined | 错误处理函数，接收错误并返回默认值 |
-| onFinal | `(result: TryCallResult<R, E>) => void` | 否 | undefined | 最终回调函数，接收执行结果 |
+| onFinal | `(result: TryCallFinalArgs<R, E>) => void` | 否 | undefined | 最终回调函数，接收执行结果或错误 |
 
 #### 返回值
 
@@ -196,7 +244,7 @@ function tryCallFunc<A extends any[], R, E = never>(
 |------|------|------|--------|------|
 | cb | `(...args: A) => R` | 是 | undefined | 要包装的函数 |
 | onError | `(err: any) => E \| null` | 否 | undefined | 错误处理函数 |
-| onFinal | `(result: TryCallResult<R, E>) => void` | 否 | undefined | 最终回调函数 |
+| onFinal | `(result: TryCallFinalArgs<R, E>) => void` | 否 | undefined | 最终回调函数，接收执行结果或错误 |
 
 #### 返回值
 
@@ -205,12 +253,20 @@ function tryCallFunc<A extends any[], R, E = never>(
 ### 类型定义
 
 ```ts
-type TryCallResult<R, E> = [E] extends [never]
-  ? (R extends Promise<any> ? Promise<Awaited<R>> : R)
-  : R | E
+type TryCallResult<R, E> = [R] extends [never]
+  ? E
+  : R extends Promise<infer P>
+    ? Promise<TryCallResultValue<P, E>>
+    : TryCallResultValue<R, E>
+
+type TryCallResultValue<R, E> = Awaited<[E] extends [never] ? R : R | E>
+
+type TryCallFinalArgs<R, E> = Awaited<[E] extends [never] ? R | Error : R | E>
 ```
 
-当没有提供错误类型 `E` 时，返回值类型为 `R`（如果是 Promise 则返回 Promise 的解析值）；当提供错误类型 `E` 时，返回值类型为 `R | E`。
+- `TryCallResult<R, E>`: 函数返回值类型，支持同步和异步
+- `TryCallResultValue<R, E>`: 解析后的结果值类型
+- `TryCallFinalArgs<R, E>`: `onFinal` 回调接收的参数类型
 
 ## 使用场景
 
@@ -382,17 +438,26 @@ const result = tryCall(
 - 如果不提供 `onError` 参数，函数执行过程中的错误会被抛出
 - 对于异步函数，如果不提供 `onError`，错误会以 rejected Promise 的形式抛出
 - 对于异步函数，提供 `onError` 后，错误会被捕获并转换为 resolved Promise
+- `onError` 中抛出的错误会覆盖原始错误
+- `onFinal` 中抛出的错误会覆盖所有之前的错误
 
 ### ⚠️ 类型检查
 
 - `cb` 参数必须是函数类型，否则会抛出 `TypeError`
 - 类型系统会在编译时检查函数参数和返回值的类型
 
-### 🔧 实现细节
+### ⚠️ 执行顺序
 
-- 使用 `Reflect.apply` 调用函数，确保正确的 `this` 上下文
-- 对于异步函数，使用 `Promise.catch` 捕获错误
-- 根据是否提供 `onError` 和 `onFinal`，生成不同的函数实现以优化性能
+- 同步函数：执行函数 → onError（如果有错误）→ onFinal
+- 异步函数：执行函数 → 等待 Promise → onError（如果有错误）→ onFinal
+- `onFinal` 总是会被调用，无论成功或失败
+- `onFinal` 接收的参数优先级：errorResult > error > oriResult
+
+### 🔧 执行机制
+
+- 函数调用时会自动处理 `this` 上下文绑定
+- 异步函数的错误会被自动捕获并转换为 Promise 结果
+- `onFinal` 回调会在函数执行完成后被调用，无论成功或失败
 
 ### ⚠️ 使用限制
 

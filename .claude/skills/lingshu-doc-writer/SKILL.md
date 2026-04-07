@@ -5,7 +5,7 @@ description: "Write lingshu-toolkit documentation in MDX format following projec
 
 # Doc Writer
 
-IRON LAW: Every documentation must be type-safe, executable, and follow lingshu-toolkit's MDX structure. Never generate code that cannot run or lacks proper TypeScript types.
+IRON LAW: Every documentation must be type-safe, executable, and follow lingshu-toolkit's MDX structure. Never generate code that cannot run or lacks proper TypeScript types. **ABSOLUTELY FORBIDDEN: Never expose implementation details in documentation.**
 
 ## Workflow
 
@@ -171,6 +171,8 @@ For all section formats (Title/Metadata, Features, Installation, Usage Examples,
 - If test shows `expect(func(arg)).toBe(42)`, the example must show `func(arg) // 42`
 - Document edge cases that are tested
 - Include error handling examples if tests cover error scenarios
+- **⚠️ ABSOLUTELY FORBIDDEN: Never reference test implementation details in documentation**
+- **⚠️ Only use test assertions to verify expected behavior, never to explain how it works internally**
 
 ## Step 5: Verify Quality ⚠️ REQUIRED
 
@@ -249,6 +251,11 @@ Fix any formatting issues before completing.
 - **Generate examples without reading the test file**
 - **Create examples that contradict test assertions**
 - **Guess expected behavior — use tests as source of truth**
+- **⚠️ ABSOLUTELY FORBIDDEN: Expose implementation details in documentation**
+- **⚠️ NEVER include internal variable names, helper functions, or algorithm specifics**
+- **⚠️ NEVER copy-paste source code implementation into documentation**
+- **⚠️ NEVER describe how the code is implemented internally**
+- **⚠️ Focus ONLY on usage, behavior, and API — never on implementation**
 
 ### ✅ DO:
 
@@ -262,6 +269,9 @@ Fix any formatting issues before completing.
 - **Read the test file before generating examples**
 - **Match examples to test assertions exactly**
 - **Use test cases as source of truth for behavior**
+- **Focus on WHAT the tool does and HOW to use it**
+- **Describe behavior, outcomes, and usage patterns**
+- **Keep implementation details completely hidden from users**
 
 ## Writing Principles
 
@@ -271,6 +281,9 @@ Fix any formatting issues before completing.
 - **Consistent**: Match existing documentation style
 - **Complete**: Cover all important aspects (for --full)
 - **Practical**: Focus on real-world usage scenarios
+- **⚠️ ABSOLUTELY FORBIDDEN: Never expose implementation details**
+- **User-facing**: Document behavior and usage, never internal implementation
+- **Black-box approach**: Treat tools as black boxes — describe inputs and outputs only
 
 ## Pre-Delivery Checklist
 
@@ -287,3 +300,7 @@ Before marking the task complete:
 - [ ] Formatting matches existing docs
 - [ ] No lint errors
 - [ ] File created/updated successfully
+- [ ] **⚠️ CRITICAL: No implementation details exposed in documentation**
+- [ ] **⚠️ CRITICAL: No internal variable names or helper functions mentioned**
+- [ ] **⚠️ CRITICAL: No source code implementation copied into docs**
+- [ ] **⚠️ CRITICAL: Only usage, behavior, and API are documented**
