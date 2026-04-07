@@ -13,6 +13,7 @@ export default defineConfig({
     coverage: {
       include: ['src/**'],
       exclude: [
+        'src/shared/logger/**',
         'src/**/__test__/*',
         'src/**/*.test.{ts,tsx}',
         'src/**/*.{mdx,md}',
