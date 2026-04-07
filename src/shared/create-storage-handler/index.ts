@@ -1,6 +1,6 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { logger } from '@/shared/logger';
-import { throwError } from '../throw-error';
+import { throwError } from '@/shared/throw-error';
 
 export interface CreateStorageOptions {
   storageType: 'local' | 'session' | 'memory';

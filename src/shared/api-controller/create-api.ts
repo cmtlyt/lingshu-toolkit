@@ -1,6 +1,7 @@
+import { logger } from '@/shared/logger';
+import { throwType } from '@/shared/throw-error';
 import type { AnyFunc } from '@/shared/types/base';
 import { isNullOrUndef, isString, isTrue } from '@/shared/utils/verify';
-import { throwType } from '../throw-error';
 import { request } from './request';
 import type {
   APIConfig,
@@ -55,7 +56,8 @@ export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = 
       if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
         return instanceMemberGetter(prop, instanceObj);
       }
-      const isCustom = isString(prop) && prop.endsWith('Custom');
+      const hasExactProp = isString(prop) && Reflect.has(target, prop);
+      const isCustom = isString(prop) && prop.endsWith('Custom') && !hasExactProp;
       const name = isCustom ? prop.slice(0, -'Custom'.length) : prop;
       const api = Reflect.get(target, name, receiver);
       if (isNullOrUndef(api)) {
@@ -102,7 +104,10 @@ export function createApi<
   }
   if (api.url.includes('/:')) {
     if (!isTrue(fromDefine)) {
-      console.warn('url 中存在 params 参数, 使用 defineApi 或 defineApiMap 定义 API 或 API map 来获取更好的类型提示');
+      logger.warn(
+        'apiController.createApi',
+        'url 中存在 params 参数, 使用 defineApi 或 defineApiMap 定义 API 或 API map 来获取更好的类型提示',
+      );
     }
     if (!isTrue(custom)) {
       throwType('apiController.createApi', 'url 中存在 params 参数, 不支持普通请求, 转为自定义请求');

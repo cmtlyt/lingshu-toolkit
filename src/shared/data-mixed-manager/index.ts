@@ -1,6 +1,6 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
+import { throwError } from '@/shared/throw-error';
 import type { PickRequired } from '@/shared/types/base';
-import { throwError } from '../throw-error';
 import { SLOT_TYPE } from './constants';
 import type {
   BaseEventDetail,

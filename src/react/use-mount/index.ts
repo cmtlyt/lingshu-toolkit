@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { $t, dataHandler } from '../../shared';
+import { $t, dataHandler } from '@/shared/data-handler';
 
 export function useMount(callback: () => any) {
   const callbackRef = useRef(callback);

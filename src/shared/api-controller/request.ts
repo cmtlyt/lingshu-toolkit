@@ -20,12 +20,17 @@ function getBody(data: any, tdto?: APIConfig['tdto']) {
 }
 
 function targetUrlParser(_url: string, _baseUrl: string | undefined) {
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(_url)) {
+    return new URL(_url);
+  }
   const tempBaseUrl = _baseUrl || (globalThis.location || {}).origin;
   let url = _url;
   let baseUrl: string | URL | undefined = tempBaseUrl;
   if (tempBaseUrl) {
     baseUrl = new URL(tempBaseUrl);
-    url = (baseUrl.pathname === '/' ? '' : baseUrl.pathname) + (_url[0] === '/' ? _url : `/${_url}`);
+    const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/, '');
+    const relativePath = _url.startsWith('/') ? _url : `/${_url}`;
+    url = `${basePath}${relativePath}`;
   }
   return new URL(url || '/', baseUrl);
 }
@@ -105,12 +110,13 @@ function urlParamsParser(url: string, params: Record<string, string> | undefined
       continue;
     }
     const param = urlSplit[i].slice(1);
-    const paramValue = params[param];
-    if (!(isPlainNumber(paramValue) || paramValue)) {
+    const originValue = params[param];
+    if (!(isPlainNumber(originValue) || originValue)) {
       emptyKeys.push(param);
       continue;
     }
-    urlSplit[i] = params[param];
+    const paramValue = encodeURIComponent(String(originValue));
+    urlSplit[i] = paramValue;
   }
   if (emptyKeys.length) {
     throwType('apiController.parseParams', `params 配置中缺少 [${emptyKeys.join(', ')}] 参数`);

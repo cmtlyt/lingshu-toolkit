@@ -54,7 +54,7 @@ export interface BaseAPIConfig<
    * @example 'https://example.com/api/user'
    */
   url: Url;
-  params?: Record<URLParamParser<Url>, string>;
+  params?: Record<URLParamParser<Url>, string | number>;
   /** 请求模式 */
   requestMode?: RequestMode<ReqModeMapKeys>;
   /** 请求方法 */

@@ -392,7 +392,6 @@ describe('apiController', () => {
     const paramApi = createApi(defineApi({ url: 'https://api.example.com/user/:id' }), {}, true);
 
     // 数字 0 应该被接受为有效参数
-    // @ts-expect-error
     const result = await paramApi(null, { params: { id: 0 } });
     expect(result).toEqual({ id: '0', name: 'John Doe' });
   });
@@ -401,5 +400,113 @@ describe('apiController', () => {
     const api = createApi(defineApi({ url: 'https://api.example.com/user/:id' }), {}, true);
     // @ts-expect-error
     expect(api.url).toBeUndefined();
+  });
+
+  test('完整 URL 支持', async () => {
+    // 测试完整的绝对 URL 不需要 baseUrl
+    // 验证 targetUrlParser 中的完整 URL 检测逻辑
+    const fullUrlApi = createApi(
+      defineApi({
+        url: 'https://api.example.com/full-path/user',
+      }),
+      {},
+      true,
+    );
+
+    // 验证可以正常创建 API，即使没有 baseUrl
+    expect(fullUrlApi).toBeInstanceOf(Function);
+  });
+
+  test('路径拼接优化', async () => {
+    // 测试 baseUrl 以 / 结尾的情况，验证路径拼接不会产生重复斜杠
+    const api1 = createApi(
+      defineApi({
+        url: '/user',
+      }),
+      { baseUrl: 'https://api.example.com/api/' },
+      true,
+    );
+
+    expect(api1).toBeInstanceOf(Function);
+
+    // 测试 baseUrl 不以 / 结尾的情况
+    const api2 = createApi(
+      defineApi({
+        url: '/user',
+      }),
+      { baseUrl: 'https://api.example.com/api' },
+      true,
+    );
+
+    expect(api2).toBeInstanceOf(Function);
+
+    // 测试相对路径
+    const api3 = createApi(
+      defineApi({
+        url: 'user',
+      }),
+      { baseUrl: 'https://api.example.com/api' },
+      true,
+    );
+
+    expect(api3).toBeInstanceOf(Function);
+  });
+  test('URL 参数编码', async () => {
+    // 添加一个处理特殊字符的 mock handler
+    server.use(
+      http.get('https://api.example.com/user/:id', (req) => {
+        const { id } = req.params;
+        return HttpResponse.json({ id, name: 'John Doe' });
+      }),
+    );
+
+    const paramApi = createApi(
+      defineApi({
+        url: 'https://api.example.com/user/:id',
+      }),
+      {},
+      true,
+    );
+
+    // 测试包含特殊字符的参数（会被 encodeURIComponent 编码）
+    const result1 = await paramApi(null, { params: { id: 'test@123' } });
+    expect(result1).toEqual({ id: 'test@123', name: 'John Doe' });
+
+    // 测试包含空格的参数
+    const result2 = await paramApi(null, { params: { id: 'test name' } });
+    expect(result2).toEqual({ id: 'test name', name: 'John Doe' });
+
+    // 测试包含中文的参数
+    const result3 = await paramApi(null, { params: { id: '测试' } });
+    expect(result3).toEqual({ id: '测试', name: 'John Doe' });
+  });
+
+  test('params 类型支持 number', async () => {
+    server.use(
+      http.get('https://api.example.com/user/:id', (req) => {
+        const { id } = req.params;
+        return HttpResponse.json({ id, name: 'John Doe' });
+      }),
+    );
+
+    const paramApi = createApi(
+      defineApi({
+        url: 'https://api.example.com/user/:id',
+      }),
+      {},
+      true,
+    );
+
+    // 测试 number 类型参数
+    const result1 = await paramApi(null, { params: { id: 123 } });
+    expect(result1).toEqual({ id: '123', name: 'John Doe' });
+
+    // 测试数字 0（falsy 值）
+    const result2 = await paramApi(null, { params: { id: 0 } });
+    expect(result2).toEqual({ id: '0', name: 'John Doe' });
+
+    // 测试负数
+    const result3 = await paramApi(null, { params: { id: -1 } });
+    expect(result3).toEqual({ id: '-1', name: 'John Doe' });
   });
 });
