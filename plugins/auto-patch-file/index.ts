@@ -73,6 +73,11 @@ function parseTemplate(tempName: string, data: Record<string, any>) {
   return template;
 }
 
+function formatUpdateTime(date = new Date()) {
+  const pad = (_n: number) => `${_n}`.padStart(2, '0');
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ctx: Context) {
   return {
     namespace,
@@ -80,7 +85,7 @@ function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ct
     shadcnPath: `${ctx.registryUrl}/${formatNameFromTool({ meta: tool, namespace })}`,
     npmVersion: ctx.packageJson.version,
     fileName: path.basename(toolPath),
-    updateTime: new Date().toLocaleString('zh-CN'),
+    updateTime: formatUpdateTime(),
   };
 }
 
@@ -185,6 +190,7 @@ function createContext(options: PluginAutoPatchFileOptions) {
 type NamespaceInfo = Awaited<ReturnType<typeof initializeNamespaces>>[number];
 
 interface DocMeta {
+  id: string;
   type: 'file';
   name: string;
   label?: string;
@@ -205,7 +211,7 @@ async function initMetaMap(namespaceInfos: NamespaceInfo[]) {
       }
       metaMap[namespace] = JSON.parse((await fsp.readFile(metaPath, 'utf-8')).trim() || '[]');
       metaMap[namespace].forEach((item) => {
-        docSet.add(item.name);
+        docSet.add(item.id);
       });
     }),
   );
@@ -223,12 +229,16 @@ async function generateDocMeta(namespaceInfos: NamespaceInfo[], metaMap: Record<
 
 function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]>, docSet: Set<string>) {
   for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
-    const { meta, namespace, filePath, namespacePath } = toolInfo;
-    const docName = path.resolve(path.dirname(filePath), 'index.mdx').slice(namespacePath.length + 1);
+    const { meta, namespace, filePath } = toolInfo;
+    if (!fs.existsSync(path.resolve(path.dirname(filePath), 'index.mdx'))) {
+      continue;
+    }
+    const docName = `${namespace}@${meta.name}`;
     if (docSet.has(docName)) {
       continue;
     }
     metaMap[namespace].push({
+      id: `${namespace}@${meta.name}`,
       type: 'file',
       label: meta.name,
       name: docName,

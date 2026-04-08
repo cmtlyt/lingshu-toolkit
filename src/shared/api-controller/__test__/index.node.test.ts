@@ -166,12 +166,12 @@ describe('apiController', () => {
 
     const updateApi = createApi(
       defineApi({ ...mockApi.user.getInfo.$, url: '/user/:id/custom-name/:name', tdto: null }),
-      void 0,
+      { baseUrl: 'https://temp.example.com' },
       true,
     );
+    expect(updateApi.$$r.baseUrl).toBe('https://temp.example.com');
     updateApi.$updateBaseUrl('https://api.example.com/api');
-    expect(updateApi.$$).toBeUndefined();
-    expect(updateApi.$$).not.toBe(updateApi.$$r);
+    expect(updateApi.$$).toStrictEqual(updateApi.$$r);
     expect(updateApi.$$r.baseUrl).toBe('https://api.example.com/api');
     expect(await updateApi(null, { params: { id: '1', name: 'test' } })).toEqual({ id: '1', name: 'test', age: 18 });
 
@@ -336,9 +336,7 @@ describe('apiController', () => {
     )();
     expect(emptyUrlRes).toBe(1);
 
-    await expect(
-      createApi({ url: '' }, { requestMode: 'mock', tvo: () => 1, parser: 'stream' })(),
-    ).rejects.toThrowError();
+    expect(() => createApi({ url: '' }, { requestMode: 'mock', tvo: () => 1, parser: 'stream' })()).toThrowError();
 
     await expect(
       createApi(
@@ -598,6 +596,8 @@ describe('apiController', () => {
       },
     });
     const api = createApiWithMap(apiMap);
+    expect(() => api.deep1.deep2.deep3.deep4.deep5).toThrowError();
+    api.$updateBaseUrl('https://api.example.com');
     expect(api.deep1.deep2.deep3.deep4.deep5).toBeTypeOf('function');
     expect(api.deep1.deep2.deep3.deep4.deep5.$$r).toStrictEqual(api.$$r);
     expect(api.deep1.deep2.deep3.$).toStrictEqual(apiMap.deep1.deep2.deep3);

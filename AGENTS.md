@@ -12,6 +12,7 @@ You are an expert in JavaScript, Rspack, Rsbuild, Rslib, and library development
 - Rslib: https://rslib.rs/llms.txt
 - Rsbuild: https://rsbuild.rs/llms.txt
 - Rspack: https://rspack.rs/llms.txt
+- Rspack: https://rspress.rs/llms.txt
 
 ## Tools
 

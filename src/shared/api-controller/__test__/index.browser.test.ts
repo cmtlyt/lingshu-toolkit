@@ -143,7 +143,7 @@ describe('apiController', () => {
 
   test('from $ property get default config', async () => {
     expect(mockApi.user.getInfo.$$).toStrictEqual(mockApi.user.getInfo.$$);
-    expect(mockApi.user.getInfo.$$).toEqual({ baseUrl: '', requestMode: 'mock' });
+    expect(mockApi.user.getInfo.$$).toEqual({ baseUrl: location.origin, requestMode: 'mock' });
     expect(mockApi.$$).toStrictEqual(mockApi.user.$$);
     expect(mockApi.$$).toStrictEqual(mockApi.user.getInfo.$$);
 
@@ -160,7 +160,7 @@ describe('apiController', () => {
     const updateApiMap = createApiWithMap(mockApi.user.$, mockDefaultConfig);
     expect(updateApiMap.$$).toStrictEqual(updateApiMap.$$r);
     expect(updateApiMap.$$).toStrictEqual(mockDefaultConfig);
-    expect(updateApiMap.$$r.baseUrl).toBe('');
+    expect(updateApiMap.$$r.baseUrl).toBe(location.origin);
     updateApiMap.$updateBaseUrl('/api');
     expect(updateApiMap.$$r.baseUrl).toBe(`${location.origin}/api`);
 
@@ -578,7 +578,10 @@ describe('apiController', () => {
 
   test('$updateBaseUrl 设置相对路径且无前置斜线', () => {
     const api = createApi({ url: '' });
+    expect(api.$$r.baseUrl).toBe(location.origin);
     api.$updateBaseUrl('api');
     expect(api.$$r.baseUrl).toBe(`${location.origin}/api`);
+    api.$updateBaseUrl();
+    expect(api.$$r.baseUrl).toBe(location.origin);
   });
 });

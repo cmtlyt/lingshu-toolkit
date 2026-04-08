@@ -1,50 +1,60 @@
 [
   {
+    "id": "react@useControllableValue",
     "type": "file",
     "label": "useControllableValue",
     "name": "use-controllable-value/index.mdx"
   },
   {
+    "id": "react@useCounter",
     "type": "file",
     "label": "useCounter",
     "name": "use-counter/index.mdx"
   },
   {
+    "id": "react@useValidData",
     "type": "file",
     "label": "useValidData",
     "name": "use-valid-data/index.mdx"
   },
   {
+    "id": "react@useToggle",
     "type": "file",
     "label": "useToggle",
     "name": "use-toggle/index.mdx"
   },
   {
+    "id": "react@useBoolean",
     "type": "file",
     "label": "useBoolean",
     "name": "use-boolean/index.mdx"
   },
   {
+    "id": "react@useTitle",
     "type": "file",
     "label": "useTitle",
     "name": "use-title/index.mdx"
   },
   {
+    "id": "react@useMount",
     "type": "file",
     "label": "useMount",
     "name": "use-mount/index.mdx"
   },
   {
+    "id": "react@useForceUpdate",
     "type": "file",
     "label": "useForceUpdate",
     "name": "use-force-update/index.mdx"
   },
   {
+    "id": "react@useRefState",
     "type": "file",
     "label": "useRefState",
     "name": "use-ref-state/index.mdx"
   },
   {
+    "id": "react@useStorage",
     "type": "file",
     "label": "useStorage",
     "name": "use-storage/index.mdx"

@@ -69,6 +69,7 @@
     "@vitest/browser-playwright": "4.0.18",
     "@vitest/coverage-v8": "4.0.18",
     "@vitest/ui": "4.0.18",
+    "changelogithub": "^14.0.0",
     "cross-env": "^10.1.0",
     "esno": "^4.8.0",
     "husky": "^9.1.7",

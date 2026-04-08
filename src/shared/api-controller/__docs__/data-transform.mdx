@@ -1,0 +1,269 @@
+# 数据转换
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+支持请求和响应的数据转换，提供灵活的数据处理能力。
+
+## 特性
+
+- **请求转换**: 使用 `tdto` 在请求前转换数据
+- **响应转换**: 使用 `tvo` 在响应后转换数据
+- **请求拦截**: 使用 `onRequest` 拦截请求
+- **响应拦截**: 使用 `onResponse` 拦截响应
+- **类型安全**: 完整的 TypeScript 类型支持
+- **链式处理**: 支持多个转换函数的链式调用
+
+## 基础用法
+
+### 请求前转换数据 (tdto)
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  // 请求前转换数据
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await getUser({ id: '1' })
+// 传递的 '1' 会被转换为数字 1
+```
+
+### 响应后转换数据 (tvo)
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  // 响应后转换数据
+  tvo(data: any) {
+    return { ...data, age: 18 } as { id: string; name: string; age: number }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await getUser({ id: '1' })
+// 响应数据会自动添加 age 字段
+console.log(result) // { id: '1', name: 'John Doe', age: 18 }
+```
+
+## 高级用法
+
+### 完整的数据转换流程
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  // 请求前转换数据
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+  // 请求拦截
+  onRequest(req, config) {
+    return req.json() as unknown as { id: number }
+  },
+  // 响应后转换数据
+  tvo(data: any) {
+    return { ...data, age: 18 } as { id: string; name: string; age: number }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe', age: 18 }
+```
+
+### 请求拦截 (onRequest)
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  onRequest(req, config) {
+    // 可以修改请求配置
+    return {
+      ...req,
+      headers: {
+        ...req.headers,
+        'Authorization': 'Bearer token',
+      },
+    }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await getUser({ id: '1' })
+```
+
+### 响应拦截 (onResponse)
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  onResponse(res, config) {
+    // 可以修改响应数据
+    return res.json().then(data => ({
+      ...data,
+      timestamp: Date.now(),
+    }))
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await getUser({ id: '1' })
+```
+
+### Mock 数据开发
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const mockApi = defineApi({
+  url: '/user',
+  onRequest() {
+    return { id: '1', name: 'Mock User' }
+  },
+})
+
+const api = createApi(mockApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+// 使用 Mock 数据
+const result = await api({ id: '1' })
+console.log(result) // { id: '1', name: 'Mock User' }
+```
+
+### 在 API Map 中使用
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const apiMap = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      tdto(data: { id: string }) {
+        return { id: Number(data.id) }
+      },
+      tvo(data: any) {
+        return { ...data, createdAt: new Date(data.createdAt) }
+      },
+    },
+  },
+})
+
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await api.user.getInfo({ id: '1' })
+```
+
+## Hook 执行顺序
+
+数据转换 Hook 的执行顺序：
+
+1. **tdto** - 请求前转换数据
+2. **onRequest** - 请求拦截
+3. **onResponse/parser** - 响应拦截/解析
+4. **tvo** - 响应后转换数据
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  tdto(data: { id: string }) {
+    console.log('1. tdto - 请求前转换数据')
+    return { id: Number(data.id) }
+  },
+  onRequest(req, config) {
+    console.log('2. onRequest - 请求拦截')
+    return req
+  },
+  onResponse(res, config) {
+    console.log('3. onResponse - 响应拦截')
+    return res
+  },
+  tvo(data: any) {
+    console.log('4. tvo - 响应后转换数据')
+    return { ...data, processed: true }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+const result = await getUser({ id: '1' })
+// 执行顺序: 1 -> 2 -> 3 -> 4
+```
+
+## 注意事项
+
+### ⚠️ 数据转换
+
+- `tdto` 在请求前执行，用于转换请求数据
+- `tvo` 在响应后执行，用于转换响应数据
+- `onRequest` 在请求发送前执行，可以修改请求配置
+- `onResponse` 在响应解析后执行，可以修改响应数据
+- `onResponse` 会覆盖 `parser` 的解析方式
+
+### ⚠️ Mock 模式
+
+- `mock` 模式会使用 `onRequest` 返回的数据作为响应
+- `network` 模式会发送真实的网络请求
+- 可以通过 `requestModeMap` 自定义请求模式
+- 自定义请求模式会绕过默认的 hook 链
+
+### 🔧 类型安全
+
+- 所有转换函数都支持完整的 TypeScript 类型
+- 建议为转换函数的参数和返回值指定明确的类型
+- 使用类型断言时要小心，确保类型安全
+
+### 🔧 错误处理
+
+- 转换函数中抛出的错误会被捕获并传递到调用方
+- 建议在转换函数中添加适当的错误处理逻辑
+- 可以使用 try-catch 来处理转换过程中的错误

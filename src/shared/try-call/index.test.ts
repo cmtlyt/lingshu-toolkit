@@ -259,23 +259,26 @@ describe('tryCall', () => {
         },
       ).call(testThis),
     ).toBeUndefined();
-    expect(testList[0]).toStrictEqual(testThis);
-    expect(testList[1]).toStrictEqual(testThis);
-    expect(testList[2]).toStrictEqual(testThis);
+    expect(testList[0]).toBe(testThis);
+    expect(testList[1]).toBe(testThis);
+    expect(testList[2]).toBe(testThis);
   });
 
   test('延迟报错', async () => {
     vi.useFakeTimers();
-    await expect(
-      tryCall(
-        async () => {
-          await vi.advanceTimersByTimeAsync(10);
-          throw new Error('error');
-        },
-        (err) => err.message,
-      ),
-    ).resolves.toBe('error');
-    vi.useRealTimers();
+    try {
+      await expect(
+        tryCall(
+          async () => {
+            await vi.advanceTimersByTimeAsync(10);
+            throw new Error('error');
+          },
+          (err) => err.message,
+        ),
+      ).resolves.toBe('error');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test('PromiseLike 类型支持', async () => {

@@ -11,7 +11,7 @@ import type {
   DefaultAPIConfig,
   DefineAPIConfig,
 } from './types';
-import { apiNamesCheck, createInstance, getInstanceMemberOrApi, instanceMemberGetter } from './utils';
+import { apiNamesCheck, createInstance, getInstanceMemberOrApi, instanceMemberGetter, isAbsUrl } from './utils';
 
 const FROM_DEFINE = Symbol('fromDefine');
 
@@ -83,7 +83,7 @@ export function createApi<
 >(api: A, defaultConfig?: D, custom?: C): APITransformMethod<A, D, C> {
   const fromDefine = (api as any)[FROM_DEFINE];
   delete (api as any)[FROM_DEFINE];
-  const realDefaultConfig = defaultConfig || {};
+  const realDefaultConfig = defaultConfig || ({} as DefaultAPIConfig);
 
   if (!isString(api.url)) {
     throwType('apiController.createApi', '入参应为 APIConfig 对象');
@@ -122,6 +122,9 @@ export function createApi<
   }
 
   const instanceObj = createInstance(api, realDefaultConfig, defaultConfig);
+  if (!isAbsUrl(api.url)) {
+    instanceObj.$updateBaseUrl(realDefaultConfig.baseUrl);
+  }
 
   return new Proxy(handler, {
     get(target, prop: string, receiver) {

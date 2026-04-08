@@ -26,7 +26,7 @@ Doc Writer Progress:
   - [ ] Load references/mdx-format.md
   - [ ] Understand required sections and structure
 - [ ] Step 4: Generate Content
-  - [ ] 4.1 Write title and metadata (version, shadcn, author, update time in ISO format: YYYY/MM/DD HH:mm:ss)
+  - [ ] 4.1 Write title and metadata (version, shadcn, author, update time in fixed format: YYYY/MM/DD HH:mm:ss)
   - [ ] 4.2 Write features/特性 section
   - [ ] 4.3 Write installation commands
   - [ ] 4.4 Write usage examples
@@ -40,7 +40,7 @@ Doc Writer Progress:
 - [ ] Step 6: Create/Update File
   - [ ] 6.1 Determine correct file path
   - [ ] 6.2 Create or update the .mdx file
-  - [ ] 6.3 Run pnpm run lint to check formatting
+  - [ ] 6.3 Run pnpm run check to check formatting
 ```
 
 ## Step 1: Understand the Target ⚠️ REQUIRED
@@ -60,8 +60,8 @@ Before writing any documentation:
 
 **Read the test file ⚠️ CRITICAL:**
 - Find and read the corresponding test file following lingshu-toolkit naming conventions:
-  - Primary pattern: `src/shared/<utils-name>/index.{node,browser}?.test.{ts,tsx}`
-  - Alternative pattern: `src/shared/<utils-name>/__tests__/*.{node,browser}?.test.{ts,tsx}`
+  - Primary pattern: `src/shared/<utils-name>/index.{,node,browser}.test.{ts,tsx}`
+  - Alternative pattern: `src/shared/<utils-name>/__test__/*.{,node,browser}?.test.{ts,tsx}`
   - Example: `src/shared/api-controller/index.node.test.ts`
 - Analyze test assertions to understand expected behavior
 - Extract usage patterns from test cases
@@ -145,7 +145,7 @@ Always load references before generating content:
 For all section formats (Title/Metadata, Features, Installation, Usage Examples, API Reference, Notes/注意事项):
 
 → Load references/mdx-format.md and follow the exact format for each section:
-- Section 1: Title and Metadata (includes package version, shadcn version, author, **update time in ISO format: YYYY/MM/DD HH:mm:ss**)
+- Section 1: Title and Metadata (includes package version, shadcn version, author, **update time in fixed format: YYYY/MM/DD HH:mm:ss**)
 - Section 2: Features/特性
 - Section 3: Installation (## 安装 + ## 用法)
 - Section 4: Usage Examples (## 基础用法 + ## 高级用法)

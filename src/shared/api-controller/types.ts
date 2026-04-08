@@ -383,7 +383,7 @@ export type APIInstance<A, D> = {
 } & APIInstanceHandler;
 
 interface APIInstanceHandler {
-  $updateBaseUrl(baseUrl: string): void;
+  $updateBaseUrl(baseUrl?: string): void;
 }
 
 export type APIMapTransformMethods<

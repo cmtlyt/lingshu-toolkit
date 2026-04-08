@@ -7,7 +7,7 @@ import type { APIConfig, APIInstance, APIMap, DefaultAPIConfig } from './types';
 
 const ABSOLUTE_URL_REG = /^[a-z][a-z\d+\-.]*:/im;
 
-export function isAbsUrl(url: string) {
+export function isAbsUrl(url?: string) {
   if (!url) {
     return false;
   }
@@ -102,7 +102,7 @@ export function createInstance(
         if (!origin) {
           throwError('apiController.$updateBaseUrl', 'location.origin is undefined');
         }
-        const normalizedPath = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`;
+        const normalizedPath = (baseUrl || '/').startsWith('/') ? baseUrl || '' : `/${baseUrl}`;
         realDefaultConfig.baseUrl = `${origin}${normalizedPath}`;
       }
     },

@@ -1,0 +1,265 @@
+# createApiWithMap
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+创建 API Map 请求对象，支持嵌套的 API 结构和灵活的配置管理。
+
+## 特性
+
+- **嵌套结构**: 支持多层嵌套的 API Map 结构
+- **类型安全**: 完整的 TypeScript 类型支持
+- **集中管理**: 统一管理多个 API 配置
+- **灵活配置**: 支持自定义请求配置和默认配置
+- **动态更新**: 支持动态更新 Base URL
+
+## 基础用法
+
+### 创建简单的 API Map
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API Map
+const apiMap = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      method: 'GET',
+    },
+    getList: {
+      url: '/user/list',
+      method: 'GET',
+    },
+  },
+})
+
+// 创建 API 实例
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const userInfo = await api.user.getInfo({ id: '1' })
+console.log(userInfo) // { id: '1', name: 'John Doe' }
+
+const userList = await api.user.getList()
+console.log(userList) // [{ id: '1', name: 'John Doe' }]
+```
+
+## 高级用法
+
+### 嵌套 API 结构
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const apiMap = defineApiMap({
+  user: {
+    getInfo: { url: '/user/:id', method: 'GET' },
+    profile: {
+      get: { url: '/user/:id/profile', method: 'GET' },
+      update: { url: '/user/:id/profile', method: 'PUT' },
+    },
+  },
+  order: {
+    getById: { url: '/order/:id', method: 'GET' },
+    create: { url: '/order', method: 'POST' },
+  },
+})
+
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用嵌套 API
+const userProfile = await api.user.profile.getCustom(null, { params: { id: '1' } })
+console.log(userProfile)
+```
+
+### 自定义配置请求
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const api = createApiWithMap(
+  defineApiMap({
+    user: {
+      getInfo: {
+        url: '/user',
+        method: 'GET',
+      },
+    },
+  }),
+  {
+    baseUrl: 'https://api.example.com',
+    requestMode: 'test',
+    requestModeMap: {
+      test: (config) => {
+        const { data } = config
+        return { isTestRequest: true, ...(data || {}) } as Record<'isTestRequest' | (string & {}), any>
+      },
+    },
+  },
+)
+
+// 使用自定义配置
+const result = await api.user.getInfoCustom({ id: '1' }, { requestMode: 'network' })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 动态更新 Base URL
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const api = createApiWithMap(
+  defineApiMap({
+    user: {
+      getInfo: { url: '/user' },
+    },
+  }),
+  {
+    baseUrl: 'https://api.example.com',
+  },
+)
+
+// 更新 Base URL
+api.$updateBaseUrl('https://api.example.com/api')
+
+const result = await api.user.getInfo({ id: '1' })
+// 请求地址: https://api.example.com/api/user?id=1
+```
+
+### RESTful API 封装
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const userApi = defineApiMap({
+  user: {
+    getById: { url: '/user/:id', method: 'GET' },
+    create: { url: '/user', method: 'POST' },
+    update: { url: '/user/:id', method: 'PUT' },
+    delete: { url: '/user/:id', method: 'DELETE' },
+  },
+})
+
+const api = createApiWithMap(userApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 获取用户
+const user = await api.user.getByIdCustom(null, { params: { id: '1' } })
+
+// 创建用户
+const created = await api.user.create({ name: 'John', email: 'john@example.com' })
+
+// 更新用户
+const updated = await api.user.updateCustom(
+  { name: 'John Doe' },
+  { params: { id: '1' } },
+)
+
+// 删除用户
+const deleted = await api.user.deleteCustom(null, { params: { id: '1' } })
+```
+
+### Mock 数据开发
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const mockApi = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      onRequest() {
+        return { id: '1', name: 'Mock User' }
+      },
+    },
+  },
+})
+
+const api = createApiWithMap(mockApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+// 使用 Mock 数据
+const result = await api.user.getInfo({ id: '1' })
+console.log(result) // { id: '1', name: 'Mock User' }
+```
+
+## API Reference
+
+### createApiWithMap
+
+创建 API Map 请求对象。
+
+```ts
+function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = DefaultAPIConfig>(
+  apiMap: M,
+  defaultConfig?: D
+): APIMapTransformMethods<M, D>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| apiMap | `APIMap` | 是 | undefined | API Map 配置对象 |
+| defaultConfig | `DefaultAPIConfig` | 否 | undefined | 默认配置 |
+
+#### 返回值
+
+返回一个代理对象，支持嵌套访问和 `Custom` 后缀的自定义请求方法。
+
+### defineApiMap
+
+定义 API Map 配置，获取更好的类型提示。
+
+```ts
+function defineApiMap<U extends string, A extends APIMap<U>>(_apiMap: A): A
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| _apiMap | `APIMap` | 是 | undefined | API Map 配置对象 |
+
+#### 返回值
+
+返回配置对象，标记为已定义，提供更好的类型推断。
+
+## 注意事项
+
+### ⚠️ API 命名
+
+- API 命名不应该使用 `Custom` 结尾，因为这是内部实现的方法
+- 使用 `Custom` 后缀调用时，会自动查找对应的 API 配置
+
+### ⚠️ 类型提示
+
+- 建议使用 `defineApiMap` 定义配置，以获得更好的类型提示
+- 嵌套结构会自动推断类型，提供完整的类型支持
+
+### 🔧 实例属性
+
+- `$` - 获取 API Map 配置对象
+- `$$` - 获取默认配置（如果没有提供默认配置则为 `undefined`）
+- `$$r` - 获取实际应用的默认配置
+- `$updateBaseUrl` - 动态更新 Base URL
+- 多次访问同一个 API 会返回相同的引用
+
+### 🔧 Custom 方法
+
+- 普通方法不支持 URL 参数，会抛出 `TypeError`
+- URL 参数必须使用 `Custom` 方法调用
+- `Custom` 方法会绕过默认配置，支持自定义请求配置
