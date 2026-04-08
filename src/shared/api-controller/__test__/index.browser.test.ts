@@ -575,4 +575,10 @@ describe('apiController', () => {
       ).getInfoNotFromDefineCustom,
     ).toBeTypeOf('function');
   });
+
+  test('$updateBaseUrl 设置相对路径且无前置斜线', () => {
+    const api = createApi({ url: '' });
+    api.$updateBaseUrl('api');
+    expect(api.$$r.baseUrl).toBe(`${location.origin}/api`);
+  });
 });

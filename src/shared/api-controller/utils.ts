@@ -102,7 +102,8 @@ export function createInstance(
         if (!origin) {
           throwError('apiController.$updateBaseUrl', 'location.origin is undefined');
         }
-        realDefaultConfig.baseUrl = `${origin}${baseUrl}`;
+        const normalizedPath = baseUrl.startsWith('/') ? baseUrl : `/${baseUrl}`;
+        realDefaultConfig.baseUrl = `${origin}${normalizedPath}`;
       }
     },
   } satisfies APIInstance<any, any>;
