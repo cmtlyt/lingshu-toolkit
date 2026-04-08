@@ -10,7 +10,7 @@ async function baseRequest<R, C extends RequestAPIConfig<any, R> = RequestAPICon
 ): Promise<R> {
   const { baseUrl, url, method: _method, parser, data, tdto, tvo, onResponse, ...rest } = config;
 
-  const targetUrl = targetUrlParser(url, baseUrl);
+  const targetUrl = targetUrlParser(url, baseUrl!);
   const method = _method?.toUpperCase() as RequestInit['method'];
 
   const requestInfo = tryCall(() => {

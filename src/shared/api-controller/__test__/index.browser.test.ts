@@ -6,6 +6,7 @@ import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '.
 
 describe('apiController', () => {
   const worker = setupWorker(
+    http.get('/', () => HttpResponse.json({ content: 'root' })),
     http.get('/user', (req) => {
       const url = new URL(req.request.url);
       return HttpResponse.json({ id: url.searchParams.get('id'), name: 'John Doe' });
@@ -583,5 +584,13 @@ describe('apiController', () => {
     expect(api.$$r.baseUrl).toBe(`${location.origin}/api`);
     api.$updateBaseUrl();
     expect(api.$$r.baseUrl).toBe(location.origin);
+  });
+
+  test('黑客手段修改 baseUrl', async () => {
+    const api = createApi({ url: '' });
+    expect(api.$$r.baseUrl).toBe(location.origin);
+    api.$$r.baseUrl = '';
+    expect(api.$$r.baseUrl).toBe('');
+    await expect(api()).rejects.toThrowError();
   });
 });

@@ -14,21 +14,18 @@ export function isAbsUrl(url?: string) {
   return ABSOLUTE_URL_REG.test(url);
 }
 
-export function targetUrlParser(_url: string, _baseUrl: string | undefined) {
+export function targetUrlParser(_url: string, _baseUrl: string) {
   if (isAbsUrl(_url)) {
     return new URL(_url);
   }
-  const locationOrigin = (globalThis.location || {}).origin;
-  const tempBaseUrl = _baseUrl || locationOrigin;
-  let url = _url;
-  let baseUrl: string | URL | undefined = tempBaseUrl;
-  if (tempBaseUrl) {
-    baseUrl = new URL(tempBaseUrl);
-    const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/, '');
-    const relativePath = _url.startsWith('/') ? _url : `/${_url}`;
-    url = `${basePath}${relativePath}`;
+  if (!isAbsUrl(_baseUrl)) {
+    throwType('apiController.request', 'baseUrl 配置不合法, 必须是绝对路径');
   }
-  return new URL(url || '/', baseUrl);
+  const baseUrl = new URL(_baseUrl);
+  const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/, '');
+  const relativePath = _url.startsWith('/') ? _url : `/${_url}`;
+  const url = `${basePath}${relativePath}`;
+  return new URL(url, baseUrl);
 }
 
 export function urlParamsParser(url: string, params: Record<string, string> | undefined) {
