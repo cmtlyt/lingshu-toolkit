@@ -80,6 +80,7 @@ function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ct
     shadcnPath: `${ctx.registryUrl}/${formatNameFromTool({ meta: tool, namespace })}`,
     npmVersion: ctx.packageJson.version,
     fileName: path.basename(toolPath),
+    updateTime: new Date().toLocaleString('zh-CN'),
   };
 }
 
@@ -160,7 +161,6 @@ async function generateShadcnExports(toolInfos: ToolInfo[], ctx: Context) {
   });
 
   return writeJson(shadcnExportsFile, {
-    // biome-ignore lint/style/useNamingConvention: ignore
     $schema: './node_modules/@cmtlyt/unplugin-shadcn-registry-generate/configuration-schema.json',
     exports,
   });

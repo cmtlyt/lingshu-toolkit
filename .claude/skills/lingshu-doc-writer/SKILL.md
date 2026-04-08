@@ -26,7 +26,7 @@ Doc Writer Progress:
   - [ ] Load references/mdx-format.md
   - [ ] Understand required sections and structure
 - [ ] Step 4: Generate Content
-  - [ ] 4.1 Write title and metadata (version, shadcn, author)
+  - [ ] 4.1 Write title and metadata (version, shadcn, author, update time in ISO format: YYYY/MM/DD HH:mm:ss)
   - [ ] 4.2 Write features/特性 section
   - [ ] 4.3 Write installation commands
   - [ ] 4.4 Write usage examples
@@ -145,7 +145,7 @@ Always load references before generating content:
 For all section formats (Title/Metadata, Features, Installation, Usage Examples, API Reference, Notes/注意事项):
 
 → Load references/mdx-format.md and follow the exact format for each section:
-- Section 1: Title and Metadata
+- Section 1: Title and Metadata (includes package version, shadcn version, author, **update time in ISO format: YYYY/MM/DD HH:mm:ss**)
 - Section 2: Features/特性
 - Section 3: Installation (## 安装 + ## 用法)
 - Section 4: Usage Examples (## 基础用法 + ## 高级用法)

@@ -168,10 +168,9 @@ export type CallAPIConfig<
 export type DefineAPIConfig<U extends string> = APIConfig<any, any, any, any, any, any, U>;
 
 /** API map */
-export type APIMap<U extends string = string & {}> = Record<
-  string,
-  DefineAPIConfig<U> | Record<string, DefineAPIConfig<U>>
->;
+export interface APIMap<U extends string = string & {}> {
+  [key: string]: DefineAPIConfig<U> | APIMap<U>;
+}
 
 export type IsUnknownAny<T> = Equal<T, any> extends true ? true : Equal<T, unknown> extends true ? true : false;
 
@@ -398,9 +397,7 @@ export type APIMapTransformMethods<
       ? K
       : never
     : // 不是 APIConfig 的话就是嵌套的 api map, 直接返回 K 即可
-      K]: M[K] extends APIConfig
-    ? APITransformMethod<M[K], D, false>
-    : APIMapTransformMethods<Cast<M[K], Record<string, APIConfig>>, D>;
+      K]: M[K] extends APIConfig ? APITransformMethod<M[K], D, false> : APIMapTransformMethods<Cast<M[K], APIMap>, D>;
 } & {
   // 支持自定义配置请求方法
   [K in keyof M as M[K] extends APIConfig ? `${K & string}Custom` : never]: APITransformMethod<

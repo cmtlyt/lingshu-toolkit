@@ -584,4 +584,22 @@ describe('apiController', () => {
 
     expect(() => api.$updateBaseUrl('/api')).toThrowError();
   });
+
+  test('深层嵌套 api', () => {
+    const apiMap = defineApiMap({
+      deep1: {
+        deep2: {
+          deep3: {
+            deep4: {
+              deep5: defineApi({ url: '/deep5' }),
+            },
+          },
+        },
+      },
+    });
+    const api = createApiWithMap(apiMap);
+    expect(api.deep1.deep2.deep3.deep4.deep5).toBeTypeOf('function');
+    expect(api.deep1.deep2.deep3.deep4.deep5.$$r).toStrictEqual(api.$$r);
+    expect(api.deep1.deep2.deep3.$).toStrictEqual(apiMap.deep1.deep2.deep3);
+  });
 });
