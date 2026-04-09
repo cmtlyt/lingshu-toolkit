@@ -5,8 +5,8 @@ export default mergeConfig(
   vitestBaseConfig,
   defineConfig({
     test: {
-      include: ['src/**/*.test.{ts,tsx}'],
-      exclude: ['src/{vue,react}/**', 'src/**/*.browser.test.{ts,tsx}'],
+      include: ['src/**/*.test.{ts,tsx,js,jsx}'],
+      exclude: ['src/{vue,react}/**', 'src/**/*.browser.test.{ts,tsx,js,jsx}'],
     },
   }),
 );

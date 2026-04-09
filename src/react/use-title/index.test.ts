@@ -21,7 +21,7 @@ describe('useTitle', () => {
     const { result, act } = await renderHook(() => useTitle('test'));
 
     expect(document.title).toBe('test');
-    act(() => result.current('test2'));
+    await act(() => result.current('test2'));
     expect(document.title).toBe('test2');
   });
 
@@ -29,7 +29,7 @@ describe('useTitle', () => {
     const { result, act } = await renderHook(() => useTitle());
 
     expect(document.title).toBe(originalTitle);
-    act(() => result.current('test2'));
+    await act(() => result.current('test2'));
     expect(document.title).toBe('test2');
   });
 
@@ -37,9 +37,9 @@ describe('useTitle', () => {
     const { result, act, unmount } = await renderHook(() => useTitle('test', { restoreOnUnmount: false }));
 
     expect(document.title).toBe('test');
-    act(() => result.current('test2'));
+    await act(() => result.current('test2'));
     expect(document.title).toBe('test2');
-    unmount();
+    await unmount();
     expect(document.title).toBe('test2');
   });
 
@@ -49,9 +49,9 @@ describe('useTitle', () => {
     );
 
     expect(document.title).toBe('test');
-    act(() => result.current('test2'));
+    await act(() => result.current('test2'));
     expect(document.title).toBe('test2');
-    rerender('test3');
+    await rerender('test3');
     expect(document.title).toBe('test3');
   });
 });

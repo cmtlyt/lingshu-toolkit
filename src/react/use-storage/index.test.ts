@@ -11,10 +11,10 @@ describe('useStorage', () => {
     const { result, act } = await renderHook(() => useStorage('test'));
     const handler = result.current;
     expect(handler.get()).toEqual({});
-    act(() => handler.set({ a: 1 }));
+    await act(() => handler.set({ a: 1 }));
     expect(handler.get()).toEqual({ a: 1 });
     expect(handler.get('a')).toBe(1);
-    act(() => handler.clear());
-    expect(() => handler.get()).toThrowError();
+    await act(() => handler.clear());
+    expect(() => handler.get()).toThrow();
   });
 });

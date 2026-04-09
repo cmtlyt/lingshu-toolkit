@@ -14,7 +14,7 @@ describe('tryCall', () => {
       tryCall(() => {
         throw new Error('error');
       }),
-    ).toThrowError(Error);
+    ).toThrow(Error);
     expect(
       tryCall(
         () => {
@@ -35,7 +35,7 @@ describe('tryCall', () => {
       tryCall(async () => {
         throw new Error('error');
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
     expect(
       tryCall(
         () => 1,
@@ -81,11 +81,11 @@ describe('tryCall', () => {
     const fn5 = tryCallFunc(async () => {
       throw new Error('error');
     });
-    await expect(fn5()).rejects.toThrowError(Error);
+    await expect(fn5()).rejects.toThrow(Error);
     const fn6 = tryCallFunc(() => {
       throw new Error('error');
     });
-    expect(() => fn6()).toThrowError(Error);
+    expect(() => fn6()).toThrow(Error);
     const fn_ = tryCallFunc((_a: number, b: number) => {
       if (_a % b) {
         throw new Error('error');
@@ -94,7 +94,7 @@ describe('tryCall', () => {
     });
     expect(fn_(1, 1)).toBe(1);
     expect(fn_(1, 0)).toBe(Number.POSITIVE_INFINITY);
-    expect(() => fn_(1, 2)).toThrowError(Error);
+    expect(() => fn_(1, 2)).toThrow(Error);
     expect(
       tryCallFunc(
         () => 1,
@@ -135,9 +135,9 @@ describe('tryCall', () => {
 
   test('边缘情况', () => {
     // @ts-expect-error test
-    expect(() => tryCall(undefined)).toThrowError(TypeError);
+    expect(() => tryCall(undefined)).toThrow(TypeError);
     // @ts-expect-error test
-    expect(() => tryCallFunc(undefined)).toThrowError(TypeError);
+    expect(() => tryCallFunc(undefined)).toThrow(TypeError);
   });
 
   test('报错不处理 finally 应该接受错误参数', () => {
@@ -153,7 +153,7 @@ describe('tryCall', () => {
           testList.push(r);
         },
       ),
-    ).toThrowError(Error);
+    ).toThrow(Error);
     expect(testList[0]).toBeInstanceOf(Error);
   });
 
@@ -206,7 +206,7 @@ describe('tryCall', () => {
           throw new Error('error2');
         },
       ),
-    ).toThrowError('error2');
+    ).toThrow('error2');
   });
 
   test('onFinal 中报错', () => {
@@ -220,7 +220,7 @@ describe('tryCall', () => {
           throw new Error('error2');
         },
       ),
-    ).toThrowError('error2');
+    ).toThrow('error2');
   });
 
   test('全报错', () => {
@@ -238,7 +238,7 @@ describe('tryCall', () => {
           throw new Error('error3');
         },
       ),
-    ).toThrowError('error3');
+    ).toThrow('error3');
     expect(errorList).toEqual(['error2']);
   });
 

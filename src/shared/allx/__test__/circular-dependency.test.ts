@@ -10,7 +10,7 @@ describe('allx - 环形依赖', () => {
           return v + 1;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 
   test('环形依赖', async () => {
@@ -25,7 +25,7 @@ describe('allx - 环形依赖', () => {
           return v + 1;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 
   test('菱形依赖（覆盖 utils.ts 第 14-16 行 visited.has(node) 逻辑）', async () => {
@@ -140,6 +140,6 @@ describe('allx - 环形依赖', () => {
           return `${v1}+${v2}-D`;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 });

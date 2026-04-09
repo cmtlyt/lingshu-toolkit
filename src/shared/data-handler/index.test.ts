@@ -16,7 +16,7 @@ describe('data-handler', () => {
 
   test('未传递 handler', () => {
     // @ts-expect-error test
-    expect(() => dataHandler({ num: 1 })).toThrowError(TypeError);
+    expect(() => dataHandler({ num: 1 })).toThrow(TypeError);
   });
 
   test('类型不匹配', () => {
@@ -63,7 +63,7 @@ describe('data-handler', () => {
   });
 
   test('严格校验模式(断言失败)', () => {
-    expect(() => dataHandler({ num: 1 }, { num: (value) => typeof value === 'string' }, { strict: true })).toThrowError(
+    expect(() => dataHandler({ num: 1 }, { num: (value) => typeof value === 'string' }, { strict: true })).toThrow(
       TypeError,
     );
   });
@@ -229,6 +229,6 @@ describe('data-handler-tools', () => {
     expect(result2.result).toEqual({ str: '1' });
     expect(result2.errors.length).toBe(0);
     // @ts-expect-error test
-    expect(() => dataHandler({}, $dt({ str: $t.enum(null, '1') }))).toThrowError(TypeError);
+    expect(() => dataHandler({}, $dt({ str: $t.enum(null, '1') }))).toThrow(TypeError);
   });
 });

@@ -60,8 +60,8 @@ Before writing any documentation:
 
 **Read the test file ⚠️ CRITICAL:**
 - Find and read the corresponding test file following lingshu-toolkit naming conventions:
-  - Primary pattern: `src/shared/<utils-name>/index.{,node,browser}.test.{ts,tsx}`
-  - Alternative pattern: `src/shared/<utils-name>/__test__/*.{,node,browser}?.test.{ts,tsx}`
+  - Primary pattern: `src/shared/<utils-name>/index.{,node,browser}.test.{ts,tsx,js,jsx}`
+  - Alternative pattern: `src/shared/<utils-name>/__test__/*.{,node,browser}?.test.{ts,tsx,js,jsx}`
   - Example: `src/shared/api-controller/index.node.test.ts`
 - Analyze test assertions to understand expected behavior
 - Extract usage patterns from test cases

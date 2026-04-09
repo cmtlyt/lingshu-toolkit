@@ -505,7 +505,7 @@
         "**/stories/**",
         ".storybook/**",
         "**/*.test.{js,ts,jsx,tsx}",
-        "**/*.test-d.{ts,tsx}"
+        "**/*.test-d.{ts,tsx,js,jsx}"
       ],
       "linter": {
         "rules": {

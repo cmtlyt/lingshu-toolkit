@@ -87,25 +87,25 @@ describe('conditionMerge', () => {
 
   test('传入的参数不是数组和对象', () => {
     // @ts-expect-error test
-    expect(() => conditionMerge(1)).toThrowError(TypeError);
+    expect(() => conditionMerge(1)).toThrow(TypeError);
 
     // @ts-expect-error test
-    expect(() => conditionMerge([1])).toThrowError(TypeError);
+    expect(() => conditionMerge([1])).toThrow(TypeError);
 
     // @ts-expect-error test
-    expect(() => conditionMerge([[true, 1]])).toThrowError(TypeError);
+    expect(() => conditionMerge([[true, 1]])).toThrow(TypeError);
 
     // @ts-expect-error test
-    expect(() => conditionMerge([{ condition: true, value: 1 }])).toThrowError(TypeError);
+    expect(() => conditionMerge([{ condition: true, value: 1 }])).toThrow(TypeError);
 
     // @ts-expect-error test
-    expect(() => conditionMerge([{ condition: true, value: [], fullback: '13' }])).toThrowError(TypeError);
+    expect(() => conditionMerge([{ condition: true, value: [], fullback: '13' }])).toThrow(TypeError);
   });
 
   test('传入 null 或 undefined', () => {
     // @ts-expect-error test
     expect(conditionMerge([[true, null]])).toEqual({});
     // @ts-expect-error test
-    expect(() => conditionMerge([[true, undefined]])).toThrowError(TypeError);
+    expect(() => conditionMerge([[true, undefined]])).toThrow(TypeError);
   });
 });

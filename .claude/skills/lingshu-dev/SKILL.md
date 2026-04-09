@@ -215,7 +215,7 @@ pnpm run build
 ❌ Add tools without tests
 ❌ Use `any` type without justification
 ❌ Forget to document the API
-❌ Use hacky mocks for browser APIs instead of using `.browser.test.{ts,tsx}` files
+❌ Use hacky mocks for browser APIs instead of using `.browser.test.{ts,tsx,js,jsx}` files
 ❌ Use consecutive uppercase letters in tool names (e.g., `useXMLParser` → use `useXmlParser`)
 ❌ **Modify any engineering configuration files** (rslib.config.ts, vitest.config.ts, tsconfig.json, package.json, biome.json, .github/workflows/*, etc.)
 

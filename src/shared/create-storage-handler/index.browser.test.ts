@@ -26,7 +26,7 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
   });
 
   test('定时保存', async () => {
@@ -56,7 +56,7 @@ describe('createStorage', () => {
     expect(storage.get()).toEqual({ num: 2 });
     expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
     expect(sessionStorage.getItem(storageKey)).toBeNull();
   });
 
@@ -71,7 +71,7 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
   });
 
   test('key 已经存在则不使用传入的默认值', () => {

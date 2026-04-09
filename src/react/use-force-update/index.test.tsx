@@ -17,10 +17,10 @@ describe('useForceUpdate', () => {
 
     const screne = await render(<Test />);
     const $btn = screne.getByTestId('btn');
-    expect(renderCounter).toBeCalledTimes(1);
+    expect(renderCounter).toHaveBeenCalledTimes(1);
     await $btn.click();
-    expect(renderCounter).toBeCalledTimes(2);
+    expect(renderCounter).toHaveBeenCalledTimes(2);
     await $btn.click();
-    expect(renderCounter).toBeCalledTimes(3);
+    expect(renderCounter).toHaveBeenCalledTimes(3);
   });
 });

@@ -10,52 +10,52 @@ describe('useToggle', () => {
   test('无参数', async () => {
     const { result, act } = await renderHook(() => useToggle());
     expect(result.current[0]).toBe(false);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(true);
     // @ts-expect-error test
-    expect(() => result.current[1].set('')).toThrowError(TypeError);
+    expect(() => result.current[1].set('')).toThrow(TypeError);
   });
 
   test('1 个参数', async () => {
     const { result, act } = await renderHook(() => useToggle(true));
     expect(result.current[0]).toBe(true);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(false);
-    act(() => result.current[1].set(true));
+    await act(() => result.current[1].set(true));
     expect(result.current[0]).toBe(true);
   });
 
   test('1 个非布尔值参数', async () => {
     const { result, act } = await renderHook(() => useToggle(1));
     expect(result.current[0]).toBe(1);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(false);
-    act(() => result.current[1].set(1));
+    await act(() => result.current[1].set(1));
     expect(result.current[0]).toBe(1);
   });
 
   test('2 个参数', async () => {
     const { result, act } = await renderHook(() => useToggle(true, false));
     expect(result.current[0]).toBe(true);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(false);
-    act(() => result.current[1].set(true));
+    await act(() => result.current[1].set(true));
     expect(result.current[0]).toBe(true);
-    act(() => result.current[1].set(false));
+    await act(() => result.current[1].set(false));
     expect(result.current[0]).toBe(false);
   });
 
   test('2 个非布尔值参数', async () => {
     const { result, act } = await renderHook(() => useToggle(1, 2));
     expect(result.current[0]).toBe(1);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(2);
-    act(() => result.current[1].setLeft());
+    await act(() => result.current[1].setLeft());
     expect(result.current[0]).toBe(1);
-    act(() => result.current[1].setRight());
+    await act(() => result.current[1].setRight());
     expect(result.current[0]).toBe(2);
-    act(() => result.current[1].toggle());
+    await act(() => result.current[1].toggle());
     expect(result.current[0]).toBe(1);
-    expect(() => result.current[1].set(3)).toThrowError(TypeError);
+    expect(() => result.current[1].set(3)).toThrow(TypeError);
   });
 });

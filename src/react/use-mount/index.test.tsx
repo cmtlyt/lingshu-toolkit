@@ -11,7 +11,7 @@ describe('useMount', () => {
   test('基本使用', async () => {
     const callback = vi.fn();
     await renderHook(() => useMount(callback));
-    expect(callback).toBeCalledTimes(1);
+    expect(callback).toHaveBeenCalledTimes(1);
   });
 
   test('不传递参数', async () => {
@@ -27,6 +27,6 @@ describe('useMount', () => {
       </ErrorBoundary>
     );
     await render(<App />);
-    expect(errorCallback).toBeCalledTimes(1);
+    expect(errorCallback).toHaveBeenCalledTimes(1);
   });
 });

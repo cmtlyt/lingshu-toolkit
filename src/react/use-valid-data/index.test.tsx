@@ -33,16 +33,16 @@ describe('useValidData', () => {
     }
     const screne = await render(<App bool num={10} str="123" />);
     const container = screne.getByTestId('container');
-    await expect.poll(() => container).toBeInTheDocument();
-    await expect.poll(() => container).toHaveTextContent('123');
+    await expect.element(container).toBeInTheDocument();
+    await expect.element(container).toHaveTextContent('123');
     expect(effectFn).toHaveBeenCalledOnce();
     // 验证 useValidData 是否能正确更新状态
-    screne.rerender(<App bool num={10} str="456" />);
-    await expect.poll(() => container).toHaveTextContent('456');
+    await screne.rerender(<App bool num={10} str="456" />);
+    await expect.element(container).toHaveTextContent('456');
     expect(effectFn).toHaveBeenCalledOnce();
     // 验证 useValidData 是否能正确缓存状态
     await container.click();
-    await expect.poll(() => container).toHaveTextContent('456');
+    await expect.element(container).toHaveTextContent('456');
     expect(effectFn).toHaveBeenCalledOnce();
   });
 
