@@ -16,8 +16,12 @@ export type Printify<T> = T extends any[] ? T : [T] extends [never] ? T : { [K i
 
 export type PickRequired<T, K extends keyof T> = Printify<Omit<T, K> & Required<Pick<T, K>>>;
 
+export type Func<A extends any[], R = any> = (...args: A) => R;
+
 export type AnyFunc = (...args: any[]) => any;
 
 export type UnULCase<T extends string> = T extends `${infer F}${infer R}`
   ? `${Uppercase<F> | Lowercase<F>}${UnULCase<R>}`
   : Uppercase<T> | Lowercase<T>;
+
+export type Cast<X, Y> = X extends Y ? X : Y;

@@ -1,0 +1,154 @@
+import { logger } from '@/shared/logger';
+import { throwType } from '@/shared/throw-error';
+import type { AnyFunc } from '@/shared/types/base';
+import { isString, isTrue } from '@/shared/utils/verify';
+import { request } from './request';
+import type {
+  APIConfig,
+  APIMap,
+  APIMapTransformMethods,
+  APITransformMethod,
+  DefaultAPIConfig,
+  DefineAPIConfig,
+} from './types';
+import { apiNamesCheck, createInstance, getInstanceMemberOrApi, instanceMemberGetter, isAbsUrl } from './utils';
+
+const FROM_DEFINE = Symbol('fromDefine');
+
+/**
+ * 通过 API config map 创建请求对象
+ *
+ * @param apiMap API config map
+ * @param defaultConfig 默认配置
+ */
+export function createApiWithMap<M extends APIMap, D extends DefaultAPIConfig = DefaultAPIConfig>(
+  apiMap: M,
+  defaultConfig?: D,
+): APIMapTransformMethods<M, D> {
+  const fromDefine = (apiMap as any)[FROM_DEFINE];
+  delete (apiMap as any)[FROM_DEFINE];
+  const proxyCache: Record<string, any> = Object.create(null);
+  const realDefaultConfig = defaultConfig || {};
+
+  if (!isTrue(fromDefine)) {
+    apiNamesCheck(apiMap);
+  }
+
+  const instanceObj = createInstance(apiMap, realDefaultConfig, defaultConfig);
+
+  const proxy = new Proxy(apiMap, {
+    get(target, prop: string, receiver) {
+      if (Reflect.getOwnPropertyDescriptor(proxyCache, prop)) {
+        return proxyCache[prop];
+      }
+      const {
+        instanceMember,
+        api,
+        isCustom = false,
+      } = getInstanceMemberOrApi(target, prop, receiver, instanceObj) || {};
+      if (instanceMember) {
+        return instanceMember;
+      }
+      if (!api) {
+        return void 0;
+      }
+      let result: any = null;
+      if (isString(api.url)) {
+        result = createApi({ ...api, [FROM_DEFINE]: fromDefine } as unknown as APIConfig, realDefaultConfig, isCustom);
+      } else {
+        result = createApiWithMap(
+          { ...api, [FROM_DEFINE]: fromDefine } as Record<string, APIConfig>,
+          realDefaultConfig,
+        );
+      }
+      proxyCache[prop] = result;
+      return result;
+    },
+  }) as any;
+
+  return proxy;
+}
+
+/**
+ * 通过 API config 创建一个请求方法
+ *
+ * @param api API config
+ * @param defaultConfig 默认配置
+ * @param custom 是否为自定义请求
+ */
+export function createApi<
+  A extends APIConfig,
+  D extends DefaultAPIConfig = DefaultAPIConfig,
+  C extends boolean = false,
+>(api: A, defaultConfig?: D, custom?: C): APITransformMethod<A, D, C> {
+  const fromDefine = (api as any)[FROM_DEFINE];
+  delete (api as any)[FROM_DEFINE];
+  const realDefaultConfig = defaultConfig || ({} as DefaultAPIConfig);
+
+  if (!isString(api.url)) {
+    throwType('apiController.createApi', '入参应为 APIConfig 对象');
+  }
+  if (api.url.includes('/:')) {
+    if (!isTrue(fromDefine)) {
+      logger.warn(
+        'apiController.createApi',
+        'url 中存在 params 参数, 使用 defineApi 或 defineApiMap 定义 API 或 API map 来获取更好的类型提示',
+      );
+    }
+    if (!isTrue(custom)) {
+      throwType('apiController.createApi', 'url 中存在 params 参数, 不支持普通请求, 转为自定义请求');
+    }
+  }
+
+  let handler: any = null;
+  if (isTrue(custom)) {
+    handler = ((data, config) =>
+      request({
+        ...realDefaultConfig,
+        ...api,
+        ...config,
+        url: api.url,
+        data,
+        oriUrl: api.url,
+      })) as AnyFunc;
+  } else {
+    handler = ((data) =>
+      request({
+        ...realDefaultConfig,
+        ...api,
+        data,
+        oriUrl: api.url,
+      })) as AnyFunc;
+  }
+
+  const instanceObj = createInstance(api, realDefaultConfig, defaultConfig);
+  if (!isAbsUrl(api.url)) {
+    instanceObj.$updateBaseUrl(realDefaultConfig.baseUrl);
+  }
+
+  return new Proxy(handler, {
+    get(target, prop: string, receiver) {
+      if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
+        return instanceMemberGetter(prop, instanceObj);
+      }
+      return Reflect.get(target, prop, receiver);
+    },
+  });
+}
+
+/**
+ * 定义 API, ts 支持, 获取更好的类型声明
+ * @warn 不应该被复用, 如果希望复用的话请使用 apiInstance.$
+ */
+export function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: A): A {
+  return { ..._api, [FROM_DEFINE]: true };
+}
+
+/**
+ * 定义 API map, ts 支持, 获取更好的类型声明
+ * @warn 不应该被复用, 如果希望复用的话请使用 apiInstance.$
+ */
+export function defineApiMap<U extends string, A extends APIMap<U>>(_apiMap: A): A {
+  apiNamesCheck(_apiMap);
+  return { ..._apiMap, [FROM_DEFINE]: true };
+}

@@ -1,0 +1,106 @@
+# apiController
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+强大的 API 请求控制器，提供类型安全的 API 定义、请求拦截、响应转换和 Mock 支持。
+
+## 特性
+
+- **类型安全**: 完整的 TypeScript 类型支持，提供智能提示
+- **灵活配置**: 支持多种请求模式和自定义配置
+- **拦截器**: 支持请求前、响应后的数据转换
+- **Mock 支持**: 内置 Mock 模式，方便开发和测试
+- **URL 参数**: 支持 RESTful 风格的 URL 参数
+- **嵌套结构**: 支持嵌套的 API Map 结构
+- **URL 参数编码**: 自动编码 URL 参数中的特殊字符
+- **路径拼接优化**: 智能处理 baseUrl 和 url 的拼接，避免重复斜杠
+- **完整 URL 支持**: 支持绝对 URL，无需 baseUrl
+- **参数类型支持**: params 支持 string 和 number 类型
+
+## 安装
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedApiController.json
+```
+
+## 用法
+
+```ts
+import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createApi, createApiWithMap, defineApi, defineApiMap, request } from '@cmtlyt/lingshu-toolkit/shared/api-controller'
+```
+
+## 快速开始
+
+### 创建单个 API
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API 配置
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+// 创建 API 方法
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 创建 API Map
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API Map
+const apiMap = defineApiMap({
+  user: {
+    getInfo: {
+      url: '/user',
+      method: 'GET',
+    },
+    getList: {
+      url: '/user/list',
+      method: 'GET',
+    },
+  },
+})
+
+// 创建 API 实例
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const userInfo = await api.user.getInfo({ id: '1' })
+console.log(userInfo) // { id: '1', name: 'John Doe' }
+
+const userList = await api.user.getList()
+console.log(userList) // [{ id: '1', name: 'John Doe' }]
+```
+
+## 文档导航
+
+- [createApi](./__docs__/create-api.mdx) - 创建单个 API 请求方法
+- [createApiWithMap](./__docs__/create-api-with-map.mdx) - 创建 API Map 请求对象
+- [URL 参数](./__docs__/url-params.mdx) - RESTful 风格的 URL 参数处理
+- [数据转换](./__docs__/data-transform.mdx) - 请求和响应的数据转换
+- [URL 拼接](./__docs__/url-join.mdx) - baseUrl 和 url 的智能拼接
+- [最佳实践](./__docs__/best-practices.mdx) - 使用建议和注意事项

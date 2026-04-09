@@ -10,7 +10,9 @@
     { "name": "createStorageHandler", "author": "cmtlyt" },
     { "name": "animation", "author": "cmtlyt" },
     { "name": "withResolvers", "author": "cmtlyt" },
-    { "name": "allx", "author": "cmtlyt" }
+    { "name": "allx", "author": "cmtlyt" },
+    { "name": "apiController", "author": "cmtlyt" },
+    { "name": "tryCall", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

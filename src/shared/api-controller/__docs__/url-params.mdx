@@ -1,0 +1,173 @@
+# URL 参数
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+支持 RESTful 风格的 URL 参数，自动处理参数编码和类型转换。
+
+## 特性
+
+- **RESTful 风格**: 支持 `/:param` 格式的 URL 参数
+- **自动编码**: 自动编码特殊字符、空格、中文等
+- **类型支持**: 支持 string 和 number 类型
+- **类型安全**: 完整的 TypeScript 类型支持
+- **falsy 值支持**: 正确处理数字 0 等 falsy 值
+
+## 基础用法
+
+### 单个 URL 参数
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义带参数的 URL
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+// 创建自定义请求（URL 参数必须使用 Custom 方法）
+const getUser = createApi(getUserApi, {}, true)
+
+// 调用时传递 params
+const result = await getUser(null, { params: { id: '1' } })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 多个 URL 参数
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getCustomUserApi = defineApi({
+  url: 'https://api.example.com/api/user/:id/custom-name/:name',
+  method: 'GET',
+})
+
+const getCustomUser = createApi(getCustomUserApi, {}, true)
+
+// 传递多个参数
+const result = await getCustomUser(null, { params: { id: '1', name: 'test' } })
+console.log(result) // { id: '1', name: 'test' }
+```
+
+## 高级用法
+
+### 参数类型支持
+
+params 支持 string 和 number 类型，number 类型会自动转换为字符串：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+const getUser = createApi(getUserApi, {}, true)
+
+// number 类型参数
+const result1 = await getUser(null, { params: { id: 123 } })
+console.log(result1) // { id: '123', name: 'John Doe' }
+
+// 数字 0（falsy 值）
+const result2 = await getUser(null, { params: { id: 0 } })
+console.log(result2) // { id: '0', name: 'John Doe' }
+
+// 负数
+const result3 = await getUser(null, { params: { id: -1 } })
+console.log(result3) // { id: '-1', name: 'John Doe' }
+```
+
+### URL 参数编码
+
+URL 参数会自动进行编码，支持特殊字符、空格、中文等：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+const getUser = createApi(getUserApi, {}, true)
+
+// 包含特殊字符的参数
+const result1 = await getUser(null, { params: { id: 'test@123' } })
+console.log(result1) // { id: 'test@123', name: 'John Doe' }
+
+// 包含空格的参数
+const result2 = await getUser(null, { params: { id: 'test name' } })
+console.log(result2) // { id: 'test name', name: 'John Doe' }
+
+// 包含中文的参数
+const result3 = await getUser(null, { params: { id: '测试' } })
+console.log(result3) // { id: '测试', name: 'John Doe' }
+```
+
+### 在 API Map 中使用
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const userApi = defineApiMap({
+  user: {
+    getById: { url: '/user/:id', method: 'GET' },
+    create: { url: '/user', method: 'POST' },
+    update: { url: '/user/:id', method: 'PUT' },
+    delete: { url: '/user/:id', method: 'DELETE' },
+  },
+})
+
+const api = createApiWithMap(userApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 获取用户（使用 Custom 方法）
+const user = await api.user.getByIdCustom(null, { params: { id: '1' } })
+
+// 更新用户（使用 Custom 方法）
+const updated = await api.user.updateCustom(
+  { name: 'John Doe' },
+  { params: { id: '1' } },
+)
+
+// 删除用户（使用 Custom 方法）
+const deleted = await api.user.deleteCustom(null, { params: { id: '1' } })
+```
+
+## 注意事项
+
+### ⚠️ URL 参数使用规则
+
+- URL 中包含 `/:param` 格式的参数时，必须使用 `Custom` 方法调用
+- 普通方法不支持 URL 参数，会抛出 `TypeError`
+- 调用时必须通过 `params` 选项传递参数值
+- params 支持 `string` 和 `number` 类型，number 类型会自动转换为字符串
+- URL 参数会自动进行编码，支持特殊字符、空格、中文等
+- 数字 0 作为参数值是有效的，不会被 falsy 检查过滤
+
+### ⚠️ 类型提示
+
+- 建议使用 `defineApi` 和 `defineApiMap` 定义配置，以获得更好的类型提示
+- 不使用 `defineApi` 定义带参数的 URL 时，会输出警告信息
+
+### 🔧 Custom 方法
+
+- `Custom` 方法是内部实现的方法，不建议在 API 命名中使用 `Custom` 结尾
+- `Custom` 方法支持自定义请求配置，可以覆盖默认配置
+- 使用 `Custom` 方法时，第一个参数为请求体，第二个参数为配置对象
+
+### 🔧 参数验证
+
+- 如果 URL 中定义了参数但调用时未提供，会抛出 `TypeError`
+- 参数值可以是 string 或 number 类型
+- number 类型会自动转换为字符串
+- 数字 0 作为参数值是有效的

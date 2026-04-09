@@ -1,0 +1,297 @@
+# 最佳实践
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+使用 apiController 的最佳实践和建议，帮助您编写更好的代码。
+
+## 代码风格
+
+### 1. 使用 defineApi 和 defineApiMap 获取更好的类型提示
+
+```ts
+// ✅ 好的做法：使用 defineApi
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+// ❌ 不好的做法：直接使用对象
+const getUserApi = {
+  url: '/user',
+  method: 'GET',
+}
+```
+
+### 2. 统一管理 API 配置
+
+```ts
+// ✅ 好的做法：集中定义所有 API
+const apiMap = defineApiMap({
+  user: {
+    getInfo: { url: '/user' },
+    getList: { url: '/user/list' },
+  },
+  order: {
+    getById: { url: '/order/:id' },
+  },
+})
+
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+```
+
+### 3. 使用 tdto 和 tvo 进行数据转换
+
+```ts
+// ✅ 好的做法：使用转换函数
+const getUserApi = defineApi({
+  url: '/user',
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+  tvo(data: any) {
+    return { ...data, createdAt: new Date(data.createdAt) }
+  },
+})
+
+// ❌ 不好的做法：在调用时手动转换
+const result = await getUser({ id: Number(id) })
+```
+
+### 4. URL 参数必须使用 Custom 方法
+
+```ts
+// ✅ 好的做法：URL 参数使用 Custom 方法
+const getUser = createApi(defineApi({ url: '/user/:id' }), {}, true)
+await getUser(null, { params: { id: '1' } })
+
+// ❌ 不好的做法：普通方法不支持 URL 参数
+const getUser = createApi(defineApi({ url: '/user/:id' }))
+// 这会抛出错误
+```
+
+### 5. 使用完整 URL 避免路径拼接问题
+
+```ts
+// ✅ 好的做法：使用完整 URL
+const api = createApi(
+  defineApi({
+    url: 'https://api.example.com/api/user',
+    method: 'GET',
+  }),
+  {},
+  true,
+)
+
+// ✅ 或者确保 baseUrl 和 url 正确拼接
+const api2 = createApi(
+  defineApi({
+    url: '/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api' },
+  true,
+)
+
+// ❌ 不好的做法：路径拼接可能产生问题
+const api3 = createApi(
+  defineApi({
+    url: '/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api/' },
+  true,
+)
+```
+
+### 6. 使用实例属性获取配置
+
+```ts
+// ✅ 好的做法：通过 $ 属性获取配置
+const apiConfig = api.user.getInfo.$
+const defaultConfig = api.user.getInfo.$$
+
+// 可以基于配置创建新的 API
+const newApi = createApi(apiConfig, defaultConfig)
+```
+
+## 项目结构
+
+### 推荐的文件组织方式
+
+```ts
+// api/user.ts
+export const userApi = defineApiMap({
+  getById: { url: '/user/:id', method: 'GET' },
+  create: { url: '/user', method: 'POST' },
+  update: { url: '/user/:id', method: 'PUT' },
+  delete: { url: '/user/:id', method: 'DELETE' },
+})
+
+// api/index.ts
+import { userApi } from './user'
+import { orderApi } from './order'
+
+export const apiMap = defineApiMap({
+  ...userApi,
+  ...orderApi,
+})
+
+// api/client.ts
+import { createApiWithMap } from '@cmtlyt/lingshu-toolkit/shared'
+import { apiMap } from './index'
+
+export const api = createApiWithMap(apiMap, {
+  baseUrl: process.env.API_BASE_URL,
+})
+```
+
+## 性能优化
+
+### 1. 复用 API 实例
+
+```ts
+// ✅ 好的做法：复用 API 实例
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 在整个应用中复用同一个实例
+export { api }
+
+// ❌ 不好的做法：每次都创建新实例
+function getUser() {
+  const api = createApiWithMap(apiMap, {
+    baseUrl: 'https://api.example.com',
+  })
+  return api.user.getInfo({ id: '1' })
+}
+```
+
+### 2. 使用缓存策略
+
+```ts
+import { defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const cache = new Map()
+
+const getUserApi = defineApi({
+  url: '/user/:id',
+  method: 'GET',
+  async onRequest(req, config) {
+    const cacheKey = `user:${config.params.id}`
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)
+    }
+    return req
+  },
+  tvo(data) {
+    const cacheKey = `user:${data.id}`
+    cache.set(cacheKey, data)
+    return data
+  },
+})
+```
+
+## 错误处理
+
+### 1. 统一的错误处理
+
+```ts
+import { defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user/:id',
+  method: 'GET',
+  async onResponse(res, config) {
+    if (!res.ok) {
+      throw new Error(`API Error: ${res.status}`)
+    }
+    return res.json()
+  },
+})
+```
+
+### 2. 重试机制
+
+```ts
+import { defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const retry = async (fn, retries = 3) => {
+  try {
+    return await fn()
+  } catch (error) {
+    if (retries <= 0) throw error
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    return retry(fn, retries - 1)
+  }
+}
+
+const getUserApi = defineApi({
+  url: '/user/:id',
+  method: 'GET',
+  async onRequest(req, config) {
+    return retry(() => fetch(req))
+  },
+})
+```
+
+## 注意事项
+
+### ⚠️ URL 参数
+
+- URL 中包含 `/:param` 格式的参数时，必须使用 `Custom` 方法调用
+- 普通方法不支持 URL 参数，会抛出 `TypeError`
+- 调用时必须通过 `params` 选项传递参数值
+- params 支持 `string` 和 `number` 类型，number 类型会自动转换为字符串
+- URL 参数会自动进行编码，支持特殊字符、空格、中文等
+- 数字 0 作为参数值是有效的，不会被 falsy 检查过滤
+
+### ⚠️ 类型提示
+
+- 建议使用 `defineApi` 和 `defineApiMap` 定义配置，以获得更好的类型提示
+- 不使用 `defineApi` 定义带参数的 URL 时，会输出警告信息
+
+### ⚠️ 请求模式
+
+- `mock` 模式会使用 `onRequest` 返回的数据作为响应
+- `network` 模式会发送真实的网络请求
+- 可以通过 `requestModeMap` 自定义请求模式
+- 自定义请求模式会绕过默认的 hook 链
+
+### ⚠️ 响应解析
+
+- 默认使用 `json` 解析器
+- `parser` 为 `stream` 时返回 `ReadableStream`，在某些情况下可能返回 `null`
+- `onResponse` 会覆盖 `parser` 的解析方式
+- 如果想要屏蔽 `onResponse` 的继承，应该设置 `onResponse` 为 `null`
+
+### 🔧 Hook 执行顺序
+
+数据转换 Hook 的执行顺序：
+1. `tdto` - 请求前转换数据
+2. `onRequest` - 请求拦截
+3. `onResponse/parser` - 响应拦截/解析
+4. `tvo` - 响应后转换数据
+
+### ⚠️ 路径拼接
+
+- baseUrl 和 url 的拼接会自动处理重复的斜杠
+- 支持相对路径和绝对路径
+- 完整的绝对 URL 不需要 baseUrl
+- 在 Node 环境中设置非绝对路径的 baseUrl 时，需要确保 `location.origin` 可用
+
+### 🔧 实例属性
+
+- `$` - 获取 API 配置对象
+- `$$` - 获取默认配置（如果没有提供默认配置则为 `undefined`）
+- `$$r` - 获取实际应用的默认配置
+- `$updateBaseUrl` - 动态更新 Base URL
+- 多次访问同一个 API 会返回相同的引用

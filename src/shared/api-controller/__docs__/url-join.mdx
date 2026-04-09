@@ -1,0 +1,192 @@
+# URL 拼接
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+智能处理 baseUrl 和 url 的拼接，避免重复斜杠，支持绝对 URL 和相对 URL。
+
+## 特性
+
+- **智能拼接**: 自动处理 baseUrl 和 url 的拼接
+- **避免重复**: 自动去除重复的斜杠
+- **绝对 URL**: 支持完整的绝对 URL
+- **相对路径**: 支持相对路径和绝对路径
+- **动态更新**: 支持动态更新 Base URL
+
+## 基础用法
+
+### 完整 URL 支持
+
+可以使用完整的绝对 URL，无需配置 baseUrl：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const fullUrlApi = defineApi({
+  url: 'https://api.example.com/full-path/user',
+  method: 'GET',
+})
+
+const api = createApi(fullUrlApi, {}, true)
+
+// 可以正常创建 API，即使没有 baseUrl
+const result = await api(null)
+console.log(result)
+```
+
+## 高级用法
+
+### 路径拼接优化
+
+智能处理 baseUrl 和 url 的拼接，避免重复斜杠。
+
+#### 拼接规则
+
+1. **绝对 URL 优先**：如果 url 是绝对 URL（以协议开头，如 `https://`），直接使用，不与 baseUrl 拼接
+2. **智能拼接逻辑**：
+   - 自动提取 baseUrl 的 pathname 部分
+   - 如果 baseUrl 的 pathname 是 `/`，则忽略该部分
+   - 否则移除 baseUrl pathname 末尾的 `/`
+   - url 如果不以 `/` 开头，自动添加 `/`
+   - 最终拼接为：`${basePath}${relativePath}`
+3. **完整 URL 支持**：可以使用绝对 URL，无需配置 baseUrl
+
+#### 示例
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// baseUrl 以 / 结尾
+const api1 = createApi(
+  defineApi({
+    url: '/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api/' },
+  true,
+)
+// 最终 URL: https://api.example.com/api/user
+
+// baseUrl 不以 / 结尾
+const api2 = createApi(
+  defineApi({
+    url: '/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api' },
+  true,
+)
+// 最终 URL: https://api.example.com/api/user
+
+// 相对路径
+const api3 = createApi(
+  defineApi({
+    url: 'user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api' },
+  true,
+)
+// 最终 URL: https://api.example.com/api/user
+
+// baseUrl 包含路径
+const api4 = createApi(
+  defineApi({
+    url: '/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api/v1' },
+  true,
+)
+// 最终 URL: https://api.example.com/api/v1/user
+
+// 使用绝对 URL（不与 baseUrl 拼接）
+const api5 = createApi(
+  defineApi({
+    url: 'https://api.example.com/full-path/user',
+    method: 'GET',
+  }),
+  { baseUrl: 'https://api.example.com/api' },
+  true,
+)
+// 最终 URL: https://api.example.com/full-path/user
+```
+
+### 动态更新 Base URL
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const api = createApiWithMap(
+  defineApiMap({
+    user: {
+      getInfo: { url: '/user' },
+    },
+  }),
+  {
+    baseUrl: 'https://api.example.com',
+  },
+)
+
+// 更新 Base URL
+api.$updateBaseUrl('https://api.example.com/api')
+
+const result = await api.user.getInfo({ id: '1' })
+// 请求地址: https://api.example.com/api/user?id=1
+```
+
+### 在 API Map 中使用
+
+```ts
+import { createApiWithMap, defineApiMap } from '@cmtlyt/lingshu-toolkit/shared'
+
+const apiMap = defineApiMap({
+  user: {
+    getInfo: { url: '/user' },
+    profile: {
+      get: { url: '/user/:id/profile' },
+    },
+  },
+})
+
+const api = createApiWithMap(apiMap, {
+  baseUrl: 'https://api.example.com/api/v1',
+})
+
+// 所有 API 都会自动拼接 baseUrl
+const result = await api.user.getInfo({ id: '1' })
+// 请求地址: https://api.example.com/api/v1/user?id=1
+```
+
+## 注意事项
+
+### ⚠️ 路径拼接
+
+- baseUrl 和 url 的拼接会自动处理重复的斜杠
+- 支持相对路径和绝对路径
+- 完整的绝对 URL 不需要 baseUrl
+- 在 Node 环境中设置非绝对路径的 baseUrl 时，需要确保 `location.origin` 可用
+
+### 🔧 动态更新
+
+- 使用 `$updateBaseUrl` 方法可以动态更新 Base URL
+- 更新 Base URL 会影响所有后续的请求
+- 多次访问同一个 API 会返回相同的引用
+
+### 🔧 拼接规则
+
+- 绝对 URL（以协议开头）优先，不与 baseUrl 拼接
+- 相对 URL 会与 baseUrl 智能拼接
+- 自动处理重复的斜杠，避免路径错误
+- 支持复杂的路径结构，如 `/api/v1/user`
+
+### 🔧 环境兼容
+
+- 浏览器环境：直接使用 `location.origin`
+- Node 环境：需要确保 `location.origin` 可用
+- 如果 `location.origin` 不可用，会抛出错误

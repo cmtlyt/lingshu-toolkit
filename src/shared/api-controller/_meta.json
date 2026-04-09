@@ -1,0 +1,38 @@
+[
+  {
+    "id": "shared@apiController#createApi",
+    "type": "file",
+    "label": "createApi",
+    "name": "./__docs__/create-api.mdx"
+  },
+  {
+    "id": "shared@apiController#createApiWithMap",
+    "type": "file",
+    "label": "createApiWithMap",
+    "name": "./__docs__/create-api-with-map.mdx"
+  },
+  {
+    "id": "shared@apiController#urlParams",
+    "type": "file",
+    "label": "URL 参数",
+    "name": "./__docs__/url-params.mdx"
+  },
+  {
+    "id": "shared@apiController#dataTransform",
+    "type": "file",
+    "label": "数据转换",
+    "name": "./__docs__/data-transform.mdx"
+  },
+  {
+    "id": "shared@apiController#urlJoin",
+    "type": "file",
+    "label": "URL 拼接",
+    "name": "./__docs__/url-join.mdx"
+  },
+  {
+    "id": "shared@apiController#bestPractices",
+    "type": "file",
+    "label": "最佳实践",
+    "name": "./__docs__/best-practices.mdx"
+  }
+]

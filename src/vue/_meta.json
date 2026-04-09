@@ -1,5 +1,6 @@
 [
   {
+    "id": "vue@useTitle",
     "type": "file",
     "label": "useTitle",
     "name": "use-title/index.mdx"

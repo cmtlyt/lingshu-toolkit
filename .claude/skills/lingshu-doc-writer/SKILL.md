@@ -5,7 +5,7 @@ description: "Write lingshu-toolkit documentation in MDX format following projec
 
 # Doc Writer
 
-IRON LAW: Every documentation must be type-safe, executable, and follow lingshu-toolkit's MDX structure. Never generate code that cannot run or lacks proper TypeScript types.
+IRON LAW: Every documentation must be type-safe, executable, and follow lingshu-toolkit's MDX structure. Never generate code that cannot run or lacks proper TypeScript types. **ABSOLUTELY FORBIDDEN: Never expose implementation details in documentation.**
 
 ## Workflow
 
@@ -26,7 +26,7 @@ Doc Writer Progress:
   - [ ] Load references/mdx-format.md
   - [ ] Understand required sections and structure
 - [ ] Step 4: Generate Content
-  - [ ] 4.1 Write title and metadata (version, shadcn, author)
+  - [ ] 4.1 Write title and metadata (version, shadcn, author, update time in fixed format: YYYY/MM/DD HH:mm:ss)
   - [ ] 4.2 Write features/特性 section
   - [ ] 4.3 Write installation commands
   - [ ] 4.4 Write usage examples
@@ -40,7 +40,7 @@ Doc Writer Progress:
 - [ ] Step 6: Create/Update File
   - [ ] 6.1 Determine correct file path
   - [ ] 6.2 Create or update the .mdx file
-  - [ ] 6.3 Run pnpm run lint to check formatting
+  - [ ] 6.3 Run pnpm run check to check formatting
 ```
 
 ## Step 1: Understand the Target ⚠️ REQUIRED
@@ -59,7 +59,10 @@ Before writing any documentation:
 - Note any TypeScript types
 
 **Read the test file ⚠️ CRITICAL:**
-- Find and read the corresponding test file (usually `src/**/__tests__/*.test.ts` or `src/**/*.test.ts`)
+- Find and read the corresponding test file following lingshu-toolkit naming conventions:
+  - Primary pattern: `src/shared/<utils-name>/index.{,node,browser}.test.{ts,tsx}`
+  - Alternative pattern: `src/shared/<utils-name>/__test__/*.{,node,browser}?.test.{ts,tsx}`
+  - Example: `src/shared/api-controller/index.node.test.ts`
 - Analyze test assertions to understand expected behavior
 - Extract usage patterns from test cases
 - **Code examples in documentation must match test assertions**
@@ -69,7 +72,8 @@ Before writing any documentation:
 ```
 User: "Write docs for allx tool"
 → Read src/shared/allx/index.ts
-→ Read src/shared/allx/__tests__/allx.test.ts (or similar)
+→ Read src/shared/allx/*.test.ts (or similar)
+→ Read src/shared/allx/__tests__/*.test.ts (or similar)
 → Identify namespace: shared
 → Understand: Promise.all enhancement with dependency resolution
 → Extract usage patterns from test assertions
@@ -107,63 +111,57 @@ Update existing documentation:
 - Fix outdated information
 - Maintain existing structure
 
-## Step 3: Load MDX Format Reference ⚠️ REQUIRED
+## Step 3: Load References ⚠️ REQUIRED
 
-Always load the format reference before generating content:
+Always load references before generating content:
 
 → Load references/mdx-format.md for:
-- Required sections order
-- Heading levels (##, ###)
-- Code block syntax
-- Metadata format
+- **Complete MDX structure and format** (THIS IS THE SOURCE OF TRUTH)
+- Required sections order and exact headings
+- All section formats with complete examples
+- Heading levels (##, ###, ####)
+- Code block syntax and language specifiers
+- Metadata format and rules
 - Installation command format
+- API reference table structure
+- Notes/注意事项 format
 - Language consistency (中文 for lingshu-toolkit)
+- Quality checklist
+
+→ Load references/terminology.md (optional, for specific needs):
+- Shadcn URL format patterns
+- Namespace conventions
+- Section heading translations
+- Terminology consistency
 
 ## Step 4: Generate Content
 
-### 4.1 Title and Metadata
+⚠️ **CRITICAL**: Follow references/mdx-format.md EXACTLY. This is the source of truth for all format requirements.
 
-Format:
-```mdx
-# tool-name
+**DO NOT duplicate format examples in this SKILL.md.** All format specifications are maintained in references/mdx-format.md to ensure single source of truth.
 
-> package version >X.X.X
->
-> shadcn any version
->
-> author: cmtlyt
+### 4.1-4.6 Section Formats
 
-Brief description of what this tool does.
-```
+For all section formats (Title/Metadata, Features, Installation, Usage Examples, API Reference, Notes/注意事项):
 
-### 4.2 Features/特性 Section
+→ Load references/mdx-format.md and follow the exact format for each section:
+- Section 1: Title and Metadata (includes package version, shadcn version, author, **update time in fixed format: YYYY/MM/DD HH:mm:ss**)
+- Section 2: Features/特性
+- Section 3: Installation (## 安装 + ## 用法)
+- Section 4: Usage Examples (## 基础用法 + ## 高级用法)
+- Section 5: API Reference (with tables and subsections)
+- Section 6: Notes/注意事项 (## 注意事项 with ⚠️ and 🔧)
 
-Use bullet points with **bold** for emphasis:
-- **Feature 1**: Description
-- **Feature 2**: Description
-
-### 4.3 Installation Commands
-
-Always include both npm and shadcn:
-```bash title="npm"
-npm i @cmtlyt/lingshu-toolkit
-```
-
-```bash title="shadcn"
-npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/namespaceToolName.json
-```
-
-### 4.4 Usage Examples
+### Content Generation Guidelines
 
 **For --quick:**
-- 1 basic usage example
-- Simple, straightforward code
+- Generate basic structure only
+- Follow mdx-format.md section formats exactly
 
 **For --full:**
-- Basic usage section
-- Advanced examples section
-- Multiple real-world scenarios
-- Each example with clear title
+- Generate complete documentation
+- Include all sections from mdx-format.md
+- Follow all formatting rules exactly
 
 **⚠️ CRITICAL: Generate examples from test files**
 - Read the corresponding test file for the tool/hook
@@ -173,41 +171,8 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/namespaceToolNa
 - If test shows `expect(func(arg)).toBe(42)`, the example must show `func(arg) // 42`
 - Document edge cases that are tested
 - Include error handling examples if tests cover error scenarios
-
-**Code example format:**
-```tsx/ts
-// Brief comment explaining what this does
-function Example() {
-  // Code here
-}
-```
-
-### 4.5 API Reference
-
-**For --quick:**
-- Function signature
-- Parameter list
-- Return value
-
-**For --full:**
-- Function signature
-- Parameter table (| Parameter | Type | Required | Default | Description |)
-- Options table (if applicable)
-- Return value details
-- Type definitions (if complex)
-
-### 4.6 Notes/注意事项
-
-Use ⚠️ for warnings and 🔧 for implementation details:
-```mdx
-### ⚠️ Warning Title
-
-Warning content.
-
-### 🔧 Implementation Detail
-
-Implementation explanation.
-```
+- **⚠️ ABSOLUTELY FORBIDDEN: Never reference test implementation details in documentation**
+- **⚠️ Only use test assertions to verify expected behavior, never to explain how it works internally**
 
 ## Step 5: Verify Quality ⚠️ REQUIRED
 
@@ -225,19 +190,22 @@ Before creating the file, verify:
 - **Examples must match test assertions**
 - **Expected outputs must align with test expectations**
 
-### 5.3 Required Sections
-- [ ] Title and metadata
-- [ ] Features/特性
-- [ ] Installation
-- [ ] Usage
-- [ ] API Reference
-- [ ] Notes/注意事项 (for --full)
+### 5.3 Format Compliance
 
-### 5.4 Formatting Consistency
-- Headings: ## for main sections, ### for subsections
-- Code blocks: Proper language specification (tsx, ts, bash)
-- Tables: Proper markdown table syntax
-- Lists: Use - for bullet points
+⚠️ **CRITICAL**: Follow references/mdx-format.md Quality Checklist exactly
+
+→ Load references/mdx-format.md and verify all items in the Quality Checklist section:
+- All required sections present
+- Correct heading levels (##, ###, ####)
+- Proper code block language specified (tsx, ts, bash, mdx)
+- TypeScript types in all examples
+- Chinese for descriptive text
+- Consistent formatting
+- No placeholder text (TODO, FIXME)
+- Code examples are executable
+- Tables properly formatted with headers
+- No trailing whitespace
+- Blank lines between sections
 
 ## Step 6: Create/Update File
 
@@ -263,7 +231,7 @@ Pattern:
 
 Run lint check:
 ```bash
-pnpm run lint
+pnpm run check
 ```
 
 Fix any formatting issues before completing.
@@ -283,6 +251,11 @@ Fix any formatting issues before completing.
 - **Generate examples without reading the test file**
 - **Create examples that contradict test assertions**
 - **Guess expected behavior — use tests as source of truth**
+- **⚠️ ABSOLUTELY FORBIDDEN: Expose implementation details in documentation**
+- **⚠️ NEVER include internal variable names, helper functions, or algorithm specifics**
+- **⚠️ NEVER copy-paste source code implementation into documentation**
+- **⚠️ NEVER describe how the code is implemented internally**
+- **⚠️ Focus ONLY on usage, behavior, and API — never on implementation**
 
 ### ✅ DO:
 
@@ -296,6 +269,9 @@ Fix any formatting issues before completing.
 - **Read the test file before generating examples**
 - **Match examples to test assertions exactly**
 - **Use test cases as source of truth for behavior**
+- **Focus on WHAT the tool does and HOW to use it**
+- **Describe behavior, outcomes, and usage patterns**
+- **Keep implementation details completely hidden from users**
 
 ## Writing Principles
 
@@ -305,6 +281,9 @@ Fix any formatting issues before completing.
 - **Consistent**: Match existing documentation style
 - **Complete**: Cover all important aspects (for --full)
 - **Practical**: Focus on real-world usage scenarios
+- **⚠️ ABSOLUTELY FORBIDDEN: Never expose implementation details**
+- **User-facing**: Document behavior and usage, never internal implementation
+- **Black-box approach**: Treat tools as black boxes — describe inputs and outputs only
 
 ## Pre-Delivery Checklist
 
@@ -321,3 +300,7 @@ Before marking the task complete:
 - [ ] Formatting matches existing docs
 - [ ] No lint errors
 - [ ] File created/updated successfully
+- [ ] **⚠️ CRITICAL: No implementation details exposed in documentation**
+- [ ] **⚠️ CRITICAL: No internal variable names or helper functions mentioned**
+- [ ] **⚠️ CRITICAL: No source code implementation copied into docs**
+- [ ] **⚠️ CRITICAL: Only usage, behavior, and API are documented**

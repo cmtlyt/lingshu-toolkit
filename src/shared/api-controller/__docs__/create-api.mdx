@@ -1,0 +1,286 @@
+# createApi
+
+> package version >0.4.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/08 15:42:00
+
+创建单个 API 请求方法，提供类型安全的 API 定义和灵活的配置选项。
+
+## 特性
+
+- **类型安全**: 完整的 TypeScript 类型支持
+- **灵活配置**: 支持自定义请求配置和默认配置
+- **URL 参数**: 支持 RESTful 风格的 URL 参数
+- **数据转换**: 支持请求和响应的数据转换
+- **拦截器**: 支持请求和响应拦截
+- **Mock 支持**: 内置 Mock 模式
+
+## 基础用法
+
+### 创建简单的 API
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义 API 配置
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+// 创建 API 方法
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+})
+
+// 调用 API
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+### 使用完整 URL
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const fullUrlApi = defineApi({
+  url: 'https://api.example.com/full-path/user',
+  method: 'GET',
+})
+
+const api = createApi(fullUrlApi, {}, true)
+
+const result = await api(null)
+console.log(result)
+```
+
+## 高级用法
+
+### URL 参数
+
+定义带参数的 URL，使用 Custom 方法调用：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 定义带参数的 URL
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+// 创建自定义请求（URL 参数必须使用 Custom 方法）
+const getUser = createApi(getUserApi, {}, true)
+
+// 调用时传递 params
+const result = await getUser(null, { params: { id: '1' } })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+#### 多个 URL 参数
+
+```ts
+const getCustomUserApi = defineApi({
+  url: 'https://api.example.com/api/user/:id/custom-name/:name',
+  method: 'GET',
+})
+
+const getCustomUser = createApi(getCustomUserApi, {}, true)
+
+// 传递多个参数
+const result = await getCustomUser(null, { params: { id: '1', name: 'test' } })
+console.log(result) // { id: '1', name: 'test' }
+```
+
+#### URL 参数类型支持
+
+params 支持 string 和 number 类型，number 类型会自动转换为字符串：
+
+```ts
+const getUserApi = defineApi({
+  url: 'https://api.example.com/user/:id',
+  method: 'GET',
+})
+
+const getUser = createApi(getUserApi, {}, true)
+
+// number 类型参数
+const result1 = await getUser(null, { params: { id: 123 } })
+console.log(result1) // { id: '123', name: 'John Doe' }
+
+// 数字 0（falsy 值）
+const result2 = await getUser(null, { params: { id: 0 } })
+console.log(result2) // { id: '0', name: 'John Doe' }
+
+// 负数
+const result3 = await getUser(null, { params: { id: -1 } })
+console.log(result3) // { id: '-1', name: 'John Doe' }
+```
+
+### 响应解析
+
+支持多种响应解析方式：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+const getUserCustom = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+}, true)
+
+// 解析为 JSON（默认）
+const jsonResult = await getUserCustom({ id: '1' })
+console.log(jsonResult) // { id: '1', name: 'John Doe' }
+
+// 解析为文本
+const textResult = await getUserCustom({ id: '1' }, { parser: 'text' })
+console.log(textResult) // '{"id":"1","name":"John Doe"}'
+
+// 解析为流
+const streamResult = await getUserCustom({ id: '1' }, { parser: 'stream' })
+console.log(streamResult) // ReadableStream
+```
+
+### 数据转换
+
+使用 `tdto`、`tvo`、`onRequest`、`onResponse` 进行数据转换：
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+  // 请求前转换数据
+  tdto(data: { id: string }) {
+    return { id: Number(data.id) }
+  },
+  // 请求拦截
+  onRequest(req, config) {
+    return req.json() as unknown as { id: number }
+  },
+  // 响应后转换数据
+  tvo(data: any) {
+    return { ...data, age: 18 } as { id: string; name: string; age: number }
+  },
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'mock',
+})
+
+const result = await getUser({ id: '1' })
+console.log(result) // { id: '1', name: 'John Doe', age: 18 }
+```
+
+### 自定义配置请求
+
+```ts
+import { createApi, defineApi } from '@cmtlyt/lingshu-toolkit/shared'
+
+const getUserApi = defineApi({
+  url: '/user',
+  method: 'GET',
+})
+
+const getUser = createApi(getUserApi, {
+  baseUrl: 'https://api.example.com',
+  requestMode: 'test',
+  requestModeMap: {
+    test: (config) => {
+      const { data } = config
+      return { isTestRequest: true, ...(data || {}) } as Record<'isTestRequest' | (string & {}), any>
+    },
+  },
+}, true)
+
+// 使用自定义配置
+const result = await getUser({ id: '1' }, { requestMode: 'network' })
+console.log(result) // { id: '1', name: 'John Doe' }
+```
+
+## API Reference
+
+### createApi
+
+创建单个 API 请求方法。
+
+```ts
+function createApi<A extends APIConfig, D extends DefaultAPIConfig = DefaultAPIConfig, C extends boolean = false>(
+  api: A,
+  defaultConfig?: D,
+  custom?: C
+): APITransformMethod<A, D, C>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| api | `APIConfig` | 是 | undefined | API 配置对象 |
+| defaultConfig | `DefaultAPIConfig` | 否 | undefined | 默认配置 |
+| custom | `boolean` | 否 | false | 是否为自定义请求（用于 URL 参数） |
+
+#### 返回值
+
+返回一个可调用的 API 方法，支持 `$`、`$$`、`$$r` 属性和 `$updateBaseUrl` 方法。
+
+### defineApi
+
+定义 API 配置，获取更好的类型提示。
+
+```ts
+function defineApi<U extends string, A extends DefineAPIConfig<U>>(_api: A): A
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| _api | `DefineAPIConfig` | 是 | undefined | API 配置对象 |
+
+#### 返回值
+
+返回配置对象，标记为已定义，提供更好的类型推断。
+
+## 注意事项
+
+### ⚠️ URL 参数
+
+- URL 中包含 `/:param` 格式的参数时，必须使用 `Custom` 方法调用
+- 普通方法不支持 URL 参数，会抛出 `TypeError`
+- 调用时必须通过 `params` 选项传递参数值
+- params 支持 `string` 和 `number` 类型，number 类型会自动转换为字符串
+- 数字 0 作为参数值是有效的，不会被 falsy 检查过滤
+
+### ⚠️ 类型提示
+
+- 建议使用 `defineApi` 定义配置，以获得更好的类型提示
+- 不使用 `defineApi` 定义带参数的 URL 时，会输出警告信息
+
+### 🔧 Hook 执行顺序
+
+数据转换 Hook 的执行顺序：
+1. `tdto` - 请求前转换数据
+2. `onRequest` - 请求拦截
+3. `onResponse/parser` - 响应拦截/解析
+4. `tvo` - 响应后转换数据
+
+### 🔧 实例属性
+
+- `$` - 获取 API 配置对象
+- `$$` - 获取默认配置（如果没有提供默认配置则为 `undefined`）
+- `$$r` - 获取实际应用的默认配置
+- `$updateBaseUrl` - 动态更新 Base URL
+- 多次访问同一个 API 会返回相同的引用

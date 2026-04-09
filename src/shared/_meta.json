@@ -1,52 +1,74 @@
 [
   {
+    "id": "shared@utils",
     "type": "file",
     "label": "utils",
     "name": "utils/index.mdx"
   },
   {
+    "id": "shared@dataHandler",
     "type": "file",
     "label": "dataHandler",
     "name": "data-handler/index.mdx"
   },
   {
+    "id": "shared@dataMixedManager",
     "type": "file",
     "label": "dataMixedManager",
     "name": "data-mixed-manager/index.mdx"
   },
   {
+    "id": "shared@throwError",
     "type": "file",
     "label": "throwError",
     "name": "throw-error/index.mdx"
   },
   {
+    "id": "shared@types",
     "type": "file",
     "label": "types",
     "name": "types/index.mdx"
   },
   {
+    "id": "shared@conditionMerge",
     "type": "file",
     "label": "conditionMerge",
     "name": "condition-merge/index.mdx"
   },
   {
+    "id": "shared@createStorageHandler",
     "type": "file",
     "label": "createStorageHandler",
     "name": "create-storage-handler/index.mdx"
   },
   {
+    "id": "shared@animation",
     "type": "file",
     "label": "animation",
     "name": "animation/index.mdx"
   },
   {
+    "id": "shared@withResolvers",
     "type": "file",
     "label": "withResolvers",
     "name": "with-resolvers/index.mdx"
   },
   {
+    "id": "shared@allx",
     "type": "file",
     "label": "allx",
     "name": "allx/index.mdx"
+  },
+  {
+    "id": "shared@apiController",
+    "type": "dir",
+    "label": "apiController",
+    "name": "api-controller"
+  },
+  {
+    "id": "shared@tryCall",
+    "type": "file",
+    "label": "tryCall",
+    "name": "try-call/index.mdx"
   }
 ]
