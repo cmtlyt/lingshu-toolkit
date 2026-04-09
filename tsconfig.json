@@ -2,6 +2,7 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "ESNext.Promise"],
     "jsx": "preserve",
+    "rootDir": "./src",
     "module": "ESNext",
     "noEmit": true,
     "strict": true,
