@@ -71,6 +71,7 @@
     "@vitest/ui": "4.0.18",
     "changelogithub": "^14.0.0",
     "cross-env": "^10.1.0",
+    "depcheck": "^1.4.7",
     "esno": "^4.8.0",
     "husky": "^9.1.7",
     "jsdom": "^27.4.0",
