@@ -10,6 +10,7 @@ function getEntrys(namespace: string) {
     exclude: [
       `src/${namespace}/index.ts`,
       'src/**/*.browser.test.{ts,tsx}',
+      'src/**/*.node.test.{ts,tsx}',
       'src/**/*.test.{ts,tsx}',
       'src/**.test-d.{ts,tsx}',
     ],
@@ -49,7 +50,11 @@ function getEntryInfo() {
 const { unbundleEntry, mainEntry } = getEntryInfo();
 
 export default defineConfig({
-  output: { target: 'web' },
+  output: {
+    target: 'web',
+    minify: true,
+    copy: [{ from: path.resolve(__dirname, './.npmignore'), to: path.resolve(__dirname, './dist') }],
+  },
   lib: [
     {
       source: {
