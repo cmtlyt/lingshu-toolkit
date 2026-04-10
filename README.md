@@ -12,9 +12,9 @@
 
 shadcn 的安装方式可以通过[官方文档](https://cmtlyt.github.io/lingshu-toolkit/)查看, 文档后续会慢慢完善的
 
-## ai 支持
+## AI 支持
 
-ai 用户可以通过在 AGENTS.md 或者 CLAUDE.md 等 ai 文件中添加 [llms.txt](https://cmtlyt.github.io/lingshu-toolkit/llms.txt) 来让 ai 可以自动获取 lingshu-toolkit 的文档
+AI 用户可以通过在 AGENTS.md 或者 CLAUDE.md 等 AI 文件中添加 [llms.txt](https://cmtlyt.github.io/lingshu-toolkit/llms.txt) 来让 AI 可以自动获取 lingshu-toolkit 的文档
 
 ```md
 ## Docs
