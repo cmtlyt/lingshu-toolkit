@@ -58,10 +58,10 @@ export function tryCallFunc<A extends any[], R, E = never>(
       if (isFunction(onFinal)) {
         if (ctx.errorResult !== EMPTY) {
           Reflect.apply(onFinal, self, [ctx.errorResult]);
-        } else if (ctx.error !== EMPTY) {
-          Reflect.apply(onFinal, self, [ctx.error]);
-        } else {
+        } else if (ctx.error === EMPTY) {
           Reflect.apply(onFinal, self, [result]);
+        } else {
+          Reflect.apply(onFinal, self, [ctx.error]);
         }
       }
     }
@@ -98,7 +98,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
     }
 
     finallyFn(this, ctx, ctx.oriResult);
-    return ctx.oriResult !== EMPTY ? (ctx.oriResult as any) : ctx.errorResult;
+    return ctx.oriResult === EMPTY ? ctx.errorResult : (ctx.oriResult as any);
   };
 }
 

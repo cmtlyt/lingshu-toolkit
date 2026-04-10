@@ -1,11 +1,11 @@
-import process from 'node:process';
+import { env } from 'node:process';
 import react from '@vitejs/plugin-react';
 import vue from '@vitejs/plugin-vue';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, mergeConfig, type TestProjectInlineConfiguration } from 'vitest/config';
 import vitestBaseConfig from './vitest.base.config';
 
-const CI_TEST = process.env.ci_test?.trim() === 'true';
+const CI_TEST = env.ci_test?.trim() === 'true';
 
 function getBrowserProjectConfig(namespace: string, config: TestProjectInlineConfiguration = {}) {
   return mergeConfig(

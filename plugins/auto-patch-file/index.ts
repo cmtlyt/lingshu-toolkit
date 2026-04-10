@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
+import process, { env } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vitest/config';
 
@@ -330,7 +330,7 @@ async function processHandler(ctx: Context) {
 }
 
 export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
-  if (process.env.gen_file_disabled === 'true') {
+  if (env.gen_file_disabled === 'true') {
     return { name: '@cmtlyt/lingshu-toolkit:auto-patch-file' } satisfies Plugin;
   }
 

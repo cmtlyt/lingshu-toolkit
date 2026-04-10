@@ -11,7 +11,7 @@ function getEntrys(namespace: string) {
   });
 }
 
-const metaFilePath = path.resolve(__dirname, 'meta/toolkit.meta.json');
+const metaFilePath = path.resolve(import.meta.dirname, 'meta/toolkit.meta.json');
 
 function getEntryInfo() {
   const unbundleEntryResult: Record<string, string[]> = {};
@@ -25,7 +25,7 @@ function getEntryInfo() {
   const namespaces = Reflect.ownKeys(meta) as string[];
 
   namespaces.forEach((ns) => {
-    const nsp = path.resolve(__dirname, 'src', ns);
+    const nsp = path.resolve(import.meta.dirname, 'src', ns);
     const entrys = getEntrys(ns);
     if (existsSync(path.resolve(nsp, 'index.ts'))) {
       mainEntryResult[`${ns}/index`] = [`./src/${ns}/index.ts`];
@@ -47,7 +47,9 @@ export default defineConfig({
   output: {
     target: 'web',
     minify: true,
-    copy: [{ from: path.resolve(__dirname, './.npmignore'), to: path.resolve(__dirname, './dist') }],
+    copy: [
+      { from: path.resolve(import.meta.dirname, './.npmignore'), to: path.resolve(import.meta.dirname, './dist') },
+    ],
   },
   lib: [
     {

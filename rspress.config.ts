@@ -1,15 +1,15 @@
 import path from 'node:path';
-import process from 'node:process';
+import { env } from 'node:process';
 import shadcnRegistryGenerate from '@cmtlyt/unplugin-shadcn-registry-generate';
 import { defineConfig } from '@rspress/core';
 import { config } from './scripts/config';
 
-const isDev = process.env.NODE_ENV === 'development';
+const isDev = env.NODE_ENV === 'development';
 
 export default defineConfig({
   llms: true,
   base: '/lingshu-toolkit/',
-  root: path.resolve(__dirname, 'src'),
+  root: path.resolve(import.meta.dirname, 'src'),
   title: 'lingshu',
   route: {
     exclude: ['**/*.test.{ts,tsx,js,jsx}', '**/*.{ts,tsx,js,jsx}'],
@@ -32,8 +32,8 @@ export default defineConfig({
     output: {
       copy: [
         {
-          from: path.resolve(__dirname, 'src/public/r'),
-          to: path.resolve(__dirname, 'doc_build/r'),
+          from: path.resolve(import.meta.dirname, 'src/public/r'),
+          to: path.resolve(import.meta.dirname, 'doc_build/r'),
         },
       ],
     },

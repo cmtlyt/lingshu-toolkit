@@ -230,13 +230,14 @@ type CustomRequestModeReturn<
   RealRM extends RequestMode,
   InputD extends DefaultAPIConfig,
   CustomReq = NonNullable<InputD['requestModeMap']>[RealRM],
-> = IsUnknownAny<RealRM> extends true
-  ? any
-  : Equal<RealRM, string> extends true
+> =
+  IsUnknownAny<RealRM> extends true
     ? any
-    : CustomReq extends AnyFunc
-      ? OriginalPack<ReturnType<CustomReq>>
-      : any;
+    : Equal<RealRM, string> extends true
+      ? any
+      : CustomReq extends AnyFunc
+        ? OriginalPack<ReturnType<CustomReq>>
+        : any;
 
 type UserInputResult<UserR, CustomRequestResult> =
   IsUnknownAny<CustomRequestResult> extends true
