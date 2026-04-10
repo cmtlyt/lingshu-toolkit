@@ -1,2 +1,1 @@
-pnpm exec esno scripts/depcheck.ts
-pnpm exec lint-staged
+pnpm exec esno scripts/depcheck.ts && pnpm exec lint-staged

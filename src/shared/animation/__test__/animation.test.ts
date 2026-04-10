@@ -180,13 +180,11 @@ describe('animation', () => {
   });
 
   test('promise 应该在 clear 时 resolve 为 true', async () => {
-    vi.useRealTimers();
-    const result = animation(0, 100, 50);
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    const result = animation(0, 100, 1000);
+    await vi.advanceTimersByTimeAsync(10);
     result.clear();
     const value = await result.promise;
     expect(value).toBe(true);
-    vi.useFakeTimers();
   });
 
   test('应该支持重新启动已停止的动画', async () => {

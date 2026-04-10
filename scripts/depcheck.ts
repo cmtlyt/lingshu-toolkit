@@ -10,6 +10,12 @@ const options: Options = {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function stringifyObj(obj: Record<string, any>) {
+  return Object.entries(obj)
+    .map(([pkg, files]) => `${pkg} (used in: ${JSON.stringify(files)})`)
+    .join('; ');
+}
+
 depcheck(path.resolve(__dirname, '../'), options).then((unused) => {
   const { dependencies, devDependencies, missing, invalidFiles, invalidDirs } = unused;
 
@@ -26,21 +32,18 @@ depcheck(path.resolve(__dirname, '../'), options).then((unused) => {
   }
 
   // 检查缺失的依赖
-  if (Object.keys(missing).length > 0) {
-    const missingEntries = Object.entries(missing)
-      .map(([pkg, files]) => `${pkg} (used in: ${files.join(', ')})`)
-      .join('; ');
-    errorMessages.push(`缺失的依赖: ${missingEntries}`);
+  if (Reflect.ownKeys(missing).length > 0) {
+    errorMessages.push(`缺失的依赖: ${stringifyObj(missing)}`);
   }
 
   // 检查无效的文件
-  if (invalidFiles.length > 0) {
-    errorMessages.push(`无效的文件: ${invalidFiles.join(', ')}`);
+  if (Reflect.ownKeys(invalidFiles).length > 0) {
+    errorMessages.push(`无效的文件: ${stringifyObj(invalidFiles)}`);
   }
 
   // 检查无效的目录
-  if (invalidDirs.length > 0) {
-    errorMessages.push(`无效的目录: ${invalidDirs.join(', ')}`);
+  if (Reflect.ownKeys(invalidDirs).length > 0) {
+    errorMessages.push(`无效的目录: ${stringifyObj(invalidDirs)}`);
   }
 
   // 如果有任何问题，抛出错误

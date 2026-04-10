@@ -7,7 +7,7 @@ import { config } from './scripts/config';
 function getEntrys(namespace: string) {
   return globSync([`src/${namespace}/**/*.ts`], {
     cwd: import.meta.dirname,
-    exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**.test-d.{ts,tsx,js,jsx}'],
+    exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**/*.test-d.{ts,tsx,js,jsx}'],
   });
 }
 
