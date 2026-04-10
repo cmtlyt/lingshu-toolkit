@@ -2,9 +2,7 @@ import { useMemo, useRef } from 'react';
 import { dataHandler } from '@/shared/data-handler';
 import type { DataHandlerOptions, Handler } from '@/shared/data-handler/types';
 
-export * from '@/shared/data-handler/tools';
-
-export function useValidData<
+function useValidData<
   T extends Record<PropertyKey, any>,
   H extends Handler<T> = Handler<T>,
   O extends DataHandlerOptions<T> = DataHandlerOptions<T> & { unwrap: true },
@@ -17,3 +15,7 @@ export function useValidData<
     [data],
   );
 }
+
+export * from '@/shared/data-handler';
+
+export { useValidData };

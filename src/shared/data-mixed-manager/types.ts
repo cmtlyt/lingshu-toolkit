@@ -68,7 +68,7 @@ export interface BuildOptions {
   mode?: 'rebuild' | 'patch';
 }
 
-interface DiffEventDetailMap<T> {
+export interface DiffEventDetailMap<T> {
   change: { mode: NonNullable<BuildOptions['mode']> | 'clear'; mixedData: MixedDataItem<T>[] };
   clear: Record<PropertyKey, never>;
 }

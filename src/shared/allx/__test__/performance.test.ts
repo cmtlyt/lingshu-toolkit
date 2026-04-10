@@ -41,15 +41,15 @@ describe('allx - 性能和压力测试', () => {
       independent1: async () => 1,
       independent2: async () => 2,
       independent3: async () => 3,
-      dependent1: async function () {
+      async dependent1() {
         const value = await this.$.independent1;
         return value * 10;
       },
-      dependent2: async function () {
+      async dependent2() {
         const [v1, v2] = await Promise.all([this.$.independent2, this.$.independent3]);
         return v1 + v2;
       },
-      final: async function () {
+      async final() {
         const [d1, d2] = await Promise.all([this.$.dependent1, this.$.dependent2]);
         return d1 + d2;
       },

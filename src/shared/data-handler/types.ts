@@ -21,8 +21,8 @@ export interface ActionContext {
 }
 
 export interface ActionHandlers {
-  addError(key: PropertyKey, msg?: string): void;
-  addTransform(key: PropertyKey, value: any): void;
+  addError: (key: PropertyKey, msg?: string) => void;
+  addTransform: (key: PropertyKey, value: any) => void;
 }
 
 export interface DataHandlerOptions<M extends Record<PropertyKey, any>> {

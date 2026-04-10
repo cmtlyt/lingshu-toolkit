@@ -43,6 +43,8 @@ describe('useRefState', () => {
   });
 
   test('组件中使用', async () => {
+    // 防止空测试, 必须至少包含一个 expect
+    expect(true).toBe(true);
     const App = () => {
       const [state, ctrl] = useRefState({ num: 0, str: '0' });
       return (

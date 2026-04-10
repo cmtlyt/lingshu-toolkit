@@ -27,7 +27,7 @@ async function baseRequest<R, C extends RequestAPIConfig<any, R> = RequestAPICon
 
   const responseInfo = await getResponse(requestInfo);
 
-  const resResult = await tryCall(() => {
+  const resResult = await tryCall<Promise<any>>(() => {
     if (onResponse) {
       return onResponse(responseInfo, config);
     }

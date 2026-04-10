@@ -1,13 +1,14 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { logger } from '@/shared/logger';
 import { throwError } from '@/shared/throw-error';
+import { isNullOrUndef } from '@/shared/utils/verify';
 
-export interface CreateStorageOptions {
+interface CreateStorageOptions {
   storageType: 'local' | 'session' | 'memory';
   autoSaveInterval: number;
 }
 
-export interface StorageHandler<T extends Record<string, any>> {
+interface StorageHandler<T extends Record<string, any>> {
   get: <K extends keyof T | (string & {})>(key?: K) => string extends K ? T : T[K & keyof T];
   set: <K extends keyof T | (string & {})>(value: string extends K ? T : T[K & keyof T], key?: K) => void;
   clear: () => void;
@@ -21,36 +22,36 @@ const validInfo = $dt({
 
 const memoryStorage = {
   data: {} as Record<string, any>,
-  getItem(key: string) {
+  getItem(key: string): any {
     return this.data[key];
   },
-  setItem(key: string, value: any) {
+  setItem(key: string, value: any): void {
     this.data[key] = value;
   },
-  removeItem(key: string) {
+  removeItem(key: string): void {
     delete this.data[key];
   },
 };
 
-function getStorage(storageType: CreateStorageOptions['storageType']) {
+function getStorage(storageType: CreateStorageOptions['storageType']): Storage {
   try {
     if (storageType === 'memory') {
-      return memoryStorage;
+      return memoryStorage as unknown as Storage;
     }
     return storageType === 'local' ? localStorage : sessionStorage;
   } catch {
     logger.warn('createStorage', 'Failed to access localStorage or sessionStorage, using memoryStorage instead.');
-    return memoryStorage;
+    return memoryStorage as unknown as Storage;
   }
 }
 
 const CLEAR_FLAG = Symbol('cleared');
 
-export function createStorageHandler<T extends Record<string, any>>(
+function createStorageHandler<T extends Record<string, any>>(
   storageKey: string,
   initialData?: T,
   options: Partial<CreateStorageOptions> = {},
-) {
+): StorageHandler<T> {
   const {
     storageKey: validStorageKey,
     storageType,
@@ -63,20 +64,20 @@ export function createStorageHandler<T extends Record<string, any>>(
   };
 
   return {
-    get(key?) {
+    get(key?): any {
       if (context.data === CLEAR_FLAG) {
         throwError('createStorageHandler', 'Storage has been cleared.');
       }
-      if (key == null) {
+      if (isNullOrUndef(key)) {
         return context.data;
       }
       return context.data[key];
     },
-    set(value, key?) {
+    set(value, key?): void {
       if (context.data === CLEAR_FLAG) {
         throwError('createStorageHandler', 'Storage has been cleared.');
       }
-      if (key == null) {
+      if (isNullOrUndef(key)) {
         context.data = value;
       } else {
         context.data[key] = value;
@@ -89,9 +90,11 @@ export function createStorageHandler<T extends Record<string, any>>(
         storage.setItem(validStorageKey, JSON.stringify(context.data));
       }
     },
-    clear() {
+    clear(): void {
       context.data = CLEAR_FLAG;
       storage.removeItem(validStorageKey);
     },
   } as StorageHandler<T>;
 }
+
+export { type CreateStorageOptions, createStorageHandler, type StorageHandler };

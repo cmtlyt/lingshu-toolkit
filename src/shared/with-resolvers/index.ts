@@ -1,10 +1,10 @@
-export type Resolver<T> = {
+interface Resolver<T> {
   promise: Promise<T>;
   resolve: (value: T | PromiseLike<T>) => void;
   reject: (reason?: any) => void;
-};
+}
 
-export function withResolvers<T>(): Resolver<T> {
+function withResolvers<T>(): Resolver<T> {
   return typeof Promise.withResolvers === 'function'
     ? Promise.withResolvers<T>()
     : (() => {
@@ -16,3 +16,6 @@ export function withResolvers<T>(): Resolver<T> {
         return resolver;
       })();
 }
+
+export type { Resolver };
+export { withResolvers };

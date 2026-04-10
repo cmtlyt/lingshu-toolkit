@@ -5,7 +5,11 @@ type AssertValue = Record<PropertyKey, any> | any[];
 
 type ConditionArrayItem = [boolean, AssertValue, AssertValue?];
 
-type ConditionObjItem = { condition: boolean; value: AssertValue; fullback?: AssertValue };
+interface ConditionObjItem {
+  condition: boolean;
+  value: AssertValue;
+  fullback?: AssertValue;
+}
 
 type ConditionItem = ConditionObjItem | ConditionArrayItem;
 
@@ -64,17 +68,17 @@ type CMInput = ConditionItem[];
 
 type FormatResult<T extends any[]> = T[0] & Record<PropertyKey, any>;
 
-function getEmpty(_v: unknown) {
+function getEmpty(_v: unknown): any[] | Record<PropertyKey, any> {
   return Array.isArray(_v) ? [] : {};
 }
 
-function valueCheck(_v: unknown) {
+function isArrayOrObject(_v: unknown): boolean {
   return Array.isArray(_v) || typeof _v === 'object';
 }
 
-export function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
-export function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
-export function conditionMerge(...input: any) {
+function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
+function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
+function conditionMerge(...input: any): any {
   const conditionItems: ConditionObjItem[] = (input.length > 1 ? input : input[0]).map((item: ConditionItem) => {
     let result: ConditionObjItem | null = null;
     // 处理数组方式
@@ -91,8 +95,8 @@ export function conditionMerge(...input: any) {
       throwType('conditionMerge', 'input must be an ConditionItem');
     }
     // 校验 value 和 fullback 是否合法
-    const validValue = valueCheck(result.value);
-    const validFullback = typeof result.fullback === 'undefined' || valueCheck(result.fullback);
+    const validValue = isArrayOrObject(result.value);
+    const validFullback = typeof result.fullback === 'undefined' || isArrayOrObject(result.fullback);
     if (!(validValue && validFullback)) {
       throwType('conditionMerge', 'value and fullback must be an array or object');
     }
@@ -110,3 +114,5 @@ export function conditionMerge(...input: any) {
 
   return result;
 }
+
+export { conditionMerge };

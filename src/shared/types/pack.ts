@@ -2,7 +2,9 @@
 const __PACK__ = Symbol('__PACK__');
 /* c8 ignore stop */
 
-export type Pack<T> = { [__PACK__]: T };
+export interface Pack<T> {
+  [__PACK__]: T;
+}
 
 export type Unpack<T extends Pack<any>> = T extends Pack<infer U> ? U : never;
 

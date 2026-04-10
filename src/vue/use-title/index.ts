@@ -16,7 +16,7 @@ function setTitle(title?: string) {
 
 const validInfo = $dt({ restoreOnUnmount: $t.boolean(true) });
 
-export function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: Partial<UseTitleOptions> = {}) {
+function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: Partial<UseTitleOptions> = {}) {
   const { restoreOnUnmount } = dataHandler(options as UseTitleOptions, validInfo, { unwrap: true });
   const title = ref(toValue(newTitle));
 
@@ -39,3 +39,5 @@ export function useTitle(newTitle: MaybeRefOrGetter<string> = '', options: Parti
 
   return title;
 }
+
+export { useTitle };

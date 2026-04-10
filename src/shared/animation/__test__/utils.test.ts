@@ -393,6 +393,7 @@ describe('utils', () => {
         parser: identity,
       };
       const ctrl = createRunningControllerSignal(startFn, options);
+      // @ts-expect-error test
       ctrl.resolvers.resolve = resolveSpy;
       ctrl.clear();
       expect(ctrl.stopSignal).toBe(true);

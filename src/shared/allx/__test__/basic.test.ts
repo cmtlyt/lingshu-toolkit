@@ -62,7 +62,7 @@ describe('allx - 基础功能测试', () => {
       string: 'test',
       boolean: true,
       null: null,
-      undefined: undefined,
+      undefined,
       object: { key: 'value' },
       array: [1, 2, 3],
     });

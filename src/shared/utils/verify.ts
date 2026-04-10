@@ -96,7 +96,7 @@ export function isFalse(_v: unknown): _v is false | UnULCase<'false'> {
  * @warn 字符串 'false' 等满足 isFalse 判断的字符串也会被视为真值
  */
 export function isTruthy<T>(_v: T): _v is Exclude<T, false | 0 | '' | null | undefined> {
-  return !!_v;
+  return Boolean(_v);
 }
 
 /**

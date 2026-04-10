@@ -58,7 +58,7 @@ describe('allx - 执行顺序和并行性测试', () => {
         executionOrder.push('task1-end');
         return 1;
       },
-      task2: async function () {
+      async task2() {
         executionOrder.push('task2-start');
         const value = await this.$.task1;
         executionOrder.push('task2-end');
@@ -79,15 +79,15 @@ describe('allx - 执行顺序和并行性测试', () => {
         await vi.advanceTimersByTimeAsync(20);
         return 10;
       },
-      dependent1: async function () {
+      async dependent1() {
         const value = await this.$.base;
         return value + 1;
       },
-      dependent2: async function () {
+      async dependent2() {
         const value = await this.$.base;
         return value + 2;
       },
-      dependent3: async function () {
+      async dependent3() {
         const value = await this.$.base;
         return value + 3;
       },

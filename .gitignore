@@ -19,3 +19,7 @@ src/public/r
 
 .claude/skills/*
 !.claude/skills/lingshu-*/
+
+# vitest
+__screenshots__/
+.vitest-attachments/

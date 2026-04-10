@@ -29,3 +29,10 @@ export interface AnimationCtrl {
 export type AnimationResult = AnimationCtrl & {
   promise: Promise<boolean>;
 };
+
+export interface RCSignal {
+  stopSignal: boolean;
+  stop: () => void;
+  start: () => void;
+  clear: () => void;
+}

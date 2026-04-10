@@ -8,10 +8,10 @@ interface Actions<T> {
   toggle: () => void;
 }
 
-export function useToggle(): [boolean, Actions<boolean>];
-export function useToggle<L>(defaultValue: L): [L, Actions<L>];
-export function useToggle<L, R>(defaultValue: L, reverseValue: R): [L | R, Actions<L | R>];
-export function useToggle<L, R>(defualtValue = false as L, reverseValue?: R) {
+function useToggle(): [boolean, Actions<boolean>];
+function useToggle<L>(defaultValue: L): [L, Actions<L>];
+function useToggle<L, R>(defaultValue: L, reverseValue: R): [L | R, Actions<L | R>];
+function useToggle<L, R>(defualtValue = false as L, reverseValue?: R) {
   const [state, setState] = useState<L | R>(defualtValue);
   const toggleRef = useRef([
     defualtValue,
@@ -36,3 +36,5 @@ export function useToggle<L, R>(defualtValue = false as L, reverseValue?: R) {
 
   return [state, actions];
 }
+
+export { useToggle };

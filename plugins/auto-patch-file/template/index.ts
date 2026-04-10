@@ -1,3 +1,5 @@
-export function $$name$$() {
+function $$name$$() {
   // TODO
 }
+
+export { $$name$$ };

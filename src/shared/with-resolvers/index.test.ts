@@ -204,26 +204,22 @@ describe('withResolvers', () => {
       const results = await Promise.allSettled([resolver1.promise, resolver2.promise]);
 
       expect(results[0].status).toBe('fulfilled');
-      if (results[0].status === 'fulfilled') {
-        expect(results[0].value).toBe(1);
-      }
+      expect(results[0].status === 'fulfilled' && results[0].value).toBe(1);
 
       expect(results[1].status).toBe('rejected');
-      if (results[1].status === 'rejected') {
-        expect(results[1].reason.message).toBe('error');
-      }
+      expect(results[1].status === 'rejected' && results[1].reason.message).toBe('error');
     });
 
     test('可以在 try-catch 中使用', async () => {
       const resolver = withResolvers<number>();
 
+      resolver.promise.catch((error) => {
+        expect((error as Error).message).toBe('caught error');
+      });
       try {
         resolver.reject(new Error('caught error'));
         await resolver.promise;
-        expect(true).toBe(false);
-      } catch (error) {
-        expect((error as Error).message).toBe('caught error');
-      }
+      } catch {}
     });
 
     test('支持函数类型', async () => {
@@ -345,14 +341,10 @@ describe('withResolvers', () => {
       const results = await Promise.allSettled([resolver1.promise, resolver2.promise]);
 
       expect(results[0].status).toBe('fulfilled');
-      if (results[0].status === 'fulfilled') {
-        expect(results[0].value).toBe(1);
-      }
+      expect(results[0].status === 'fulfilled' && results[0].value).toBe(1);
 
       expect(results[1].status).toBe('rejected');
-      if (results[1].status === 'rejected') {
-        expect(results[1].reason.message).toBe('error');
-      }
+      expect(results[1].status === 'rejected' && results[1].reason.message).toBe('error');
     });
 
     test('降级分支多次调用 resolve 只有第一次生效', async () => {

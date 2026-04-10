@@ -1,7 +1,11 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tsConfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 import { pluginAutoPatchFile } from './plugins/auto-patch-file';
 import { config } from './scripts/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
@@ -32,5 +36,9 @@ export default defineConfig({
       },
     },
     clearMocks: true,
+    browser: {
+      screenshotDirectory: path.resolve(__dirname, '__screenshots__'),
+      screenshotFailures: false,
+    },
   },
 });

@@ -33,7 +33,7 @@ const validInfo = $dt({
   step: $t.validNumber(nanTransform(1)),
 });
 
-export function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {
+function useCounter(initialValue = 0, options: Partial<UseCounterOptions> = {}) {
   const validOptions = useValidData(options, validInfo);
   const { step } = validOptions;
 
@@ -56,3 +56,5 @@ export function useCounter(initialValue = 0, options: Partial<UseCounterOptions>
 
   return [current, actions] as const;
 }
+
+export { useCounter };

@@ -208,11 +208,12 @@ describe('apiController', () => {
 
     type ProcessJson<M> = M extends Record<infer KS, any> ? { [K in KS]: ProcessJson<M[K]> } : Promise<M>;
 
-    type ProcessResult<M extends Record<string, any> = Record<string, any>> = {
-      get(): Promise<ProcessJson<M>>;
-      get<K extends RecordDeepKeyFlat<M>>(key: K): ProcessJson<RecordDeepProp<K, M>>;
-      waitAll(): Promise<M>;
-    };
+    interface ProcessResult<M extends Record<string, any> = Record<string, any>> {
+      get:
+        | (() => Promise<ProcessJson<M>>)
+        | (<K extends RecordDeepKeyFlat<M>>(key: K) => ProcessJson<RecordDeepProp<K, M>>);
+      waitAll: () => Promise<M>;
+    }
 
     const processApi = createApiWithMap(
       defineApiMap({

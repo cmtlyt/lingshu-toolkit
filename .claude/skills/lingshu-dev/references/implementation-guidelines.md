@@ -29,19 +29,23 @@ Pure functions with no side effects.
  * const result = toolName('input');
  * ```
  */
-export function toolName<T>(data: T, options?: Options): Result {
+function toolName<T>(data: T, options?: Options): Result {
   // Implementation
   return result;
 }
 
 // Export types used in public API
-export type Options = {
+type Options = {
   // Option definitions
 };
 
-export type Result = {
+type Result = {
   // Result type definition
 };
+
+export type { Options, Result }
+
+export { toolName };
 ```
 
 ### Examples
@@ -86,7 +90,7 @@ import { useMemo, useState, useEffect, useCallback } from 'react';
  * const [state, { set, reset }] = useToolName(defaultValue);
  * ```
  */
-export function useToolName<T>(defaultValue: T): [T, Actions<T>] {
+function useToolName<T>(defaultValue: T): [T, Actions<T>] {
   const [state, setState] = useState<T>(defaultValue);
 
   const actions = useMemo(() => ({
@@ -110,6 +114,8 @@ type Actions<T> = {
   set: (value: T) => void;
   reset: () => void;
 };
+
+export { useToolName };
 ```
 
 ### Examples
@@ -153,7 +159,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
  * const { state, set, reset } = useToolName(defaultValue);
  * ```
  */
-export function useToolName<T>(defaultValue: T) {
+function useToolName<T>(defaultValue: T) {
   const state = ref<T>(defaultValue);
 
   const set = (value: T) => {
@@ -191,6 +197,8 @@ export function useToolName<T>(defaultValue: T) {
     computedValue,
   };
 }
+
+export { useToolName };
 ```
 
 ### Examples

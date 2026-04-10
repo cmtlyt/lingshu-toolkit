@@ -1,5 +1,6 @@
 import { logger } from '@/shared/logger';
 import { throwType } from '@/shared/throw-error';
+import { isNullOrUndef } from '@/shared/utils';
 import { getType } from '@/shared/utils/base';
 import type { Handler } from './types';
 
@@ -21,7 +22,7 @@ function typeHandler<T extends string>(type: T, verifyFn?: (_v: any) => boolean)
       if (verifyFn ? verifyFn(_v) : getType(_v) === type) {
         return true;
       }
-      if (fullback == null) {
+      if (isNullOrUndef(fullback)) {
         return false;
       }
       let fullbackValue = fullback;
@@ -46,8 +47,8 @@ interface TypeMap {
   enum: any & {};
 }
 
-export const $t = {
-  notNullable: typeHandler('notNullable', (_v) => _v != null),
+const $t = {
+  notNullable: typeHandler('notNullable', (_v) => !isNullOrUndef(_v)),
   string: typeHandler('string'),
   validString: typeHandler('validString', (_v) => typeof _v === 'string' && _v.length > 0),
   number: typeHandler('number'),
@@ -74,14 +75,14 @@ type DataTransformResult<D extends Record<PropertyKey, TransformKey | TypeHandle
   [K in keyof D]: D[K] extends TransformKey ? TransformMap[D[K]] : D[K];
 };
 
-export type Transform2Type<R extends DataTransformResult<any>> = {
+type Transform2Type<R extends DataTransformResult<any>> = {
   [K in keyof R]: R[K] extends TypeHandlerInfo<infer T> ? ParseType<T> & {} : any & {};
 };
 
-export function defineTransform<
+function defineTransform<
   T extends Record<PropertyKey, any>,
   D extends Partial<Record<keyof T, TransformKey | TypeHandler>> = Partial<Record<keyof T, TransformKey | TypeHandler>>,
->(dataInfo: D) {
+>(dataInfo: D): DataTransformResult<D> {
   const verifyInfo: Record<PropertyKey, TypeHandler> = {};
   const keys = Reflect.ownKeys(dataInfo);
   for (let i = 0, key = keys[i], item = dataInfo[key]; i < keys.length; key = keys[++i], item = dataInfo[key]) {
@@ -99,4 +100,4 @@ export function defineTransform<
   return verifyInfo as DataTransformResult<D>;
 }
 
-export const $dt = defineTransform;
+export { $t, defineTransform, defineTransform as $dt, type Transform2Type };

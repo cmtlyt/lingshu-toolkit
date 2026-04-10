@@ -9,6 +9,27 @@ description: "Development workflow for lingshu-toolkit project. Handles adding n
 
 **NEVER manually create tool files or modify exports.** Always use `pnpm script:gen-file` to generate files and update exports. Manual file creation breaks the automated build system.
 
+**🚨 Export Style Rules:**
+
+**Tool Entry Files** (`src/{namespace}/{tool-name}/index.ts`):
+- All exports MUST be at the END of the file using `export { xxx }` format
+- Example:
+  ```typescript
+  // ... implementation code ...
+
+  export { dataHandler };
+  export { $dt, $t, defineTransform } from './tools';
+  ```
+
+**Helper Files** (`utils`, `types`, etc.):
+- All methods and types MUST use `export function`, `export const`, `export interface`, or `export type`
+- Do NOT use `export *` in helper files
+- Example:
+  ```typescript
+  export function isEmptyArray(value: any): boolean { ... }
+  export type ValueType = string | number;
+  ```
+
 **🚨 ABSOLUTELY FORBIDDEN: Never modify engineering configuration files.** This includes but is not limited to:
 - `rslib.config.ts`, `rspress.config.ts`, `vitest.config.ts`
 - `tsconfig.json`, `package.json`, `.nvmrc`
@@ -156,11 +177,11 @@ If tests require browser environment (DOM APIs, window, document, localStorage, 
 Basic test template:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { toolName } from '@/shared/tool-name';
 
 describe('toolName', () => {
-  it('should work correctly', () => {
+  test('should work correctly', () => {
     // Test implementation
   });
 });

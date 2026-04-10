@@ -73,9 +73,9 @@ describe('useControllableValue', () => {
   });
 
   test('类型检查', async () => {
-    type Value = {
+    interface Value {
       foo: number;
-    };
+    }
     const props: {
       value: Value;
       defaultValue: Value;

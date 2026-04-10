@@ -65,7 +65,7 @@ describe('allx - 边界情况测试', () => {
   test('任务中使用 this 上下文', async () => {
     const result = await allx({
       task1: async () => 'value1',
-      task2: async function () {
+      async task2() {
         expect(this.$).toBeDefined();
         expect(typeof this.$.task1).toBe('object'); // Promise
         return 'value2';
@@ -107,11 +107,11 @@ describe('allx - 边界情况测试', () => {
   test('循环依赖检测（间接）', async () => {
     // 注意：当前实现可能不会检测循环依赖，这个测试验证行为
     const promise = allx({
-      task1: async function () {
+      async task1() {
         await this.$.task2;
         return 1;
       },
-      task2: async function () {
+      async task2() {
         await this.$.task1;
         return 2;
       },

@@ -43,7 +43,7 @@ describe('allx - allSettled 测试', () => {
         // 然后创建一个依赖失败任务的任务
         // 当这个任务访问 this.$.failedTask 时，failedTask 已经完成并被缓存
         // 由于是 allSettled 模式且 cached.status === 'rejected'，会走到第 34 行的分支
-        dependentTask: async function () {
+        async dependentTask() {
           try {
             await this.$.failedTask;
             return 'should not reach here';
@@ -71,7 +71,7 @@ describe('allx - allSettled 测试', () => {
         failedTask: async () => {
           throw new Error('Base task failed');
         },
-        dep1: async function () {
+        async dep1() {
           try {
             await this.$.failedTask;
             return 'dep1 success';
@@ -79,7 +79,7 @@ describe('allx - allSettled 测试', () => {
             return `dep1 caught: ${(error as Error).message}`;
           }
         },
-        dep2: async function () {
+        async dep2() {
           try {
             await this.$.failedTask;
             return 'dep2 success';
@@ -87,7 +87,7 @@ describe('allx - allSettled 测试', () => {
             return `dep2 caught: ${(error as Error).message}`;
           }
         },
-        dep3: async function () {
+        async dep3() {
           try {
             await this.$.failedTask;
             return 'dep3 success';
@@ -116,7 +116,7 @@ describe('allx - allSettled 测试', () => {
           throw new Error('Failed');
         },
         successTask: async () => 'Success',
-        mixedDep: async function () {
+        async mixedDep() {
           const results: string[] = [];
           try {
             const value = await this.$.successTask;

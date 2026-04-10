@@ -27,7 +27,7 @@ interface TryCallCtx {
  * @param cb 回调函数
  * @param onError 错误处理函数
  */
-export function tryCallFunc<A extends any[], R, E = never>(
+function tryCallFunc<A extends any[], R, E = never>(
   cb: (...args: A) => R,
   onError?: ((err: any) => E) | null,
   onFinal?: (result: TryCallFinalArgs<R, E>) => void,
@@ -36,7 +36,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
     throwType('tryCallFunc', 'callback is not a function');
   }
 
-  const catchFn = (self: any, ctx: TryCallCtx, error: any) => {
+  const catchFn = (self: any, ctx: TryCallCtx, error: any): any => {
     if (isFunction(onError)) {
       try {
         ctx.errorResult = Reflect.apply(onError, self, [error]);
@@ -49,7 +49,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
     return ctx.errorResult;
   };
 
-  const finallyFn = (self: any, ctx: TryCallCtx, result: any) => {
+  const finallyFn = (self: any, ctx: TryCallCtx, result: any): void => {
     try {
       if (ctx.error !== EMPTY) {
         throw ctx.error;
@@ -74,7 +74,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
       error: EMPTY as any,
     };
 
-    const asyncFn = async () => {
+    const asyncFn = async (): Promise<any> => {
       try {
         ctx.oriResult = Reflect.apply(cb, this, args);
         // 如果是 promise 状态会被吸收, 否则 promise 直接完成
@@ -110,7 +110,7 @@ export function tryCallFunc<A extends any[], R, E = never>(
  * @param cb 回调函数
  * @param onError 错误处理函数
  */
-export function tryCall<R, E = never>(
+function tryCall<R, E = never>(
   this: any,
   cb: () => R,
   onError?: ((err: any) => E) | null,
@@ -122,3 +122,5 @@ export function tryCall<R, E = never>(
 
   return tryCallFunc(cb, onError, onFinal).call(this);
 }
+
+export { tryCall, tryCallFunc };

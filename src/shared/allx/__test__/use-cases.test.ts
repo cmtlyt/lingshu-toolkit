@@ -16,14 +16,14 @@ describe('allx - 实际使用场景测试', () => {
       user: async () => {
         return { id: 1, name: 'John' };
       },
-      posts: async function () {
+      async posts() {
         const user = await this.$.user;
         return [
           { userId: user.id, title: 'Post 1' },
           { userId: user.id, title: 'Post 2' },
         ];
       },
-      comments: async function () {
+      async comments() {
         const posts = await this.$.posts;
         return posts.map((post: { title: string }) => {
           return { postTitle: post.title, comment: 'Great!' };
@@ -44,7 +44,7 @@ describe('allx - 实际使用场景测试', () => {
       userConfig: async () => {
         return { theme: 'dark' };
       },
-      mergedConfig: async function () {
+      async mergedConfig() {
         const [base, user] = await Promise.all([this.$.baseConfig, this.$.userConfig]);
         return { ...base, ...user };
       },
@@ -70,7 +70,7 @@ describe('allx - 实际使用场景测试', () => {
         await vi.advanceTimersByTimeAsync(5);
         return { data: 'api3' };
       },
-      combined: async function () {
+      async combined() {
         const [r1, r2, r3] = await Promise.all([this.$.api1, this.$.api2, this.$.api3]);
         return [r1.data, r2.data, r3.data];
       },

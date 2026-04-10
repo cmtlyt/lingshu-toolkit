@@ -19,7 +19,7 @@ const validInfo = $dt({
  *   async c() { return (await this.$.a) + 10 }
  * })
  */
-export async function allx<M extends Record<PropertyKey, any>, O extends AllxOptions>(
+async function allx<M extends Record<PropertyKey, any>, O extends AllxOptions>(
   tasks: M & ThisType<AllxContext<M>>,
   options?: O,
 ): Promise<AllxResult<M, O>> {
@@ -75,3 +75,5 @@ export async function allx<M extends Record<PropertyKey, any>, O extends AllxOpt
 
   return Promise.all(promises).then(() => results as any);
 }
+
+export { allx };
