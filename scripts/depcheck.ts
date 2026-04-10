@@ -5,7 +5,16 @@ import depcheck, { type Options } from 'depcheck';
 const options: Options = {
   skipMissing: false,
   ignoreBinPackage: false,
-  ignoreMatches: ['@commitlint/*', '@vitest/*', 'changelogithub', 'cross-env', 'lint-staged'],
+  ignoreMatches: [
+    '@biomejs/biome',
+    'esno',
+    'husky',
+    '@commitlint/*',
+    '@vitest/*',
+    'changelogithub',
+    'cross-env',
+    'lint-staged',
+  ],
 };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
