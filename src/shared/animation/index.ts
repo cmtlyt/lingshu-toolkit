@@ -1,7 +1,6 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { throwError } from '@/shared/throw-error';
 import { identity, noop } from '@/shared/utils/base';
-import type { Resolver } from '@/shared/with-resolvers';
 import type { AnimationBaseOptions, AnimationOptions, AnimationResult } from './types';
 import { createNextTick, createRunningControllerSignal, getNextValueHandler, matchValid } from './utils';
 
@@ -67,7 +66,7 @@ function animation<T>(from: T, to: T, duration: number, options: AnimationOption
     }
   }, validOptions);
   const { resolvers } = rcSignal;
-  const nextTick = createNextTick(resolvers as Resolver<any>, rcSignal);
+  const nextTick = createNextTick(resolvers, rcSignal);
 
   const tick = (): void => {
     const elapsed = performance.now() - startTime;
