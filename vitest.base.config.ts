@@ -26,7 +26,7 @@ export default defineConfig({
       ],
       provider: 'v8',
       cleanOnRerun: false,
-      reporter: ['json'],
+      reporter: ['json', 'html'],
       reportOnFailure: true,
       thresholds: {
         lines: 100,

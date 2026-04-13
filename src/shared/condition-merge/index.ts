@@ -79,7 +79,7 @@ function isArrayOrObject(_v: unknown): boolean {
 function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
 function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
 function conditionMerge(...input: any): any {
-  const conditionItems: ConditionObjItem[] = (input.length > 1 ? input : input[0]).map((item: ConditionItem) => {
+  const conditionItems: ConditionObjItem[] = (input.length > 1 ? input : input[0] || []).map((item: ConditionItem) => {
     let result: ConditionObjItem | null = null;
     // 处理数组方式
     if (Array.isArray(item)) {
@@ -103,7 +103,7 @@ function conditionMerge(...input: any): any {
     return result;
   });
 
-  const result = getEmpty(conditionItems[0].value);
+  const result = getEmpty((conditionItems[0] || {}).value);
   const mergeFn = Array.isArray(result)
     ? (a1: any[], a2: any[]) => Reflect.apply(Array.prototype.splice.bind(a1, a1.length, 0), null, a2)
     : Object.assign;

@@ -102,9 +102,10 @@ describe('conditionMerge', () => {
     expect(() => conditionMerge([{ condition: true, value: [], fullback: '13' }])).toThrow(TypeError);
   });
 
-  test('传入 null 或 undefined', () => {
+  test('传入 null 或 undefined 或空参数', () => {
     // @ts-expect-error test
     expect(conditionMerge([[true, null]])).toEqual({});
+    expect(conditionMerge()).toEqual({});
     // @ts-expect-error test
     expect(() => conditionMerge([[true, undefined]])).toThrow(TypeError);
   });
