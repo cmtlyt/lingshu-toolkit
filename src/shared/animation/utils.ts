@@ -79,13 +79,16 @@ export function matchValid(from: any, to: any, valueParser: (value: any) => numb
     if ((from as any[]).length !== (to as any[]).length) {
       throwType('animation/stepAnimation', 'from and to must be the same length');
     }
-    const result = [Array.from({ length: (from as any[]).length }), Array.from({ length: (to as any[]).length })];
+    const result: [any[], any[]] = [
+      Array.from({ length: (from as any[]).length }),
+      Array.from({ length: (to as any[]).length }),
+    ];
     for (let i = 0; i < (from as any[]).length; i++) {
       const [fromItem, toItem] = matchValid((from as any[])[i], (to as any[])[i], valueParser);
       result[0][i] = fromItem;
       result[1][i] = toItem;
     }
-    return result as [any, any];
+    return result;
   }
   if (fromType === 'object') {
     const toKeys = Reflect.ownKeys(to as Record<PropertyKey, any>);

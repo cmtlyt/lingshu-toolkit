@@ -113,7 +113,7 @@ export function isFunction(_v: unknown): _v is AnyFunc {
   return typeof _v === 'function';
 }
 
-/** 判断是一个 Promise */
+/** 判断是一个 PromiseLike */
 export function isPromiseLike(_v: unknown): _v is PromiseLike<any> {
-  return isObject(_v) && isFunction((_v as PromiseLike<any>).then);
+  return (isObject(_v) || isFunction(_v)) && isFunction((_v as PromiseLike<any>).then);
 }

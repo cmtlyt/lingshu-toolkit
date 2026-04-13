@@ -63,7 +63,7 @@ If you encounter a build or configuration issue, **DO NOT attempt to fix it by m
   - [ ] 4.3 Handle edge cases
 - [ ] Step 5: Add Tests
   - [ ] 5.1 Write unit tests covering edge cases
-  - [ ] 5.2 Use `.browser.test.ts` for browser APIs (no mocks)
+  - [ ] 5.2 Use `.browser.test.{ts,tsx,js,jsx}` for browser APIs (no mocks)
   - [ ] 5.3 Run `pnpm run test:ci`
 - [ ] Step 6: Update Documentation
   - [ ] 6.1 Append docs to END of index.mdx (don't modify generated content)
@@ -169,7 +169,7 @@ cat src/{namespace}/{tool-name}/index.ts
 **Browser Environment Tests:**
 
 If tests require browser environment (DOM APIs, window, document, localStorage, etc.):
-- **RENAME** to `index.browser.test.ts` or `index.browser.test.tsx`
+- **RENAME** to `.browser.test.{ts,tsx,js,jsx}`
 - Do NOT use hacky mocks for browser APIs
 - Browser tests run in the environment configured in `vitest.project.config.ts`
 - Keep standard unit tests in `index.test.ts` for Node.js environment

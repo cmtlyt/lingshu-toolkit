@@ -63,6 +63,12 @@ function createStorageHandler<T extends Record<string, any>>(
     data: storageData ? JSON.parse(storageData) : initialData || {},
     timer: null as number | null,
   };
+  const clearTimer = () => {
+    if (context.timer !== null) {
+      clearTimeout(context.timer);
+      context.timer = null;
+    }
+  };
 
   return {
     get(key?): any {
@@ -84,7 +90,7 @@ function createStorageHandler<T extends Record<string, any>>(
         context.data[key] = value;
       }
       if (autoSaveInterval > 0) {
-        clearTimeout(context.timer!);
+        clearTimer();
         context.timer = setTimeout(() => {
           storage.setItem(validStorageKey, JSON.stringify(context.data));
         }, autoSaveInterval);
@@ -93,8 +99,7 @@ function createStorageHandler<T extends Record<string, any>>(
       }
     },
     clear(): void {
-      clearTimeout(context.timer!);
-      context.timer = null;
+      clearTimer();
       context.data = CLEAR_FLAG;
       storage.removeItem(validStorageKey);
     },
