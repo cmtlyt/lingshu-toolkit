@@ -251,10 +251,11 @@ describe('utils', () => {
       const resolvers = {
         resolve: vi.fn(),
         reject: vi.fn(),
-        promise: Promise.resolve(),
+        promise: Promise.resolve(true),
       };
       const rcSignal = {
         stopSignal: true,
+        resolvers,
         stop: vi.fn(),
         start: vi.fn(),
         clear: vi.fn(),
@@ -270,10 +271,11 @@ describe('utils', () => {
       const resolvers = {
         resolve: vi.fn(),
         reject: vi.fn(),
-        promise: Promise.resolve(),
+        promise: Promise.resolve(false),
       };
       const rcSignal = {
         stopSignal: false,
+        resolvers,
         stop: vi.fn(),
         start: vi.fn(),
         clear: vi.fn(),
@@ -292,10 +294,11 @@ describe('utils', () => {
       const resolvers = {
         resolve: vi.fn(),
         reject,
-        promise: Promise.resolve(),
+        promise: Promise.resolve(false),
       };
       const rcSignal = {
         stopSignal: false,
+        resolvers,
         stop: vi.fn(),
         start: vi.fn(),
         clear: vi.fn(),
@@ -393,7 +396,6 @@ describe('utils', () => {
         parser: identity,
       };
       const ctrl = createRunningControllerSignal(startFn, options);
-      // @ts-expect-error test
       ctrl.resolvers.resolve = resolveSpy;
       ctrl.clear();
       expect(ctrl.stopSignal).toBe(true);

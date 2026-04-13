@@ -66,7 +66,6 @@ function animation<T>(from: T, to: T, duration: number, options: AnimationOption
       hasStarted = true;
     }
   }, validOptions);
-  // @ts-expect-error 内部变量
   const { resolvers } = rcSignal;
   const nextTick = createNextTick(resolvers as Resolver<any>, rcSignal);
 

@@ -1,3 +1,5 @@
+import type { Resolver } from '@/shared/with-resolvers';
+
 export type FormatterValue = (value: number) => any;
 export type Formatter<T> = (value: T) => any;
 
@@ -32,6 +34,7 @@ export type AnimationResult = AnimationCtrl & {
 
 export interface RCSignal {
   stopSignal: boolean;
+  resolvers: Resolver<boolean>;
   stop: () => void;
   start: () => void;
   clear: () => void;
