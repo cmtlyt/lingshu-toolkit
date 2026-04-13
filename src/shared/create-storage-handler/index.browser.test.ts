@@ -89,4 +89,16 @@ describe('createStorage', () => {
     expect(storage.set(0, '0')).toBeUndefined();
     expect(storage.clear()).toBeUndefined();
   });
+
+  test('在自动保存之前清空数据', async () => {
+    const storageKey = 'test-local-storage#clear-before-auto-save';
+    const storage = createStorageHandler(storageKey, {} as Record<'num', number>, { autoSaveInterval: 100 });
+    storage.set(1, 'num');
+    expect(localStorage.getItem(storageKey)).toBeNull();
+    expect(storage.get('num')).toBe(1);
+    storage.clear();
+    expect(() => storage.get('num')).toThrow();
+    await vi.advanceTimersByTimeAsync(110);
+    expect(localStorage.getItem(storageKey)).toBeNull();
+  });
 });

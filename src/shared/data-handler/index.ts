@@ -9,7 +9,7 @@ interface VerifyActions {
   transform: <T>(value: T) => T;
 }
 
-function createActions(): [ActionContext, ActionHandlers, (key: PropertyKey) => VerifyActions] {
+function createActions(): readonly [ActionContext, ActionHandlers, (key: PropertyKey) => VerifyActions] {
   const ctx: ActionContext = {
     errors: [],
     transforms: [],
@@ -47,7 +47,7 @@ function createActions(): [ActionContext, ActionHandlers, (key: PropertyKey) => 
           return value;
         },
       }) satisfies Actions,
-  ] as const;
+  ];
 }
 
 function transformApply(data: Record<PropertyKey, any>, transforms: [PropertyKey, any][]): void {
