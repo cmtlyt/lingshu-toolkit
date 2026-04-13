@@ -213,13 +213,8 @@ describe('withResolvers', () => {
     test('可以在 try-catch 中使用', async () => {
       const resolver = withResolvers<number>();
 
-      resolver.promise.catch((error) => {
-        expect((error as Error).message).toBe('caught error');
-      });
-      try {
-        resolver.reject(new Error('caught error'));
-        await resolver.promise;
-      } catch {}
+      resolver.reject(new Error('caught error'));
+      await expect(resolver.promise).rejects.toThrow('caught error');
     });
 
     test('支持函数类型', async () => {

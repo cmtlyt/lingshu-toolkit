@@ -28,7 +28,7 @@ export function targetUrlParser(_url: string, _baseUrl: string): URL {
   return new URL(url, baseUrl);
 }
 
-export function urlParamsParser(url: string, params: Record<string, string> | undefined): string {
+export function urlParamsParser(url: string, params: Record<string, string | number> | undefined): string {
   if (!url.includes('/:')) {
     return url;
   }
