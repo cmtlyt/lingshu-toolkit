@@ -1,5 +1,5 @@
 import { throwType } from '@/shared/throw-error';
-import type { IsPrimitive, Printify, UnionToIntersection } from '@/shared/types';
+import type { IsPrimitive, Printify, UnionToIntersection } from '@/shared/types/base';
 
 type AssertValue = Record<PropertyKey, any> | any[];
 
@@ -76,10 +76,15 @@ function isArrayOrObject(_v: unknown): boolean {
   return Array.isArray(_v) || typeof _v === 'object';
 }
 
+function normalizeInput(input: any): any[] {
+  return input.length === 1 && Array.isArray(input[0]) ? input[0] : input;
+}
+
 function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
 function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
 function conditionMerge(...input: any): any {
-  const conditionItems: ConditionObjItem[] = (input.length > 1 ? input : input[0] || []).map((item: ConditionItem) => {
+  const normalizedInput = normalizeInput(input);
+  const conditionItems: ConditionObjItem[] = normalizedInput.map((item: ConditionItem) => {
     let result: ConditionObjItem | null = null;
     // 处理数组方式
     if (Array.isArray(item)) {

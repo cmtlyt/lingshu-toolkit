@@ -1,6 +1,7 @@
 import { logger } from '@/shared/logger';
 import { throwError, throwType } from '@/shared/throw-error';
-import { getType, isPlainNumber, isString } from '@/shared/utils';
+import { getType } from '@/shared/utils/base';
+import { isPlainNumber, isString } from '@/shared/utils/verify';
 import type { APIConfig, APIInstance, APIMap, DefaultAPIConfig } from './types';
 
 /// request utils start

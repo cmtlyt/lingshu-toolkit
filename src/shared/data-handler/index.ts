@@ -1,6 +1,6 @@
 import { throwType } from '@/shared/throw-error';
-import type { Equal, Printify } from '@/shared/types';
-import { isEmptyArray } from '@/shared/utils';
+import type { Equal, Printify } from '@/shared/types/base';
+import { isEmptyArray } from '@/shared/utils/verify';
 import type { Transform2Type } from './tools';
 import type { ActionContext, ActionHandlers, Actions, DataHandlerOptions, Handler } from './types';
 
