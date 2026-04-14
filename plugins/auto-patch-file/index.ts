@@ -1,6 +1,8 @@
+/** biome-ignore-all lint/performance/noAwaitInLoops: plugin 不需要过于严格 */
+/** biome-ignore-all lint/nursery/useNamedCaptureGroup: plugin 不需要过于严格 */
 import fs from 'node:fs';
 import path from 'node:path';
-import process from 'node:process';
+import process, { env } from 'node:process';
 import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vitest/config';
 
@@ -52,7 +54,7 @@ interface ToolMate {
 }
 
 function formatDirname(name: string) {
-  return name.replace(/\B[A-Z]/g, (match) => `-${match.toLowerCase()}`).toLowerCase();
+  return name.replace(/\B[A-Z]/gu, (match) => `-${match.toLowerCase()}`).toLowerCase();
 }
 
 const templateMap = new Proxy({} as Record<string, string>, {
@@ -69,7 +71,7 @@ const templateMap = new Proxy({} as Record<string, string>, {
 
 function parseTemplate(tempName: string, data: Record<string, any>) {
   let template = templateMap[tempName];
-  template = template.replace(/\$\$(.*?)\$\$/g, (_, key) => data[key]);
+  template = template.replace(/\$\$(.*?)\$\$/gu, (_, key) => data[key]);
   return template;
 }
 
@@ -256,7 +258,7 @@ async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfo
 
 async function parseNamespaceExports(namespaceInfos: NamespaceInfo[]) {
   const namespaceExports: Record<string, Set<string>> = {};
-  const exportReg = /export.*?from\s+(['"])(.*?)\1/s;
+  const exportReg = /export.*?from\s+(['"])(.*?)\1/su;
 
   for (let i = 0, namespaceInfo = namespaceInfos[i]; i < namespaceInfos.length; namespaceInfo = namespaceInfos[++i]) {
     const { namespace, namespacePath } = namespaceInfo;
@@ -330,7 +332,7 @@ async function processHandler(ctx: Context) {
 }
 
 export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
-  if (process.env.gen_file_disabled === 'true') {
+  if (env.gen_file_disabled === 'true') {
     return { name: '@cmtlyt/lingshu-toolkit:auto-patch-file' } satisfies Plugin;
   }
 

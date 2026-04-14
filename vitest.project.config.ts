@@ -1,9 +1,11 @@
-import process from 'node:process';
+import { env } from 'node:process';
 import react from '@vitejs/plugin-react';
 import vue from '@vitejs/plugin-vue';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig, mergeConfig, type TestProjectInlineConfiguration } from 'vitest/config';
 import vitestBaseConfig from './vitest.base.config';
+
+const CI_TEST = env.ci_test?.trim() === 'true';
 
 function getBrowserProjectConfig(namespace: string, config: TestProjectInlineConfiguration = {}) {
   return mergeConfig(
@@ -13,16 +15,17 @@ function getBrowserProjectConfig(namespace: string, config: TestProjectInlineCon
         test: {
           typecheck: {
             // typecheck 过于耗时, ci 环境直接禁用
-            enabled: process.env.skip_type_check?.trim() !== 'true',
+            enabled: !CI_TEST,
             include: [`src/${namespace}/**/*.test-d.ts`],
             ignoreSourceErrors: true,
           },
-          include: [`src/${namespace}/**/*.test.{ts,tsx}`, `src/${namespace}/**/*.browser.test.{ts,tsx}`],
+          include: [`src/${namespace}/**/*.test.{ts,tsx,js,jsx}`, `src/${namespace}/**/*.browser.test.{ts,tsx,js,jsx}`],
           browser: {
             enabled: true,
-            provider: playwright(),
+            headless: true,
+            provider: playwright({ launchOptions: { channel: 'chromium' } }),
             // https://vitest.dev/config/browser/playwright
-            instances: [{ browser: 'chromium', headless: true, name: namespace }],
+            instances: [{ browser: 'chromium', name: `browser#${namespace}` }],
           },
         },
       }),
@@ -38,15 +41,15 @@ export default mergeConfig(
       projects: [
         getBrowserProjectConfig('shared', {
           test: {
-            exclude: ['src/shared/**/*.node.test.{ts,tsx}'],
+            exclude: ['src/shared/**/*.node.test.{ts,tsx,js,jsx}'],
           },
         }),
         // shared node test
         getBrowserProjectConfig('shared', {
           test: {
-            name: 'shared#node',
+            name: 'node#shared',
             browser: { enabled: false },
-            exclude: ['src/shared/**/*.browser.test.{ts,tsx}'],
+            exclude: ['src/shared/**/*.browser.test.{ts,tsx,js,jsx}'],
           },
         }),
         getBrowserProjectConfig('react', {

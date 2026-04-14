@@ -12,36 +12,36 @@ describe('useBoolean', () => {
   test('方法测试', async () => {
     const { result, act } = await setUp();
     expect(result.current[0]).toBe(false);
-    act(() => {
+    await act(() => {
       result.current[1].setTrue();
     });
     expect(result.current[0]).toBe(true);
-    act(() => {
+    await act(() => {
       result.current[1].setFalse();
     });
     expect(result.current[0]).toBe(false);
-    act(() => {
+    await act(() => {
       result.current[1].toggle();
     });
     expect(result.current[0]).toBe(true);
-    act(() => {
+    await act(() => {
       result.current[1].toggle();
     });
     expect(result.current[0]).toBe(false);
-    act(() => {
+    await act(() => {
       result.current[1].set(false);
     });
     expect(result.current[0]).toBe(false);
-    act(() => {
+    await act(() => {
       result.current[1].set(true);
     });
     expect(result.current[0]).toBe(true);
-    act(() => {
+    await act(() => {
       // @ts-expect-error test
       result.current[1].set(0);
     });
     expect(result.current[0]).toBe(false);
-    act(() => {
+    await act(() => {
       // @ts-expect-error test
       result.current[1].set('a');
     });

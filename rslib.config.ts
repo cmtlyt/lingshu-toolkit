@@ -7,16 +7,11 @@ import { config } from './scripts/config';
 function getEntrys(namespace: string) {
   return globSync([`src/${namespace}/**/*.ts`], {
     cwd: import.meta.dirname,
-    exclude: [
-      `src/${namespace}/index.ts`,
-      'src/**/*.browser.test.{ts,tsx}',
-      'src/**/*.test.{ts,tsx}',
-      'src/**.test-d.{ts,tsx}',
-    ],
+    exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**/*.test-d.{ts,tsx,js,jsx}'],
   });
 }
 
-const metaFilePath = path.resolve(__dirname, 'meta/toolkit.meta.json');
+const metaFilePath = path.resolve(import.meta.dirname, 'meta/toolkit.meta.json');
 
 function getEntryInfo() {
   const unbundleEntryResult: Record<string, string[]> = {};
@@ -30,7 +25,7 @@ function getEntryInfo() {
   const namespaces = Reflect.ownKeys(meta) as string[];
 
   namespaces.forEach((ns) => {
-    const nsp = path.resolve(__dirname, 'src', ns);
+    const nsp = path.resolve(import.meta.dirname, 'src', ns);
     const entrys = getEntrys(ns);
     if (existsSync(path.resolve(nsp, 'index.ts'))) {
       mainEntryResult[`${ns}/index`] = [`./src/${ns}/index.ts`];
@@ -49,7 +44,13 @@ function getEntryInfo() {
 const { unbundleEntry, mainEntry } = getEntryInfo();
 
 export default defineConfig({
-  output: { target: 'web' },
+  output: {
+    target: 'web',
+    minify: true,
+    copy: [
+      { from: path.resolve(import.meta.dirname, './.npmignore'), to: path.resolve(import.meta.dirname, './dist') },
+    ],
+  },
   lib: [
     {
       source: {

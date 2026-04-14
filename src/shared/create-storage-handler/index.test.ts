@@ -16,7 +16,7 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
   });
 
   test('clear 之后的操作将会报错', () => {
@@ -28,9 +28,9 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     storage.clear();
-    expect(() => storage.get()).toThrowError();
-    expect(() => storage.get('num')).toThrowError();
-    expect(() => storage.set({ num: 1 })).toThrowError();
-    expect(() => storage.set(2, 'num')).toThrowError();
+    expect(() => storage.get()).toThrow();
+    expect(() => storage.get('num')).toThrow();
+    expect(() => storage.set({ num: 1 })).toThrow();
+    expect(() => storage.set(2, 'num')).toThrow();
   });
 });

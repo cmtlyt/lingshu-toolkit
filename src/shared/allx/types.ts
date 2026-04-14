@@ -13,3 +13,10 @@ export interface AllxContext<M extends Record<PropertyKey, AnyFunc>> {
 export type AllxResult<M extends Record<PropertyKey, AnyFunc>, O extends AllxOptions = AllxOptions> = {
   [P in keyof M]: O['allSettled'] extends true ? PromiseSettledResult<Awaited<ReturnType<M[P]>>> : AllxTaskValue<M[P]>;
 };
+
+export interface DepProxyResult {
+  taskNameSet: Set<PropertyKey>;
+  createContextFor: (currentTask: PropertyKey) => any;
+  resolveDepFor: (depName: PropertyKey, value: any) => void;
+  rejectDepFor: (depName: PropertyKey, error: any) => void;
+}

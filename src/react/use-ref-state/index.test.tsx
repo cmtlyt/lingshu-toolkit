@@ -10,12 +10,12 @@ describe('useRefState', () => {
   test('基本使用', async () => {
     const { result, act } = await renderHook(() => useRefState(0));
     expect(result.current[0]).toBe(0);
-    act(() => {
+    await act(() => {
       result.current[1].setState(1);
     });
     expect(result.current[0]).toBe(1);
     expect(result.current[1].getState()).toBe(1);
-    act(() => {
+    await act(() => {
       result.current[1].reset();
     });
     expect(result.current[0]).toBe(0);
@@ -24,17 +24,17 @@ describe('useRefState', () => {
   test('传入对象', async () => {
     const { result, act } = await renderHook(() => useRefState({ num: 0, str: '0' }));
     expect(result.current[0]).toEqual({ num: 0, str: '0' });
-    act(() => {
+    await act(() => {
       result.current[1].setState({ num: 1, str: '1' });
     });
     expect(result.current[0]).toEqual({ num: 1, str: '1' });
     expect(result.current[1].getState()).toEqual({ num: 1, str: '1' });
-    act(() => {
+    await act(() => {
       result.current[1].reset();
     });
     expect(result.current[0]).toEqual({ num: 0, str: '0' });
     expect(result.current[1].getState()).toBe(result.current[0]);
-    act(() => {
+    await act(() => {
       result.current[1].patchState((state) => {
         state.num = 2;
       });
@@ -43,6 +43,8 @@ describe('useRefState', () => {
   });
 
   test('组件中使用', async () => {
+    // 防止空测试, 必须至少包含一个 expect
+    expect(true).toBe(true);
     const App = () => {
       const [state, ctrl] = useRefState({ num: 0, str: '0' });
       return (
@@ -82,47 +84,47 @@ describe('useRefState', () => {
     const $num = screne.getByTestId('num');
     const $str = screne.getByTestId('str');
 
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('0');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('0');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('setBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('1');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('1');
+    await expect.element($num, timeoutOption).toHaveTextContent('1');
+    await expect.element($str, timeoutOption).toHaveTextContent('1');
 
     await screne.getByTestId('resetBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('0');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('0');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('patchBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('2');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('2');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('resetBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('0');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('0');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('patchBtnNU').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('0');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('0');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('forceUpdateBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('2');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('2');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('setBtnNU').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('2');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('2');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
 
     await screne.getByTestId('forceUpdateBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('1');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('1');
+    await expect.element($num, timeoutOption).toHaveTextContent('1');
+    await expect.element($str, timeoutOption).toHaveTextContent('1');
 
     await screne.getByTestId('resetBtnNU').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('1');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('1');
+    await expect.element($num, timeoutOption).toHaveTextContent('1');
+    await expect.element($str, timeoutOption).toHaveTextContent('1');
 
     await screne.getByTestId('forceUpdateBtn').click();
-    await expect.poll(() => $num, timeoutOption).toHaveTextContent('0');
-    await expect.poll(() => $str, timeoutOption).toHaveTextContent('0');
+    await expect.element($num, timeoutOption).toHaveTextContent('0');
+    await expect.element($str, timeoutOption).toHaveTextContent('0');
   });
 });

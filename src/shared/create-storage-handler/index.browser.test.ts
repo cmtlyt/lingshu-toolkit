@@ -26,7 +26,7 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
   });
 
   test('定时保存', async () => {
@@ -56,7 +56,7 @@ describe('createStorage', () => {
     expect(storage.get()).toEqual({ num: 2 });
     expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
     expect(sessionStorage.getItem(storageKey)).toBeNull();
   });
 
@@ -71,7 +71,7 @@ describe('createStorage', () => {
     expect(storage.set(2, 'num')).toBeUndefined();
     expect(storage.get()).toEqual({ num: 2 });
     expect(storage.clear()).toBeUndefined();
-    expect(() => storage.get()).toThrowError();
+    expect(() => storage.get()).toThrow();
   });
 
   test('key 已经存在则不使用传入的默认值', () => {
@@ -88,5 +88,17 @@ describe('createStorage', () => {
     expect(storage.get()).toEqual([]);
     expect(storage.set(0, '0')).toBeUndefined();
     expect(storage.clear()).toBeUndefined();
+  });
+
+  test('在自动保存之前清空数据', async () => {
+    const storageKey = 'test-local-storage#clear-before-auto-save';
+    const storage = createStorageHandler(storageKey, {} as Record<'num', number>, { autoSaveInterval: 100 });
+    storage.set(1, 'num');
+    expect(localStorage.getItem(storageKey)).toBeNull();
+    expect(storage.get('num')).toBe(1);
+    storage.clear();
+    expect(() => storage.get('num')).toThrow();
+    await vi.advanceTimersByTimeAsync(110);
+    expect(localStorage.getItem(storageKey)).toBeNull();
   });
 });

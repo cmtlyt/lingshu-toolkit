@@ -24,7 +24,7 @@ describe('utils-base', () => {
     expect(getType(new Set())).toBe('set');
     expect(getType(new WeakMap())).toBe('weakmap');
     expect(getType(new WeakSet())).toBe('weakset');
-    expect(getType(/test/)).toBe('regexp');
+    expect(getType(/test/u)).toBe('regexp');
     expect(getType(new URL('https://example.com'))).toBe('url');
     expect(getType(new URLSearchParams('test=1'))).toBe('urlsearchparams');
     expect(getType(new Blob(['']))).toBe('blob');

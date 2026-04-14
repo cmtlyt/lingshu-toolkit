@@ -180,13 +180,11 @@ describe('animation', () => {
   });
 
   test('promise 应该在 clear 时 resolve 为 true', async () => {
-    vi.useRealTimers();
-    const result = animation(0, 100, 100);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const result = animation(0, 100, 1000);
+    await vi.advanceTimersByTimeAsync(10);
     result.clear();
     const value = await result.promise;
     expect(value).toBe(true);
-    vi.useFakeTimers();
   });
 
   test('应该支持重新启动已停止的动画', async () => {
@@ -412,7 +410,7 @@ describe('animation', () => {
     onUpdate.mock.calls.forEach((call) => {
       const value = call[0];
       expect(typeof value).toBe('string');
-      expect(value).toMatch(/^\d+px$/);
+      expect(value).toMatch(/^\d+px$/u);
     });
 
     // 验证数值部分都是10的倍数
@@ -497,7 +495,7 @@ describe('animation', () => {
     onUpdate.mock.calls.forEach((call) => {
       const value = call[0];
       expect(typeof value).toBe('string');
-      expect(value).toMatch(/^\d+px$/);
+      expect(value).toMatch(/^\d+px$/u);
     });
   });
 
@@ -540,7 +538,7 @@ describe('animation', () => {
       expect(Array.isArray(value)).toBe(true);
       value.forEach((item: any) => {
         expect(typeof item).toBe('string');
-        expect(item).toMatch(/^\d+px$/);
+        expect(item).toMatch(/^\d+px$/u);
       });
     });
   });
@@ -568,8 +566,8 @@ describe('animation', () => {
       expect(typeof value).toBe('object');
       expect(typeof value.x).toBe('string');
       expect(typeof value.y).toBe('string');
-      expect(value.x).toMatch(/^\d+px$/);
-      expect(value.y).toMatch(/^\d+px$/);
+      expect(value.x).toMatch(/^\d+px$/u);
+      expect(value.y).toMatch(/^\d+px$/u);
     });
   });
 });

@@ -16,7 +16,7 @@ const validInfo = $dt({
   restoreOnUnmount: $t.boolean(true),
 });
 
-export function useTitle(title?: string, options: Partial<UseTitleOptions> = {}) {
+function useTitle(title?: string, options: Partial<UseTitleOptions> = {}) {
   const { restoreOnUnmount } = useValidData(options as UseTitleOptions, validInfo);
 
   useEffect(() => {
@@ -32,3 +32,5 @@ export function useTitle(title?: string, options: Partial<UseTitleOptions> = {})
 
   return setTitle;
 }
+
+export { useTitle };

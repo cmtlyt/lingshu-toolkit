@@ -87,25 +87,41 @@ describe('conditionMerge', () => {
 
   test('传入的参数不是数组和对象', () => {
     // @ts-expect-error test
-    expect(() => conditionMerge(1)).toThrowError(TypeError);
+    expect(() => conditionMerge(1)).toThrow('conditionMerge');
 
     // @ts-expect-error test
-    expect(() => conditionMerge([1])).toThrowError(TypeError);
+    expect(() => conditionMerge([1])).toThrow('conditionMerge');
 
     // @ts-expect-error test
-    expect(() => conditionMerge([[true, 1]])).toThrowError(TypeError);
+    expect(() => conditionMerge([[true, 1]])).toThrow('conditionMerge');
 
     // @ts-expect-error test
-    expect(() => conditionMerge([{ condition: true, value: 1 }])).toThrowError(TypeError);
+    expect(() => conditionMerge([true, 1])).toThrow('conditionMerge');
 
     // @ts-expect-error test
-    expect(() => conditionMerge([{ condition: true, value: [], fullback: '13' }])).toThrowError(TypeError);
+    expect(() => conditionMerge([{ condition: true, value: 1 }])).toThrow('conditionMerge');
+
+    // @ts-expect-error test
+    expect(() => conditionMerge({ condition: true, value: 1 })).toThrow('conditionMerge');
+
+    // @ts-expect-error test
+    expect(() => conditionMerge([{ condition: true, value: [], fullback: '13' }])).toThrow('conditionMerge');
+
+    // @ts-expect-error test
+    expect(() => conditionMerge(false)).toThrow('conditionMerge');
+
+    // @ts-expect-error test
+    expect(() => conditionMerge(0)).toThrow('conditionMerge');
+
+    // @ts-expect-error test
+    expect(() => conditionMerge('')).toThrow('conditionMerge');
   });
 
-  test('传入 null 或 undefined', () => {
+  test('传入 null 或 undefined 或空参数', () => {
     // @ts-expect-error test
     expect(conditionMerge([[true, null]])).toEqual({});
+    expect(conditionMerge()).toEqual({});
     // @ts-expect-error test
-    expect(() => conditionMerge([[true, undefined]])).toThrowError(TypeError);
+    expect(() => conditionMerge([[true, undefined]])).toThrow(TypeError);
   });
 });

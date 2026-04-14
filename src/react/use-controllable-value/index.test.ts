@@ -34,7 +34,7 @@ describe('useControllableValue', () => {
     };
     const hook = await setUp(props);
     expect(hook.result.current[0]).toBe(2);
-    hook.act(() => {
+    await hook.act(() => {
       hook.result.current[1](3, 'extraParam');
     });
     expect(props.value).toBe(3);
@@ -47,10 +47,10 @@ describe('useControllableValue', () => {
     };
     const { result, rerender } = await setUp(props);
     props.value = 2;
-    rerender(props);
+    await rerender(props);
     expect(result.current[0]).toBe(2);
     props.value = 3;
-    rerender(props);
+    await rerender(props);
     expect(result.current[0]).toBe(3);
   });
 
@@ -59,23 +59,23 @@ describe('useControllableValue', () => {
       newValue: 1,
     });
     const [, setValue] = result.current;
-    act(() => setValue(undefined));
+    await act(() => setValue(undefined));
     expect(result.current[0]).toBeUndefined();
 
-    act(() => setValue(null));
+    await act(() => setValue(null));
     expect(result.current[0]).toBeNull();
 
-    act(() => setValue(55));
+    await act(() => setValue(55));
     expect(result.current[0]).toBe(55);
 
-    act(() => setValue((prevState: number) => prevState + 1));
+    await act(() => setValue((prevState: number) => prevState + 1));
     expect(result.current[0]).toBe(56);
   });
 
   test('类型检查', async () => {
-    type Value = {
+    interface Value {
       foo: number;
-    };
+    }
     const props: {
       value: Value;
       defaultValue: Value;
@@ -101,7 +101,7 @@ describe('useControllableValue', () => {
     );
     const [, setValue] = result.current;
     expect(result.current[0]).toBe(1);
-    act(() => {
+    await act(() => {
       setValue(3);
     });
     expect(result.current[0]).toBe(1);
@@ -115,7 +115,7 @@ describe('useControllableValue', () => {
     );
     const [, setValue] = result.current;
     expect(result.current[0]).toBe(1);
-    act(() => {
+    await act(() => {
       setValue(3);
     });
     expect(result.current[0]).toBe(3);

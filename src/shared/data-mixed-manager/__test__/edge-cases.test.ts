@@ -72,20 +72,20 @@ describe('dataMixedManager - 边界情况', () => {
     const change = vi.fn();
     manager = dataMixedManager<number>({ listener: { change } });
     manager.appendList([1, 2, 3]);
-    expect(change).toBeCalledTimes(1);
+    expect(change).toHaveBeenCalledTimes(1);
     // 插卡位置 5 大于已处理的混合数据长度 (3)
     // 由于 position > mixedData.length，等同于定坑，不会触发全量重建
     const position = manager.insertSlot({ position: 5, data: 100, insertMode: 'before' });
     expect(position).toBe(5);
-    expect(change).toBeCalledTimes(1);
+    expect(change).toHaveBeenCalledTimes(1);
     const firstData = manager.getMixedData();
     // 插卡位置超出范围，不会被插入
     expect(firstData).toHaveLength(3);
     // 添加数据到插卡位置
     manager.appendList([4, 5, 6]);
-    expect(change).toBeCalledTimes(2);
+    expect(change).toHaveBeenCalledTimes(2);
     const secondData = manager.getMixedData();
-    expect(change).toBeCalledTimes(2);
+    expect(change).toHaveBeenCalledTimes(2);
     // 现在数据长度为 6，插卡位置 5 在范围内，会被插入
     expect(secondData).toHaveLength(7);
     expect(secondData[0]).toEqual({ isFixed: false, type: 'plain', data: 1 });
@@ -106,6 +106,6 @@ describe('dataMixedManager - 边界情况', () => {
           change: 1,
         },
       }),
-    ).toThrowError(TypeError);
+    ).toThrow(TypeError);
   });
 });

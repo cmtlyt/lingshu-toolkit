@@ -21,8 +21,8 @@ export interface ActionContext {
 }
 
 export interface ActionHandlers {
-  addError(key: PropertyKey, msg?: string): void;
-  addTransform(key: PropertyKey, value: any): void;
+  addError: (key: PropertyKey, msg?: string) => void;
+  addTransform: (key: PropertyKey, value: any) => void;
 }
 
 export interface DataHandlerOptions<M extends Record<PropertyKey, any>> {
@@ -31,3 +31,32 @@ export interface DataHandlerOptions<M extends Record<PropertyKey, any>> {
   defaultValue?: M;
   unwrap?: boolean;
 }
+
+export interface TypeMap {
+  notNullable: any & {};
+  string: string;
+  validString: string;
+  number: number;
+  validNumber: number;
+  boolean: boolean;
+  object: Record<PropertyKey, any>;
+  array: any[];
+  function: (...args: any[]) => any;
+  symbol: symbol;
+  enum: any & {};
+}
+
+export type TypeHandler = NonNullable<Exclude<Handler<any>, (...args: any[]) => any>[string]>;
+
+export type TypeHandlerParams = Parameters<TypeHandler> extends [any, ...infer Rest] ? Rest : never;
+
+export type ParseType<T extends string> = T extends keyof TypeMap ? TypeMap[T] : any;
+
+export type TypeHandlerInfo<T extends string> = (
+  value: ParseType<T>,
+  ...args: TypeHandlerParams
+) => ReturnType<TypeHandler>;
+
+export type Fullback<T extends string> = T extends 'function'
+  ? (_v: any) => ParseType<T>
+  : ((_v: any) => ParseType<T>) | (ParseType<T> & {});

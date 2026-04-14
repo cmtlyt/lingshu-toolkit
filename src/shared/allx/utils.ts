@@ -1,12 +1,17 @@
 import { createError } from '@/shared/throw-error';
 import type { AnyFunc } from '@/shared/types/base';
+import { isNullOrUndef } from '@/shared/utils/verify';
 import { withResolvers } from '@/shared/with-resolvers';
-import type { AllxOptions } from './types';
+import type { AllxOptions, DepProxyResult } from './types';
 
 /**
  * BFS 算法处理 waitingForGraph 的依赖关系
  */
-function detectCycle(from: PropertyKey, to: PropertyKey, waitingForGraph: Map<PropertyKey, Set<PropertyKey>>): boolean {
+export function detectCycle(
+  from: PropertyKey,
+  to: PropertyKey,
+  waitingForGraph: Map<PropertyKey, Set<PropertyKey>>,
+): boolean {
   const visited = new Set<PropertyKey>();
   const queue = [to];
   let head = 0;
@@ -30,7 +35,11 @@ function detectCycle(from: PropertyKey, to: PropertyKey, waitingForGraph: Map<Pr
   return false;
 }
 
-function getCached(results: Record<PropertyKey, any>, depName: PropertyKey, allSettled: boolean) {
+export function getCached(
+  results: Record<PropertyKey, any>,
+  depName: PropertyKey,
+  allSettled: boolean,
+): Promise<any> | undefined {
   // 已完成的依赖直接返回
   if (Reflect.getOwnPropertyDescriptor(results, depName)) {
     const cached = results[depName];
@@ -41,12 +50,12 @@ function getCached(results: Record<PropertyKey, any>, depName: PropertyKey, allS
   }
 }
 
-function createDepResolver(
+export function createDepResolver(
   waitingFor: Map<PropertyKey, Set<PropertyKey>>,
   resolverMap: Map<PropertyKey, PromiseWithResolvers<any>>,
   currentTask: PropertyKey,
   depName: PropertyKey,
-) {
+): Promise<any> {
   waitingFor.set(currentTask, (waitingFor.get(currentTask) || new Set()).add(depName));
 
   const depResolvers = resolverMap.get(depName) || withResolvers();
@@ -64,7 +73,7 @@ function createDepResolver(
   );
 }
 
-function cleanWaitingForGraph(waitingForGraph: Map<PropertyKey, Set<PropertyKey>>, depName: PropertyKey) {
+export function cleanWaitingForGraph(waitingForGraph: Map<PropertyKey, Set<PropertyKey>>, depName: PropertyKey): void {
   // 清理等待图中以 depName 为目标的所有边
   waitingForGraph.forEach((deps, task) => {
     deps.delete(depName);
@@ -78,12 +87,12 @@ export function createDepProxy(
   tasks: Record<PropertyKey, AnyFunc>,
   results: Record<PropertyKey, any>,
   options: Required<AllxOptions>,
-) {
+): DepProxyResult {
   const resolverMap = new Map<PropertyKey, PromiseWithResolvers<any>>();
   const taskNameSet = new Set(Reflect.ownKeys(tasks) as PropertyKey[]);
   const waitingForGraph = new Map<PropertyKey, Set<PropertyKey>>();
 
-  const resolveDepFor = (depName: PropertyKey, value: any) => {
+  const resolveDepFor = (depName: PropertyKey, value: any): void => {
     const resolver = resolverMap.get(depName);
     if (resolver) {
       resolver.resolve(value);
@@ -92,7 +101,7 @@ export function createDepProxy(
     cleanWaitingForGraph(waitingForGraph, depName);
   };
 
-  const rejectDepFor = (depName: PropertyKey, error: any) => {
+  const rejectDepFor = (depName: PropertyKey, error: any): void => {
     const resolver = resolverMap.get(depName);
     if (resolver) {
       resolver.reject(error);
@@ -101,7 +110,7 @@ export function createDepProxy(
     cleanWaitingForGraph(waitingForGraph, depName);
   };
 
-  const createContextFor = (currentTask: PropertyKey) => {
+  const createContextFor = (currentTask: PropertyKey): Record<PropertyKey, any> => {
     // 为每个任务单独创建一个上下文, 用于处理循环依赖
     return new Proxy(
       {},
@@ -112,7 +121,7 @@ export function createDepProxy(
           }
 
           const cached = getCached(results, depName, options.allSettled);
-          if (cached) {
+          if (!isNullOrUndef(cached)) {
             return cached;
           }
 

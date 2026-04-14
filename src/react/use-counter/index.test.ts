@@ -12,19 +12,19 @@ describe('useCounter', () => {
     const [, actions] = result.current;
 
     expect(result.current[0]).toBe(0);
-    act(() => {
+    await act(() => {
       actions.increment();
     });
     expect(result.current[0]).toBe(1);
-    act(() => {
+    await act(() => {
       actions.decrement();
     });
     expect(result.current[0]).toBe(0);
-    act(() => {
+    await act(() => {
       actions.set(10);
     });
     expect(result.current[0]).toBe(10);
-    act(() => {
+    await act(() => {
       actions.reset();
     });
     expect(result.current[0]).toBe(0);
@@ -36,7 +36,7 @@ describe('useCounter', () => {
     const [, actions] = result.current;
 
     expect(result.current[0]).toBe(1);
-    act(() => {
+    await act(() => {
       actions.increment();
     });
     expect(result.current[0]).toBe(11);

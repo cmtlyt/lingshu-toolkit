@@ -116,7 +116,7 @@ describe('apiController', () => {
   });
 
   test('create api error', () => {
-    expect(() => createApi({} as any)).toThrowError(TypeError);
+    expect(() => createApi({} as any)).toThrow(TypeError);
   });
 
   test('proxy cache', () => {
@@ -208,11 +208,12 @@ describe('apiController', () => {
 
     type ProcessJson<M> = M extends Record<infer KS, any> ? { [K in KS]: ProcessJson<M[K]> } : Promise<M>;
 
-    type ProcessResult<M extends Record<string, any> = Record<string, any>> = {
-      get(): Promise<ProcessJson<M>>;
-      get<K extends RecordDeepKeyFlat<M>>(key: K): ProcessJson<RecordDeepProp<K, M>>;
-      waitAll(): Promise<M>;
-    };
+    interface ProcessResult<M extends Record<string, any> = Record<string, any>> {
+      get:
+        | (() => Promise<ProcessJson<M>>)
+        | (<K extends RecordDeepKeyFlat<M>>(key: K) => ProcessJson<RecordDeepProp<K, M>>);
+      waitAll: () => Promise<M>;
+    }
 
     const processApi = createApiWithMap(
       defineApiMap({
@@ -318,7 +319,7 @@ describe('apiController', () => {
     await expect(
       // @ts-expect-error
       mockApi.user.getInfoCustom(() => void 0, { method: 'POST', onRequest: null, onResponse: null, tvo: null }),
-    ).rejects.toThrowError();
+    ).rejects.toThrow();
 
     // @ts-expect-error
     const resInputStr = await mockApi.user.getInfoCustom(JSON.stringify({ id: '10' }), {
@@ -339,27 +340,27 @@ describe('apiController', () => {
     // Browser 环境中，这个测试可能不会抛出错误，因为行为与 node 环境不同
     // await expect(
     //   createApi({ url: '' }, { requestMode: 'mock', tvo: () => 1, parser: 'stream' })(),
-    // ).rejects.toThrowError();
+    // ).rejects.toThrow();
 
     await expect(
       createApi({ url: '' }, { baseUrl: '', requestMode: 'mock', tvo: () => 1, parser: 'ccc' })(),
-    ).rejects.toThrowError();
+    ).rejects.toThrow();
   });
 
   test('param url', async () => {
     // 输出 warn
-    expect(() => createApi({ url: '/user/:id' })).toThrowError(TypeError);
+    expect(() => createApi({ url: '/user/:id' })).toThrow(TypeError);
     const paramApi = createApi(defineApi({ url: '/user/:id' }), {}, true);
 
     // @ts-expect-error
-    expect(() => paramApi(null)).toThrowError(TypeError);
+    expect(() => paramApi(null)).toThrow(TypeError);
 
     expect(await paramApi(null, { params: { id: '1' } })).toEqual({ id: '1', name: 'John Doe' });
 
     const paramsApi = createApi(defineApi({ url: '/api/user/:id/custom-name/:name' }), {}, true);
 
     // @ts-expect-error
-    expect(() => paramsApi(null, { params: { id: '1' } })).toThrowError(TypeError);
+    expect(() => paramsApi(null, { params: { id: '1' } })).toThrow(TypeError);
     expect(await paramsApi(null, { params: { id: '1', name: 'test' } })).toEqual({ id: '1', name: 'test' });
 
     const paramApiMap = createApiWithMap(
@@ -371,18 +372,18 @@ describe('apiController', () => {
     );
 
     // @ts-expect-error
-    expect(() => paramApiMap.user.getInfo).toThrowError(TypeError);
+    expect(() => paramApiMap.user.getInfo).toThrow(TypeError);
     expect(await paramApiMap.user.getInfoCustom(null, { params: { id: '1' } })).toEqual({ id: '1', name: 'John Doe' });
     // @ts-expect-error
-    expect(() => paramApiMap.user.getInfoCustom(null, { params: {} })).toThrowError(TypeError);
+    expect(() => paramApiMap.user.getInfoCustom(null, { params: {} })).toThrow(TypeError);
     // @ts-expect-error
-    expect(() => paramApiMap.getCustomNameUser).toThrowError(TypeError);
+    expect(() => paramApiMap.getCustomNameUser).toThrow(TypeError);
     expect(await paramApiMap.getCustomNameUserCustom(null, { params: { id: '1', name: 'test' } })).toEqual({
       id: '1',
       name: 'test',
     });
     // @ts-expect-error
-    expect(() => paramApiMap.getCustomNameUserCustom(null, { params: { id: 1 } })).toThrowError(TypeError);
+    expect(() => paramApiMap.getCustomNameUserCustom(null, { params: { id: 1 } })).toThrow(TypeError);
   });
 
   test('param url with number 0', async () => {
@@ -591,6 +592,6 @@ describe('apiController', () => {
     expect(api.$$r.baseUrl).toBe(location.origin);
     api.$$r.baseUrl = '';
     expect(api.$$r.baseUrl).toBe('');
-    await expect(api()).rejects.toThrowError();
+    await expect(api()).rejects.toThrow();
   });
 });

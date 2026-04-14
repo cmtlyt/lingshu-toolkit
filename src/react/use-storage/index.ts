@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { type CreateStorageOptions, createStorageHandler } from '@/shared/create-storage-handler';
 
-export function useStorage<T extends Record<string, any>>(
+function useStorage<T extends Record<string, any>>(
   storageKey: string,
   options?: Partial<CreateStorageOptions>,
   initialData?: T,
@@ -13,3 +13,5 @@ export function useStorage<T extends Record<string, any>>(
     return createStorageHandler<T>(storageKey, _initialData || ({} as T), _options);
   }, [storageKey]);
 }
+
+export { useStorage };

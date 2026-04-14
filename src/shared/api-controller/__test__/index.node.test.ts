@@ -115,7 +115,7 @@ describe('apiController', () => {
   });
 
   test('create api error', () => {
-    expect(() => createApi({} as any)).toThrowError(TypeError);
+    expect(() => createApi({} as any)).toThrow(TypeError);
   });
 
   test('proxy cache', () => {
@@ -207,11 +207,12 @@ describe('apiController', () => {
 
     type ProcessJson<M> = M extends Record<infer KS, any> ? { [K in KS]: ProcessJson<M[K]> } : Promise<M>;
 
-    type ProcessResult<M extends Record<string, any> = Record<string, any>> = {
-      get(): Promise<ProcessJson<M>>;
-      get<K extends RecordDeepKeyFlat<M>>(key: K): ProcessJson<RecordDeepProp<K, M>>;
-      waitAll(): Promise<M>;
-    };
+    interface ProcessResult<M extends Record<string, any> = Record<string, any>> {
+      get:
+        | (() => Promise<ProcessJson<M>>)
+        | (<K extends RecordDeepKeyFlat<M>>(key: K) => ProcessJson<RecordDeepProp<K, M>>);
+      waitAll: () => Promise<M>;
+    }
 
     const processApi = createApiWithMap(
       defineApiMap({
@@ -317,7 +318,7 @@ describe('apiController', () => {
     await expect(
       // @ts-expect-error
       mockApi.user.getInfoCustom(() => void 0, { method: 'POST', onRequest: null, onResponse: null, tvo: null }),
-    ).rejects.toThrowError();
+    ).rejects.toThrow();
     // ^ node 环境中无法获取到 location 所以这个请求会失败
 
     // @ts-expect-error
@@ -336,30 +337,30 @@ describe('apiController', () => {
     )();
     expect(emptyUrlRes).toBe(1);
 
-    expect(() => createApi({ url: '' }, { requestMode: 'mock', tvo: () => 1, parser: 'stream' })()).toThrowError();
+    expect(() => createApi({ url: '' }, { requestMode: 'mock', tvo: () => 1, parser: 'stream' })()).toThrow();
 
     await expect(
       createApi(
         { url: '' },
         { baseUrl: 'https://api.example.com', requestMode: 'mock', tvo: () => 1, parser: 'ccc' },
       )(),
-    ).rejects.toThrowError();
+    ).rejects.toThrow();
   });
 
   test('param url', async () => {
     // 输出 warn
-    expect(() => createApi({ url: '/user/:id' })).toThrowError(TypeError);
+    expect(() => createApi({ url: '/user/:id' })).toThrow(TypeError);
     const paramApi = createApi(defineApi({ url: 'https://api.example.com/user/:id' }), {}, true);
 
     // @ts-expect-error
-    expect(() => paramApi(null)).toThrowError(TypeError);
+    expect(() => paramApi(null)).toThrow(TypeError);
 
     expect(await paramApi(null, { params: { id: '1' } })).toEqual({ id: '1', name: 'John Doe' });
 
     const paramsApi = createApi(defineApi({ url: 'https://api.example.com/api/user/:id/custom-name/:name' }), {}, true);
 
     // @ts-expect-error
-    expect(() => paramsApi(null, { params: { id: '1' } })).toThrowError(TypeError);
+    expect(() => paramsApi(null, { params: { id: '1' } })).toThrow(TypeError);
     expect(await paramsApi(null, { params: { id: '1', name: 'test' } })).toEqual({ id: '1', name: 'test' });
 
     const paramApiMap = createApiWithMap(
@@ -371,18 +372,18 @@ describe('apiController', () => {
     );
 
     // @ts-expect-error
-    expect(() => paramApiMap.user.getInfo).toThrowError(TypeError);
+    expect(() => paramApiMap.user.getInfo).toThrow(TypeError);
     expect(await paramApiMap.user.getInfoCustom(null, { params: { id: '1' } })).toEqual({ id: '1', name: 'John Doe' });
     // @ts-expect-error
-    expect(() => paramApiMap.user.getInfoCustom(null, { params: {} })).toThrowError(TypeError);
+    expect(() => paramApiMap.user.getInfoCustom(null, { params: {} })).toThrow(TypeError);
     // @ts-expect-error
-    expect(() => paramApiMap.getCustomNameUser).toThrowError(TypeError);
+    expect(() => paramApiMap.getCustomNameUser).toThrow(TypeError);
     expect(await paramApiMap.getCustomNameUserCustom(null, { params: { id: '1', name: 'test' } })).toEqual({
       id: '1',
       name: 'test',
     });
     // @ts-expect-error
-    expect(() => paramApiMap.getCustomNameUserCustom(null, { params: { id: 1 } })).toThrowError(TypeError);
+    expect(() => paramApiMap.getCustomNameUserCustom(null, { params: { id: 1 } })).toThrow(TypeError);
   });
 
   test('param url with number 0', async () => {
@@ -580,7 +581,7 @@ describe('apiController', () => {
 
     const api = createApiWithMap(apiMap);
 
-    expect(() => api.$updateBaseUrl('/api')).toThrowError();
+    expect(() => api.$updateBaseUrl('/api')).toThrow();
   });
 
   test('深层嵌套 api', () => {
@@ -596,7 +597,7 @@ describe('apiController', () => {
       },
     });
     const api = createApiWithMap(apiMap);
-    expect(() => api.deep1.deep2.deep3.deep4.deep5).toThrowError();
+    expect(() => api.deep1.deep2.deep3.deep4.deep5).toThrow();
     api.$updateBaseUrl('https://api.example.com');
     expect(api.deep1.deep2.deep3.deep4.deep5).toBeTypeOf('function');
     expect(api.deep1.deep2.deep3.deep4.deep5.$$r).toStrictEqual(api.$$r);

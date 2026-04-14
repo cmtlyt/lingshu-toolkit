@@ -96,7 +96,7 @@ export function isFalse(_v: unknown): _v is false | UnULCase<'false'> {
  * @warn 字符串 'false' 等满足 isFalse 判断的字符串也会被视为真值
  */
 export function isTruthy<T>(_v: T): _v is Exclude<T, false | 0 | '' | null | undefined> {
-  return !!_v;
+  return Boolean(_v);
 }
 
 /**
@@ -113,7 +113,7 @@ export function isFunction(_v: unknown): _v is AnyFunc {
   return typeof _v === 'function';
 }
 
-/** 判断是一个 Promise */
+/** 判断是一个 PromiseLike */
 export function isPromiseLike(_v: unknown): _v is PromiseLike<any> {
-  return isObject(_v) && isFunction((_v as PromiseLike<any>).then);
+  return (isObject(_v) || isFunction(_v)) && isFunction((_v as PromiseLike<any>).then);
 }

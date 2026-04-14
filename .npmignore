@@ -1,0 +1,3 @@
+*.test.d.ts
+test/
+__test__/

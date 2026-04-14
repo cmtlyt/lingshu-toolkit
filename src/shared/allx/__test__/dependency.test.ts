@@ -14,7 +14,7 @@ describe('allx - 任务依赖测试', () => {
   test('任务可以依赖其他任务的结果', async () => {
     const result = await allx({
       task1: async () => 10,
-      task2: async function () {
+      async task2() {
         const value = await this.$.task1;
         return value * 2;
       },
@@ -29,11 +29,11 @@ describe('allx - 任务依赖测试', () => {
   test('多个任务依赖同一个任务', async () => {
     const result = await allx({
       base: async () => 5,
-      double: async function () {
+      async double() {
         const value = await this.$.base;
         return value * 2;
       },
-      triple: async function () {
+      async triple() {
         const value = await this.$.base;
         return value * 3;
       },
@@ -49,11 +49,11 @@ describe('allx - 任务依赖测试', () => {
   test('链式依赖', async () => {
     const result = await allx({
       task1: async () => 1,
-      task2: async function () {
+      async task2() {
         const value = await this.$.task1;
         return value + 1;
       },
-      task3: async function () {
+      async task3() {
         const value = await this.$.task2;
         return value + 1;
       },
@@ -70,11 +70,11 @@ describe('allx - 任务依赖测试', () => {
     const result = await allx({
       a: async () => 1,
       b: async () => 2,
-      c: async function () {
+      async c() {
         const [aVal, bVal] = await Promise.all([this.$.a, this.$.b]);
         return aVal + bVal;
       },
-      d: async function () {
+      async d() {
         const cVal = await this.$.c;
         return cVal * 2;
       },
@@ -93,7 +93,7 @@ describe('allx - 任务依赖测试', () => {
       task1: async () => 10,
       task2: async () => 20,
       task3: async () => 30,
-      sum: async function () {
+      async sum() {
         const [v1, v2, v3] = await Promise.all([this.$.task1, this.$.task2, this.$.task3]);
         return v1 + v2 + v3;
       },
@@ -113,7 +113,7 @@ describe('allx - 任务依赖测试', () => {
         await vi.advanceTimersByTimeAsync(10);
         return 'async result';
       },
-      sync: async function () {
+      async sync() {
         const value = await this.$.async;
         return `got ${value}`;
       },
@@ -128,7 +128,7 @@ describe('allx - 任务依赖测试', () => {
   test('依赖已完成的任务', async () => {
     const result = await allx({
       task1: async () => 1,
-      task2: async function () {
+      async task2() {
         await vi.advanceTimersByTimeAsync(10);
         const value = await this.$.task1;
         return value + 1;

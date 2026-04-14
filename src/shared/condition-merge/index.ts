@@ -1,11 +1,15 @@
 import { throwType } from '@/shared/throw-error';
-import type { IsPrimitive, Printify, UnionToIntersection } from '@/shared/types';
+import type { IsPrimitive, Printify, UnionToIntersection } from '@/shared/types/base';
 
 type AssertValue = Record<PropertyKey, any> | any[];
 
 type ConditionArrayItem = [boolean, AssertValue, AssertValue?];
 
-type ConditionObjItem = { condition: boolean; value: AssertValue; fullback?: AssertValue };
+interface ConditionObjItem {
+  condition: boolean;
+  value: AssertValue;
+  fullback?: AssertValue;
+}
 
 type ConditionItem = ConditionObjItem | ConditionArrayItem;
 
@@ -64,18 +68,23 @@ type CMInput = ConditionItem[];
 
 type FormatResult<T extends any[]> = T[0] & Record<PropertyKey, any>;
 
-function getEmpty(_v: unknown) {
+function getEmpty(_v: unknown): any[] | Record<PropertyKey, any> {
   return Array.isArray(_v) ? [] : {};
 }
 
-function valueCheck(_v: unknown) {
+function isArrayOrObject(_v: unknown): boolean {
   return Array.isArray(_v) || typeof _v === 'object';
 }
 
-export function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
-export function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
-export function conditionMerge(...input: any) {
-  const conditionItems: ConditionObjItem[] = (input.length > 1 ? input : input[0]).map((item: ConditionItem) => {
+function normalizeInput(input: any): any[] {
+  return input.length === 1 && Array.isArray(input[0]) ? input[0] : input;
+}
+
+function conditionMerge<T extends CMInput>(...input: T): FormatResult<MergedResult<T>>;
+function conditionMerge<T extends CMInput>(input: T): FormatResult<MergedResult<T>>;
+function conditionMerge(...input: any): any {
+  const normalizedInput = normalizeInput(input);
+  const conditionItems: ConditionObjItem[] = normalizedInput.map((item: ConditionItem) => {
     let result: ConditionObjItem | null = null;
     // 处理数组方式
     if (Array.isArray(item)) {
@@ -91,15 +100,15 @@ export function conditionMerge(...input: any) {
       throwType('conditionMerge', 'input must be an ConditionItem');
     }
     // 校验 value 和 fullback 是否合法
-    const validValue = valueCheck(result.value);
-    const validFullback = typeof result.fullback === 'undefined' || valueCheck(result.fullback);
+    const validValue = isArrayOrObject(result.value);
+    const validFullback = typeof result.fullback === 'undefined' || isArrayOrObject(result.fullback);
     if (!(validValue && validFullback)) {
       throwType('conditionMerge', 'value and fullback must be an array or object');
     }
     return result;
   });
 
-  const result = getEmpty(conditionItems[0].value);
+  const result = getEmpty((conditionItems[0] || {}).value);
   const mergeFn = Array.isArray(result)
     ? (a1: any[], a2: any[]) => Reflect.apply(Array.prototype.splice.bind(a1, a1.length, 0), null, a2)
     : Object.assign;
@@ -110,3 +119,5 @@ export function conditionMerge(...input: any) {
 
   return result;
 }
+
+export { conditionMerge };

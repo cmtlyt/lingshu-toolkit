@@ -14,7 +14,7 @@ const validInfo = $dt({
   trigger: $t.validString('onChange'),
 });
 
-export type PublicUseControllableValueOptions<
+type PublicUseControllableValueOptions<
   Ks extends PropertyKey = PropertyKey,
   P extends Ks | (string & {}) = 'value',
 > = Partial<UseControllableValueOptions<Ks, P>>;
@@ -42,7 +42,7 @@ type ValueType<
 /**
  * 受控组件 value 逻辑切换, 如果传递了 value 则走受控逻辑, 否则走非受控逻辑
  */
-export function useControllableValue<
+function useControllableValue<
   T extends Record<PropertyKey, any>,
   P extends keyof T | (string & {}) = PropertyKey,
   O extends PublicUseControllableValueOptions<keyof T, P> = PublicUseControllableValueOptions<keyof T, P>,
@@ -73,6 +73,7 @@ export function useControllableValue<
     }
   });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(propValue): 需要依赖此 effect 进行更新
   useEffect(() => {
     if (isFirstRenderRef.current || !hasValueRef.current) {
       isFirstRenderRef.current = false;
@@ -83,3 +84,5 @@ export function useControllableValue<
 
   return [ctrlValue, setValue] as [ValueType<T, O>, typeof setValue];
 }
+
+export { type PublicUseControllableValueOptions, useControllableValue };

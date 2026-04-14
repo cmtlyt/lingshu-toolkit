@@ -9,11 +9,11 @@ This reference contains detailed testing guidelines for the lingshu-toolkit.
 ```typescript
 // src/{namespace}/{tool-name}/index.test.ts
 
-import { describe, it, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { toolName } from '@/shared/tool-name';
 
 describe('toolName', () => {
-  it('should work correctly', () => {
+  test('should work correctly', () => {
     // Test implementation
   });
 });
@@ -52,12 +52,12 @@ describe('toolName', () => {
 ```typescript
 describe('dataHandler', () => {
   describe('happy path', () => {
-    it('should process valid data correctly', () => {
+    test('should process valid data correctly', () => {
       const result = dataHandler({ key: 'value' });
       expect(result).toEqual({ processed: true });
     });
 
-    it('should handle different data types', () => {
+    test('should handle different data types', () => {
       expect(dataHandler('string')).toBeDefined();
       expect(dataHandler(123)).toBeDefined();
       expect(dataHandler([1, 2, 3])).toBeDefined();
@@ -65,19 +65,19 @@ describe('dataHandler', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle empty objects', () => {
+    test('should handle empty objects', () => {
       const result = dataHandler({});
       expect(result).toBeDefined();
     });
 
-    it('should handle null and undefined', () => {
+    test('should handle null and undefined', () => {
       expect(dataHandler(null)).toBeDefined();
       expect(dataHandler(undefined)).toBeDefined();
     });
   });
 
   describe('error handling', () => {
-    it('should throw error for invalid input', () => {
+    test('should throw error for invalid input', () => {
       expect(() => dataHandler(invalidInput)).toThrow();
     });
   });
@@ -87,18 +87,18 @@ describe('dataHandler', () => {
 ### React Hooks
 
 ```typescript
-import { describe, expect, it } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { renderHook } from 'vitest-browser-react';
 import { useToolName } from '@/react/use-tool-name';
 
 describe('useToolName', () => {
   const setUp = (defaultValue?: any) => renderHook(() => useToolName(defaultValue));
 
-  it('导出测试', () => {
+  test('导出测试', () => {
     expect(useToolName).toBeTypeOf('function');
   });
 
-  it('方法测试', async () => {
+  test('方法测试', async () => {
     const { result, act } = await setUp();
     expect(result.current[0]).toBe('default');
     act(() => {
@@ -111,7 +111,7 @@ describe('useToolName', () => {
     expect(result.current[0]).toBe('default');
   });
 
-  it('默认值测试', async () => {
+  test('默认值测试', async () => {
     const hook1 = await setUp('custom');
     expect(hook1.result.current[0]).toBe('custom');
     const hook2 = await setUp();
@@ -123,13 +123,13 @@ describe('useToolName', () => {
 ### Vue Hooks
 
 ```typescript
-import { describe, expect, it } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-vue';
 import { defineComponent, nextTick, ref } from 'vue';
 import { useToolName } from '@/vue/use-tool-name';
 
 describe('useToolName', () => {
-  it('基本使用', async () => {
+  test('基本使用', async () => {
     const TestComponent = defineComponent({
       setup() {
         const value = useToolName('default');
@@ -140,7 +140,7 @@ describe('useToolName', () => {
     await nextTick();
   });
 
-  it('响应式更新', async () => {
+  test('响应式更新', async () => {
     const value = ref('initial');
     const TestComponent = defineComponent({
       setup() {
@@ -154,7 +154,7 @@ describe('useToolName', () => {
     await nextTick();
   });
 
-  it('卸载时清理', async () => {
+  test('卸载时清理', async () => {
     const TestComponent = defineComponent({
       setup() {
         useToolName('value');

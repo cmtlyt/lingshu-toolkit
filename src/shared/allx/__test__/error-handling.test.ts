@@ -18,7 +18,7 @@ describe('allx - 错误处理测试', () => {
         task1: async () => {
           throw new Error('Task1 failed');
         },
-        task2: async function () {
+        async task2() {
           await this.$.task1;
           return 'should not reach here';
         },
@@ -29,7 +29,7 @@ describe('allx - 错误处理测试', () => {
   test('访问不存在的任务应该抛出错误', async () => {
     await expect(
       allx({
-        task1: async function () {
+        async task1() {
           // @ts-expect-error - 测试访问不存在的任务
           await this.$.nonExistent;
           return 'should not reach here';
@@ -73,7 +73,7 @@ describe('allx - 错误处理测试', () => {
           throw new Error('Error 2');
         },
       }),
-    ).rejects.toThrow(/Error [12]/);
+    ).rejects.toThrow(/Error [12]/u);
   });
 
   test('部分任务失败不影响其他独立任务', async () => {

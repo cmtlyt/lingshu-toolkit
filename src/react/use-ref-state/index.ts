@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react';
 import { useForceUpdate } from '@/react/use-force-update';
 
-export interface UseRefStateCtrl<T> {
+interface UseRefStateCtrl<T> {
   patchState: (updater: (draft: T) => void, update?: boolean) => void;
   forceUpdate: () => void;
   getState: () => T;
@@ -11,7 +11,7 @@ export interface UseRefStateCtrl<T> {
 
 const clone = structuredClone;
 
-export function useRefState<T>(initialState: T) {
+function useRefState<T>(initialState: T) {
   const stateRef = useRef(initialState);
   const forceUpdate = useForceUpdate();
 
@@ -41,3 +41,5 @@ export function useRefState<T>(initialState: T) {
 
   return [stateRef.current, ctrl] as const;
 }
+
+export { type UseRefStateCtrl, useRefState };

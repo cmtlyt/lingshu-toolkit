@@ -14,7 +14,7 @@ describe('allx - 虚值依赖测试', () => {
   test('依赖返回 0 的任务（非 allSettled 模式）', async () => {
     const result = await allx({
       zero: async () => 0,
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.zero;
         return value + 1;
       },
@@ -26,7 +26,7 @@ describe('allx - 虚值依赖测试', () => {
   test('依赖返回 false 的任务（非 allSettled 模式）', async () => {
     const result = await allx({
       flag: async () => false,
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.flag;
         return !value;
       },
@@ -38,7 +38,7 @@ describe('allx - 虚值依赖测试', () => {
   test('依赖返回空字符串的任务（非 allSettled 模式）', async () => {
     const result = await allx({
       empty: async () => '',
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.empty;
         return `prefix_${value}`;
       },
@@ -50,7 +50,7 @@ describe('allx - 虚值依赖测试', () => {
   test('依赖返回 null 的任务（非 allSettled 模式）', async () => {
     const result = await allx({
       nullable: async () => null,
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.nullable;
         return value === null ? 'was null' : 'not null';
       },
@@ -62,7 +62,7 @@ describe('allx - 虚值依赖测试', () => {
   test('依赖返回 NaN 的任务（非 allSettled 模式）', async () => {
     const result = await allx({
       nan: async () => Number.NaN,
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.nan;
         return Number.isNaN(value) ? 'is nan' : 'not nan';
       },
@@ -75,7 +75,7 @@ describe('allx - 虚值依赖测试', () => {
     // 已有测试用 number2: 10（真值），此处验证虚值字面量任务作为依赖
     const result = await allx({
       zero: 0,
-      dependent: async function () {
+      async dependent() {
         const value = await this.$.zero;
         return value + 10;
       },
@@ -87,11 +87,11 @@ describe('allx - 虚值依赖测试', () => {
   test('多个任务同时依赖同一个返回虚值的任务', async () => {
     const result = await allx({
       base: async () => 0,
-      dep1: async function () {
+      async dep1() {
         const v = await this.$.base;
         return v + 1;
       },
-      dep2: async function () {
+      async dep2() {
         const v = await this.$.base;
         return v + 2;
       },
@@ -104,7 +104,7 @@ describe('allx - 虚值依赖测试', () => {
     // 通过 advanceTimers 保证 zero 先完成，触发 results[depName] 缓存路径
     const result = await allx({
       zero: async () => 0,
-      dependent: async function () {
+      async dependent() {
         await vi.advanceTimersByTimeAsync(10);
         const value = await this.$.zero; // zero 已完成，走缓存判断分支
         return value + 5;
@@ -117,11 +117,11 @@ describe('allx - 虚值依赖测试', () => {
   test('链式依赖中间节点返回虚值', async () => {
     const result = await allx({
       a: async () => 1,
-      b: async function () {
+      async b() {
         const v = await this.$.a;
         return v - 1; // 返回 0
       },
-      c: async function () {
+      async c() {
         const v = await this.$.b;
         return v + 100;
       },

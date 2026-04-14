@@ -9,6 +9,27 @@ description: "Development workflow for lingshu-toolkit project. Handles adding n
 
 **NEVER manually create tool files or modify exports.** Always use `pnpm script:gen-file` to generate files and update exports. Manual file creation breaks the automated build system.
 
+**🚨 Export Style Rules:**
+
+**Tool Entry Files** (`src/{namespace}/{tool-name}/index.ts`):
+- All exports MUST be at the END of the file using `export { xxx }` format
+- Example:
+  ```typescript
+  // ... implementation code ...
+
+  export { dataHandler };
+  export { $dt, $t, defineTransform } from './tools';
+  ```
+
+**Helper Files** (`utils`, `types`, etc.):
+- All methods and types MUST use `export function`, `export const`, `export interface`, or `export type`
+- Do NOT use `export *` in helper files
+- Example:
+  ```typescript
+  export function isEmptyArray(value: any): boolean { ... }
+  export type ValueType = string | number;
+  ```
+
 **🚨 ABSOLUTELY FORBIDDEN: Never modify engineering configuration files.** This includes but is not limited to:
 - `rslib.config.ts`, `rspress.config.ts`, `vitest.config.ts`
 - `tsconfig.json`, `package.json`, `.nvmrc`
@@ -42,7 +63,7 @@ If you encounter a build or configuration issue, **DO NOT attempt to fix it by m
   - [ ] 4.3 Handle edge cases
 - [ ] Step 5: Add Tests
   - [ ] 5.1 Write unit tests covering edge cases
-  - [ ] 5.2 Use `.browser.test.ts` for browser APIs (no mocks)
+  - [ ] 5.2 Use `.browser.test.{ts,tsx,js,jsx}` for browser APIs (no mocks)
   - [ ] 5.3 Run `pnpm run test:ci`
 - [ ] Step 6: Update Documentation
   - [ ] 6.1 Append docs to END of index.mdx (don't modify generated content)
@@ -148,7 +169,7 @@ cat src/{namespace}/{tool-name}/index.ts
 **Browser Environment Tests:**
 
 If tests require browser environment (DOM APIs, window, document, localStorage, etc.):
-- **RENAME** to `index.browser.test.ts` or `index.browser.test.tsx`
+- **RENAME** to `.browser.test.{ts,tsx,js,jsx}`
 - Do NOT use hacky mocks for browser APIs
 - Browser tests run in the environment configured in `vitest.project.config.ts`
 - Keep standard unit tests in `index.test.ts` for Node.js environment
@@ -156,11 +177,11 @@ If tests require browser environment (DOM APIs, window, document, localStorage, 
 Basic test template:
 
 ```typescript
-import { describe, it, expect } from 'vitest';
+import { describe, test, expect } from 'vitest';
 import { toolName } from '@/shared/tool-name';
 
 describe('toolName', () => {
-  it('should work correctly', () => {
+  test('should work correctly', () => {
     // Test implementation
   });
 });
@@ -215,7 +236,7 @@ pnpm run build
 ❌ Add tools without tests
 ❌ Use `any` type without justification
 ❌ Forget to document the API
-❌ Use hacky mocks for browser APIs instead of using `.browser.test.{ts,tsx}` files
+❌ Use hacky mocks for browser APIs instead of using `.browser.test.{ts,tsx,js,jsx}` files
 ❌ Use consecutive uppercase letters in tool names (e.g., `useXMLParser` → use `useXmlParser`)
 ❌ **Modify any engineering configuration files** (rslib.config.ts, vitest.config.ts, tsconfig.json, package.json, biome.json, .github/workflows/*, etc.)
 

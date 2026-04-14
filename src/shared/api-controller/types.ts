@@ -1,18 +1,20 @@
 import type { AnyFunc, Cast, Equal, Func } from '@/shared/types/base';
 import type { Pack as TPack } from '@/shared/types/pack';
 
-type Empty = { __EMPTY__: never };
+export interface Empty {
+  __EMPTY__: never;
+}
 
 /** 请求方法 */
 export type RequestMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | (string & {});
 
-type Parser = 'json' | 'text' | 'blob' | 'arrayBuffer' | 'formData' | 'bytes' | 'stream' | (string & {});
+export type Parser = 'json' | 'text' | 'blob' | 'arrayBuffer' | 'formData' | 'bytes' | 'stream' | (string & {});
 
-type RequestMode<E extends string = string & {}> = 'mock' | 'network' | E;
+export type RequestMode<E extends string = string & {}> = 'mock' | 'network' | E;
 
-type EmptyUnwrap<UserR = Empty, T = any> = Equal<UserR, Empty> extends true ? T : UserR;
+export type EmptyUnwrap<UserR = Empty, T = any> = Equal<UserR, Empty> extends true ? T : UserR;
 
-interface ParserResultMap<UserR = Empty> {
+export interface ParserResultMap<UserR = Empty> {
   json: EmptyUnwrap<UserR>;
   text: string;
   blob: Blob;
@@ -22,21 +24,24 @@ interface ParserResultMap<UserR = Empty> {
   stream: ReadableStream | null;
 }
 
-type ParserResult<P extends Parser, UserR = Empty> = P extends keyof ParserResultMap
+export type ParserResult<P extends Parser, UserR = Empty> = P extends keyof ParserResultMap
   ? ParserResultMap<UserR>[P]
   : EmptyUnwrap<UserR>;
 
-type ParserReturn<RM extends RequestMode, P extends Parser, ReqOutput, UserR = Empty> = RM extends 'network'
+export type ParserReturn<RM extends RequestMode, P extends Parser, ReqOutput, UserR = Empty> = RM extends 'network'
   ? ParserResult<P, UserR>
   : EmptyUnwrap<UserR, RM extends 'mock' ? ReqOutput : any>;
 
-type URLParamParser<U extends string, Param extends string = never> = U extends `${string}/:${infer P}/${infer Rest}`
+export type URLParamParser<
+  U extends string,
+  Param extends string = never,
+> = U extends `${string}/:${infer P}/${infer Rest}`
   ? URLParamParser<`/${Rest}`, Param | P>
   : U extends `${string}/:${infer P}`
     ? P | Param
     : Param;
 
-type CheckNonParamUrlAPIConfig<A extends APIConfig> = Equal<URLParamParser<A['url']>, never>;
+export type CheckNonParamUrlAPIConfig<A extends APIConfig> = Equal<URLParamParser<A['url']>, never>;
 
 export interface BaseAPIConfig<
   Input = any,
@@ -182,11 +187,11 @@ export type FindNonAny<T extends any[], Other = Empty> = T extends [infer F, ...
       : F
   : any;
 
-type APIHandlerArgs<I, C extends CallAPIConfig, Custom, NonParamUrl extends boolean> = FindNonAny<
+export type APIHandlerArgs<I, C extends CallAPIConfig, Custom, NonParamUrl extends boolean> = FindNonAny<
   [NonParamUrl extends true ? any : [I, C & Required<Pick<C, 'params'>>], Custom extends true ? [I?, C?] : [I?], [I?]]
 >;
 
-type DefineRequestModes<D extends DefaultAPIConfig> = keyof NonNullable<D['requestModeMap']> & string;
+export type DefineRequestModes<D extends DefaultAPIConfig> = keyof NonNullable<D['requestModeMap']> & string;
 
 // type PlainDefaultConfig<D extends DefaultAPIConfig> = Omit<D, 'requestMode'>;
 
@@ -198,7 +203,7 @@ type DefineRequestModes<D extends DefaultAPIConfig> = keyof NonNullable<D['reque
 //     : Awaited<ReturnType<NonNullable<NonNullable<D['requestModeMap']>[ReqMode & string]>>>
 //   : any;
 
-type RealProp<
+export type RealProp<
   P extends keyof DefaultAPIConfig & keyof APIConfig,
   C extends Pick<APIConfig, P>,
   A extends Pick<APIConfig, P>,
@@ -206,39 +211,40 @@ type RealProp<
   Other = Empty,
 > = FindNonAny<[C[P], A[P], D[P]], Other>;
 
-type OnResponseReturn<OnResponse> = OnResponse extends AnyFunc ? ReturnType<OnResponse> : any;
+export type OnResponseReturn<OnResponse> = OnResponse extends AnyFunc ? ReturnType<OnResponse> : any;
 
-type CustomCallConfigUnwrap<C extends CallAPIConfig, Custom extends boolean> = Custom extends true
+export type CustomCallConfigUnwrap<C extends CallAPIConfig, Custom extends boolean> = Custom extends true
   ? {
       [K in keyof C as undefined extends C[K] ? never : K]: C[K];
     }
   : Record<never, Empty>;
 
-interface Pack<T> extends TPack<T> {
+export interface Pack<T> extends TPack<T> {
   __value: T;
 }
 
-type PackUnwrap<P> = P extends Pack<any> ? P['__value'] : P;
+export type PackUnwrap<P> = P extends Pack<any> ? P['__value'] : P;
 
-interface OriginalPack<T> extends TPack<T> {
+export interface OriginalPack<T> extends TPack<T> {
   __originValue: T;
 }
 
-type OriginalPackUnwrap<P> = P extends OriginalPack<any> ? P['__originValue'] : Promise<P>;
+export type OriginalPackUnwrap<P> = P extends OriginalPack<any> ? P['__originValue'] : Promise<P>;
 
-type CustomRequestModeReturn<
+export type CustomRequestModeReturn<
   RealRM extends RequestMode,
   InputD extends DefaultAPIConfig,
   CustomReq = NonNullable<InputD['requestModeMap']>[RealRM],
-> = IsUnknownAny<RealRM> extends true
-  ? any
-  : Equal<RealRM, string> extends true
+> =
+  IsUnknownAny<RealRM> extends true
     ? any
-    : CustomReq extends AnyFunc
-      ? OriginalPack<ReturnType<CustomReq>>
-      : any;
+    : Equal<RealRM, string> extends true
+      ? any
+      : CustomReq extends AnyFunc
+        ? OriginalPack<ReturnType<CustomReq>>
+        : any;
 
-type UserInputResult<UserR, CustomRequestResult> =
+export type UserInputResult<UserR, CustomRequestResult> =
   IsUnknownAny<CustomRequestResult> extends true
     ? UserR
     : IsUnknownAny<UserR> extends true
@@ -247,7 +253,7 @@ type UserInputResult<UserR, CustomRequestResult> =
         ? OriginalPack<UserR>
         : UserR;
 
-type APIHandlerResult<
+export type APIHandlerResult<
   AConfig extends APIConfig,
   CallConfig extends CallAPIConfig = APIConfig,
   UserR = Empty,
@@ -327,12 +333,12 @@ type APIHandlerResult<
 //     : never
 //   : never;
 
-type APIInputType<
+export type APIInputType<
   A extends Pick<APIConfig, 'tdto'> = APIConfig,
   D extends Pick<DefaultAPIConfig, 'tdto'> = DefaultAPIConfig,
 > = Parameters<Cast<FindNonAny<[A['tdto'], D['tdto']], undefined | null>, (...args: any[]) => any>>[0];
 
-type PropResult<A extends APIConfig, P extends keyof A> = A[P] extends AnyFunc ? ReturnType<A[P]> : unknown;
+export type PropResult<A extends APIConfig, P extends keyof A> = A[P] extends AnyFunc ? ReturnType<A[P]> : unknown;
 
 export type APITransformMethod<
   A extends APIConfig,
@@ -382,8 +388,8 @@ export type APIInstance<A, D> = {
   $$r: DefaultAPIConfig;
 } & APIInstanceHandler;
 
-interface APIInstanceHandler {
-  $updateBaseUrl(baseUrl?: string): void;
+export interface APIInstanceHandler {
+  $updateBaseUrl: (baseUrl?: string) => void;
 }
 
 export type APIMapTransformMethods<

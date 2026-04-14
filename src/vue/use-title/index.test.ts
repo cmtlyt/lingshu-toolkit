@@ -30,7 +30,7 @@ describe('useTitle', () => {
       },
     });
 
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
 
     expect(document.title).toBe('测试标题');
@@ -49,7 +49,7 @@ describe('useTitle', () => {
       },
     });
 
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
 
     expect(document.title).toBe('初始标题');
@@ -69,7 +69,7 @@ describe('useTitle', () => {
       },
     });
 
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
 
     expect(document.title).toBe('初始标题');
@@ -94,7 +94,7 @@ describe('useTitle', () => {
 
     expect(document.title).toBe('新标题');
 
-    unmount();
+    await unmount();
     await nextTick();
     expect(document.title).toBe('Original Title');
   });
@@ -114,7 +114,7 @@ describe('useTitle', () => {
 
     expect(document.title).toBe('新标题');
 
-    unmount();
+    await unmount();
     await nextTick();
     expect(document.title).toBe('新标题');
   });
@@ -129,7 +129,7 @@ describe('useTitle', () => {
       },
     });
 
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
 
     expect(document.title).toBe('标题1');
@@ -160,7 +160,7 @@ describe('useTitle', () => {
       },
     });
 
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
 
     vi.advanceTimersByTime(20);
@@ -175,7 +175,7 @@ describe('useTitle', () => {
         return () => null;
       },
     });
-    render(TestComponent);
+    await render(TestComponent);
     await nextTick();
     expect(document.title).toBe(originalTitle);
   });

@@ -20,7 +20,7 @@ const validInfo = $dt({
   parser: $t.function(() => identity),
 });
 
-export function* stepAnimation<T>(from: T, to: T, step: number, options: AnimationBaseOptions<T> = {}) {
+function* stepAnimation<T>(from: T, to: T, step: number, options: AnimationBaseOptions<T> = {}): Generator<T> {
   if (!Number.isInteger(step) || step <= 0) {
     throwError('stepAnimation', 'step must be a positive integer', RangeError);
   }
@@ -37,7 +37,7 @@ export function* stepAnimation<T>(from: T, to: T, step: number, options: Animati
   }
 }
 
-export function animation<T>(from: T, to: T, duration: number, options: AnimationOptions<T> = {}): AnimationResult {
+function animation<T>(from: T, to: T, duration: number, options: AnimationOptions<T> = {}): AnimationResult {
   if (duration <= 0 || !Number.isInteger(duration)) {
     throwError('animation', 'duration must be a positive integer', RangeError);
   }
@@ -47,7 +47,7 @@ export function animation<T>(from: T, to: T, duration: number, options: Animatio
 
   const { autoStart, easing, onComplete, onUpdate, formatterValue, formatter } = validOptions;
   const _getNextValue = getNextValueHandler(validFrom, validTo, formatterValue);
-  const getNextValue = (...args: Parameters<typeof _getNextValue>) => formatter(_getNextValue(...args) as T);
+  const getNextValue = (...args: Parameters<typeof _getNextValue>): any => formatter(_getNextValue(...args) as T);
 
   let startTime = 0;
   let hasStarted = false;
@@ -68,7 +68,7 @@ export function animation<T>(from: T, to: T, duration: number, options: Animatio
   const { resolvers } = rcSignal;
   const nextTick = createNextTick(resolvers, rcSignal);
 
-  const tick = () => {
+  const tick = (): void => {
     const elapsed = performance.now() - startTime;
     const progress = easing(Math.min(elapsed / duration, 1));
     const value = getNextValue(progress) as T;
@@ -95,3 +95,5 @@ export function animation<T>(from: T, to: T, duration: number, options: Animatio
     clear: rcSignal.clear,
   };
 }
+
+export { animation, stepAnimation };

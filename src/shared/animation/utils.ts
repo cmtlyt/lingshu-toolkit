@@ -1,7 +1,8 @@
 import { throwType } from '@/shared/throw-error';
 import { getType } from '@/shared/utils/base';
+import { isPromiseLike } from '@/shared/utils/verify';
 import { type Resolver, withResolvers } from '@/shared/with-resolvers';
-import type { AnimationOptions, FormatterValue } from './types';
+import type { AnimationOptions, FormatterValue, RCSignal } from './types';
 
 export function getNextValueHandler<T>(from: T, to: T, valueFormatter: FormatterValue) {
   const type = getType(from);
@@ -12,7 +13,7 @@ export function getNextValueHandler<T>(from: T, to: T, valueFormatter: Formatter
     valueFormatter,
   };
 
-  const baseNextValue = (_from: number, _to: number) => {
+  const baseNextValue = (_from: number, _to: number): number => {
     const { valueFormatter: formatter, progress } = context;
     if (getType(_from) !== 'number') {
       return _from;
@@ -20,7 +21,7 @@ export function getNextValueHandler<T>(from: T, to: T, valueFormatter: Formatter
     return formatter(_from + (_to - _from) * progress);
   };
 
-  const arrayHandler = (_from: any, _to: any) => {
+  const arrayHandler = (_from: any, _to: any): any[] => {
     const result: any[] = Array.from(_from, (item: any, idx: number) => {
       if (Array.isArray(item)) {
         return arrayHandler(item, _to[idx]);
@@ -33,7 +34,7 @@ export function getNextValueHandler<T>(from: T, to: T, valueFormatter: Formatter
     return result;
   };
 
-  const objectHandler = (_from: any, _to: any) => {
+  const objectHandler = (_from: any, _to: any): Record<PropertyKey, any> => {
     const result: Record<PropertyKey, any> = {};
     const keys = Reflect.ownKeys(_from);
 
@@ -68,7 +69,7 @@ export function getNextValueHandler<T>(from: T, to: T, valueFormatter: Formatter
   };
 }
 
-export function matchValid(from: any, to: any, valueParser: (value: any) => number) {
+export function matchValid(from: any, to: any, valueParser: (value: any) => number): [any, any] {
   const fromType = getType(from);
   const toType = getType(to);
   if (fromType !== toType) {
@@ -78,7 +79,10 @@ export function matchValid(from: any, to: any, valueParser: (value: any) => numb
     if ((from as any[]).length !== (to as any[]).length) {
       throwType('animation/stepAnimation', 'from and to must be the same length');
     }
-    const result = [Array.from({ length: (from as any[]).length }), Array.from({ length: (to as any[]).length })];
+    const result: [any[], any[]] = [
+      Array.from({ length: (from as any[]).length }),
+      Array.from({ length: (to as any[]).length }),
+    ];
     for (let i = 0; i < (from as any[]).length; i++) {
       const [fromItem, toItem] = matchValid((from as any[])[i], (to as any[])[i], valueParser);
       result[0][i] = fromItem;
@@ -133,17 +137,22 @@ export function createNextTick(resolvers: Resolver<any>, rcSignal: RCSignal) {
   };
 }
 
-export async function tryRun(callback: () => any, resolvers: Resolver<any>, customErrorHandler?: (err: any) => void) {
+export async function tryRun(
+  callback: () => any,
+  resolvers: Resolver<any>,
+  customErrorHandler?: (err: any) => void,
+): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     const result = callback();
-    if (result && typeof result.then === 'function') {
+    if (isPromiseLike(result)) {
+      // biome-ignore lint/nursery/noNestedPromises: ignore
       return result.then(resolve, reject);
     }
     resolve();
-  }).catch(customErrorHandler || resolvers.reject);
+  }).catch(customErrorHandler ?? resolvers.reject);
 }
 
-export function createRunningControllerSignal(startFn: () => void, options: Required<AnimationOptions<any>>) {
+export function createRunningControllerSignal(startFn: () => void, options: Required<AnimationOptions<any>>): RCSignal {
   const { onStart, onStop, onClear } = options;
   const resolvers = withResolvers<boolean>();
 
@@ -168,5 +177,3 @@ export function createRunningControllerSignal(startFn: () => void, options: Requ
   };
   return ctrl;
 }
-
-export type RCSignal = Omit<ReturnType<typeof createRunningControllerSignal>, 'resolvers'>;

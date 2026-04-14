@@ -5,27 +5,27 @@ describe('allx - 环形依赖', () => {
   test('自依赖', async () => {
     await expect(() =>
       allx({
-        a: async function (): Promise<number> {
+        async a(): Promise<number> {
           const v = await this.$.a;
           return v + 1;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 
   test('环形依赖', async () => {
     await expect(() =>
       allx({
-        a: async function (): Promise<number> {
+        async a(): Promise<number> {
           const v = await this.$.b;
           return v + 1;
         },
-        b: async function (): Promise<number> {
+        async b(): Promise<number> {
           const v = await this.$.a;
           return v + 1;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 
   test('菱形依赖（覆盖 utils.ts 第 14-16 行 visited.has(node) 逻辑）', async () => {
@@ -35,15 +35,15 @@ describe('allx - 环形依赖', () => {
     // visited.has(node) 确保只会处理一次，避免重复处理
     const result = await allx({
       a: async () => 'A',
-      b: async function () {
+      async b() {
         const v = await this.$.a;
         return `${v}-B`;
       },
-      c: async function () {
+      async c() {
         const v = await this.$.a;
         return `${v}-C`;
       },
-      d: async function () {
+      async d() {
         const [v1, v2] = await Promise.all([this.$.b, this.$.c]);
         return `${v1}+${v2}-D`;
       },
@@ -61,19 +61,19 @@ describe('allx - 环形依赖', () => {
     // 场景：多个任务同时依赖同一个任务，验证循环依赖检测不会误报
     const result = await allx({
       base: async () => 'base',
-      dep1: async function () {
+      async dep1() {
         const v = await this.$.base;
         return `${v}-dep1`;
       },
-      dep2: async function () {
+      async dep2() {
         const v = await this.$.base;
         return `${v}-dep2`;
       },
-      dep3: async function () {
+      async dep3() {
         const v = await this.$.base;
         return `${v}-dep3`;
       },
-      final: async function () {
+      async final() {
         const [d1, d2, d3] = await Promise.all([this.$.dep1, this.$.dep2, this.$.dep3]);
         return `${d1}|${d2}|${d3}`;
       },
@@ -93,19 +93,19 @@ describe('allx - 环形依赖', () => {
     // A→B, A→C, B→D, C→D, D→E
     const result = await allx({
       a: async () => 1,
-      b: async function () {
+      async b() {
         const v = await this.$.a;
         return v + 10;
       },
-      c: async function () {
+      async c() {
         const v = await this.$.a;
         return v + 100;
       },
-      d: async function () {
+      async d() {
         const [v1, v2] = await Promise.all([this.$.b, this.$.c]);
         return v1 + v2;
       },
-      e: async function () {
+      async e() {
         const v = await this.$.d;
         return v * 2;
       },
@@ -126,20 +126,20 @@ describe('allx - 环形依赖', () => {
     await expect(() =>
       allx({
         a: async () => 'A',
-        b: async function (): Promise<string> {
+        async b(): Promise<string> {
           const v = await this.$.a;
           const d = await this.$.d; // 这里形成循环：B 依赖 D，D 又依赖 B
           return `${v}-B-${d}`;
         },
-        c: async function () {
+        async c() {
           const v = await this.$.a;
           return `${v}-C`;
         },
-        d: async function () {
+        async d() {
           const [v1, v2] = await Promise.all([this.$.b, this.$.c]);
           return `${v1}+${v2}-D`;
         },
       }),
-    ).rejects.toThrowError(Error);
+    ).rejects.toThrow(Error);
   });
 });

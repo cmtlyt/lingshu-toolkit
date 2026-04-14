@@ -1,6 +1,7 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { throwError } from '@/shared/throw-error';
 import type { PickRequired } from '@/shared/types/base';
+import { isEmptyArray, isNullOrUndef } from '@/shared/utils/verify';
 import { SLOT_TYPE } from './constants';
 import type {
   BaseEventDetail,
@@ -33,8 +34,8 @@ class DataMixedManager<T> extends EventTarget {
     listener: DMMEventHandler<T, E> | null,
     options?: AddEventListenerOptions | boolean,
   ): void;
-  addEventListener(...args: any[]) {
-    return super.addEventListener.apply(this, args as any);
+  addEventListener(...args: any[]): void {
+    super.addEventListener.apply(this, args as any);
   }
 
   removeEventListener<E extends keyof EventDetailMap<T>>(
@@ -42,8 +43,8 @@ class DataMixedManager<T> extends EventTarget {
     listener: DMMEventHandler<T, E> | null,
     options?: EventListenerOptions | boolean,
   ): void;
-  removeEventListener(...args: any[]) {
-    return super.removeEventListener.apply(this, args as any);
+  removeEventListener(...args: any[]): void {
+    super.removeEventListener.apply(this, args as any);
   }
 
   /** 实例配置 */
@@ -81,7 +82,7 @@ class DataMixedManager<T> extends EventTarget {
    * 初始化事件监听
    * @param listener - 事件监听
    */
-  private initListener(listener: NonNullable<DataMixedManagerOptions<T>['listener']>) {
+  private initListener(listener: NonNullable<DataMixedManagerOptions<T>['listener']>): void {
     const listenerNames = Object.keys(listener) as (keyof EventDetailMap<T>)[];
 
     for (
@@ -104,14 +105,14 @@ class DataMixedManager<T> extends EventTarget {
     }
   }
 
-  private buildSlotConfig(config: InputSlotConfig<T>, type: SlotType) {
+  private buildSlotConfig(config: InputSlotConfig<T>, type: SlotType): SlotConfig<T> {
     // @ts-expect-error insertSlot 会预先构建好完整的 SlotConfig, 但是因为底层调用了 addFixedSlot, 所以应该预先读取 type, 否则会被传入的 type 覆盖类型
     const typeText = this.getTypeText(config.type || type);
     return {
       ...config,
       type: typeText,
       inputPosition: config.position,
-      insertMode: config.insertMode || 'cover',
+      insertMode: config.insertMode ?? 'cover',
     };
   }
 
@@ -121,7 +122,7 @@ class DataMixedManager<T> extends EventTarget {
    * @param buildOptions - 构建选项
    * @returns 返回添加后的定坑位置
    */
-  addFixedSlot(config: InputSlotConfig<T>, buildOptions?: BuildOptions) {
+  addFixedSlot(config: InputSlotConfig<T>, buildOptions?: BuildOptions): number {
     const realConfig = this.reorderFixedSlots(this.buildSlotConfig(config, SLOT_TYPE.fixed));
     this.fixedSlots.set(realConfig.position, realConfig);
     this.buildMixedData(buildOptions);
@@ -136,7 +137,7 @@ class DataMixedManager<T> extends EventTarget {
    */
   private reorderFixedSlots(config: SlotConfig<T>): SlotConfig<T> {
     const { position: oldPosition, insertMode } = config;
-    if (insertMode == null || insertMode === 'cover' || !this.fixedSlots.has(oldPosition)) {
+    if (isNullOrUndef(insertMode) || insertMode === 'cover' || !this.fixedSlots.has(oldPosition)) {
       return { ...config, inputPosition: oldPosition };
     }
     const position = insertMode === 'after' ? oldPosition + 1 : oldPosition;
@@ -159,8 +160,8 @@ class DataMixedManager<T> extends EventTarget {
    * @param buildOptions - 构建选项
    * @returns 返回添加后的定坑位置数组
    */
-  addFixedSlots(configs: InputSlotConfig<T>[], buildOptions?: BuildOptions) {
-    if (!configs.length) {
+  addFixedSlots(configs: InputSlotConfig<T>[], buildOptions?: BuildOptions): number[] {
+    if (isEmptyArray(configs)) {
       return [];
     }
     const positions = this.batchUpdate(() => configs.map((config) => this.addFixedSlot(config)));
@@ -173,7 +174,7 @@ class DataMixedManager<T> extends EventTarget {
    * @param position - 要移除的定坑位置
    * @param buildOptions - 构建选项
    */
-  deleteFixedSlot(position: number, buildOptions?: BuildOptions) {
+  deleteFixedSlot(position: number, buildOptions?: BuildOptions): void {
     this.fixedSlots.delete(position);
     this.buildMixedData(buildOptions);
   }
@@ -183,8 +184,8 @@ class DataMixedManager<T> extends EventTarget {
    * @param positions - 要移除的定坑位置数组
    * @param buildOptions - 构建选项
    */
-  deleteFixedSlots(positions: number[], buildOptions?: BuildOptions) {
-    if (!positions.length) {
+  deleteFixedSlots(positions: number[], buildOptions?: BuildOptions): void {
+    if (isEmptyArray(positions)) {
       return;
     }
     this.batchUpdate(() => positions.forEach((position) => void this.deleteFixedSlot(position)));
@@ -209,7 +210,7 @@ class DataMixedManager<T> extends EventTarget {
    * 清除所有定坑配置
    * @param buildOptions - 构建选项
    */
-  clearFixedSlots(buildOptions?: BuildOptions) {
+  clearFixedSlots(buildOptions?: BuildOptions): void {
     this.fixedSlots.clear();
     this.buildMixedData(buildOptions);
   }
@@ -219,8 +220,8 @@ class DataMixedManager<T> extends EventTarget {
    * @param list - 要追加的数据数组
    * @param buildOptions - 构建选项，lazy 为 true 时延迟构建
    */
-  appendList(list: T[], buildOptions?: BuildOptions) {
-    if (!list.length) {
+  appendList(list: T[], buildOptions?: BuildOptions): void {
+    if (isEmptyArray(list)) {
       return;
     }
     this.dataList.push(...list);
@@ -230,7 +231,7 @@ class DataMixedManager<T> extends EventTarget {
   /**
    * 清空普通数据列表
    */
-  clearList() {
+  clearList(): void {
     this.dataList.length = 0;
     this.mixedData.length = 0;
     this.dispatch('change', { mode: 'clear', mixedData: this.getMixedData({ mode: 'rebuild' }) });
@@ -256,11 +257,11 @@ class DataMixedManager<T> extends EventTarget {
   private dispatch<E extends keyof EventDetailMap<T>>(
     name: E,
     data?: Omit<EventDetailMap<T>[E], keyof BaseEventDetail>,
-  ) {
+  ): void {
     const detail = { name: this.options.name, ...data } as EventDetailMap<T>[E];
     this.dispatchEvent(new CustomEvent(name, { detail }));
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent(`[DMM]:${name}`, { detail }));
+    if (typeof globalThis.window !== 'undefined') {
+      globalThis.window.dispatchEvent(new CustomEvent(`[DMM]:${name}`, { detail }));
     }
   }
 
@@ -269,7 +270,7 @@ class DataMixedManager<T> extends EventTarget {
    * 全局定坑：定坑位置始终固定在全局位置，普通数据在定坑位置之外填充
    * 定坑位置不会因为普通数据的变化而改变
    */
-  private buildMixedData(buildOptions?: BuildOptions) {
+  private buildMixedData(buildOptions?: BuildOptions): void {
     if (this.isBatching) {
       return;
     }
@@ -339,7 +340,7 @@ class DataMixedManager<T> extends EventTarget {
    * @param endIdx - 结束位置，默认为正无穷
    * @returns 返回过滤后的定坑位置数组
    */
-  private sliceSlots(startIdx: number, endIdx: number = Number.POSITIVE_INFINITY) {
+  private sliceSlots(startIdx: number, endIdx: number = Number.POSITIVE_INFINITY): number[] {
     // -2 开始是为了过滤 0 的情况
     let prevItem = -2;
     let count = 0;
@@ -366,7 +367,7 @@ class DataMixedManager<T> extends EventTarget {
    * @param config - 定坑配置，必须指定插入模式
    * @returns 返回插入后的实际位置
    */
-  insertSlot(config: PickRequired<InputSlotConfig<T>, 'insertMode'>) {
+  insertSlot(config: PickRequired<InputSlotConfig<T>, 'insertMode'>): number {
     // @ts-expect-error 这边需要指定 symbol type, 否则会被 addFixedSlot 覆盖类型
     const realPosition = this.addFixedSlot({ ...config, type: SLOT_TYPE.insert });
     // 插卡位置大于已混合的, 等同定坑
@@ -379,8 +380,8 @@ class DataMixedManager<T> extends EventTarget {
     return realPosition;
   }
 
-  insertSlots(configs: PickRequired<InputSlotConfig<T>, 'insertMode'>[]) {
-    if (!configs.length) {
+  insertSlots(configs: PickRequired<InputSlotConfig<T>, 'insertMode'>[]): number[] {
+    if (isEmptyArray(configs)) {
       return [];
     }
     const positions = this.batchUpdate(() => configs.map((config) => this.insertSlot(config)));
@@ -394,6 +395,6 @@ class DataMixedManager<T> extends EventTarget {
  * @template T - 数据类型
  * @returns 返回一个新的 DataMixedManager 实例
  */
-export function dataMixedManager<T>(options?: DataMixedManagerOptions<T>) {
+export function dataMixedManager<T>(options?: DataMixedManagerOptions<T>): DataMixedManager<T> {
   return new DataMixedManager<T>(options);
 }

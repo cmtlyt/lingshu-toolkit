@@ -15,12 +15,12 @@ describe('useForceUpdate', () => {
       return <button data-testid="btn" onClick={forceUpdate} type="button" />;
     };
 
-    const screne = await render(<Test />);
-    const $btn = screne.getByTestId('btn');
-    expect(renderCounter).toBeCalledTimes(1);
+    const screen = await render(<Test />);
+    const $btn = screen.getByTestId('btn');
+    expect(renderCounter).toHaveBeenCalledTimes(1);
     await $btn.click();
-    expect(renderCounter).toBeCalledTimes(2);
+    expect(renderCounter).toHaveBeenCalledTimes(2);
     await $btn.click();
-    expect(renderCounter).toBeCalledTimes(3);
+    expect(renderCounter).toHaveBeenCalledTimes(3);
   });
 });

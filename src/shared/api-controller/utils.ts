@@ -1,20 +1,21 @@
 import { logger } from '@/shared/logger';
 import { throwError, throwType } from '@/shared/throw-error';
-import { getType, isPlainNumber, isString } from '@/shared/utils';
+import { getType } from '@/shared/utils/base';
+import { isPlainNumber, isString } from '@/shared/utils/verify';
 import type { APIConfig, APIInstance, APIMap, DefaultAPIConfig } from './types';
 
 /// request utils start
 
-const ABSOLUTE_URL_REG = /^[a-z][a-z\d+\-.]*:/im;
+const ABSOLUTE_URL_REG = /^[a-z][a-z\d+\-.]*:/imu;
 
-export function isAbsUrl(url?: string) {
+export function isAbsUrl(url?: string): boolean {
   if (!url) {
     return false;
   }
   return ABSOLUTE_URL_REG.test(url);
 }
 
-export function targetUrlParser(_url: string, _baseUrl: string) {
+export function targetUrlParser(_url: string, _baseUrl: string): URL {
   if (isAbsUrl(_url)) {
     return new URL(_url);
   }
@@ -22,13 +23,13 @@ export function targetUrlParser(_url: string, _baseUrl: string) {
     throwType('apiController.request', 'baseUrl 配置不合法, 必须是绝对路径');
   }
   const baseUrl = new URL(_baseUrl);
-  const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/, '');
+  const basePath = baseUrl.pathname === '/' ? '' : baseUrl.pathname.replace(/\/$/u, '');
   const relativePath = _url.startsWith('/') ? _url : `/${_url}`;
   const url = `${basePath}${relativePath}`;
   return new URL(url, baseUrl);
 }
 
-export function urlParamsParser(url: string, params: Record<string, string> | undefined) {
+export function urlParamsParser(url: string, params: Record<string, string | number> | undefined): string {
   if (!url.includes('/:')) {
     return url;
   }
@@ -53,13 +54,13 @@ export function urlParamsParser(url: string, params: Record<string, string> | un
     const paramValue = encodeURIComponent(String(originValue));
     urlSplit[i] = paramValue;
   }
-  if (emptyKeys.length) {
+  if (emptyKeys.length > 0) {
     throwType('apiController.parseParams', `params 配置中缺少 [${emptyKeys.join(', ')}] 参数`);
   }
   return urlSplit.join('/');
 }
 
-export function getBody(data: any, tdto?: APIConfig['tdto']) {
+export function getBody(data: any, tdto?: APIConfig['tdto']): any {
   const _body = tdto ? tdto(data) : data;
   const bodyType = getType(_body);
   switch (bodyType) {
@@ -78,7 +79,7 @@ export function getBody(data: any, tdto?: APIConfig['tdto']) {
 
 /// create-api utils start
 
-export function instanceMemberGetter(prop: string, instanceObj: Record<string, any>) {
+export function instanceMemberGetter(prop: string, instanceObj: Record<string, any>): any {
   return instanceObj[prop];
 }
 
@@ -86,12 +87,12 @@ export function createInstance(
   apiMap: APIConfig | APIMap,
   realDefaultConfig: DefaultAPIConfig,
   defaultConfig?: DefaultAPIConfig,
-) {
+): APIInstance<any, any> {
   return {
     $: apiMap,
     $$: defaultConfig as any,
     $$r: realDefaultConfig,
-    $updateBaseUrl(baseUrl) {
+    $updateBaseUrl(baseUrl): void {
       if (isAbsUrl(baseUrl)) {
         realDefaultConfig.baseUrl = baseUrl;
       } else {
@@ -111,7 +112,7 @@ export function getInstanceMemberOrApi(
   prop: string,
   receiver: any,
   instanceObj: APIInstance<any, any>,
-) {
+): undefined | { api?: APIConfig | APIMap; isCustom?: boolean; instanceMember?: any } {
   if (Reflect.getOwnPropertyDescriptor(instanceObj, prop)) {
     return { instanceMember: instanceMemberGetter(prop, instanceObj) };
   }
@@ -129,7 +130,7 @@ export function getInstanceMemberOrApi(
   return { api, isCustom };
 }
 
-export function apiNamesCheck(_apiMap: APIMap, isDeep = false) {
+export function apiNamesCheck(_apiMap: APIMap, isDeep = false): string[] {
   const apiNames = Reflect.ownKeys(_apiMap) as string[];
   const warnNames: string[] = [];
   for (let i = 0; i < apiNames.length; i++) {

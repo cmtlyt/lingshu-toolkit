@@ -1,7 +1,11 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tsConfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 import { pluginAutoPatchFile } from './plugins/auto-patch-file';
 import { config } from './scripts/config';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
@@ -15,12 +19,10 @@ export default defineConfig({
       exclude: [
         'src/shared/logger/**',
         'src/**/__test__/*',
-        'src/**/*.test.{ts,tsx}',
+        'src/**/*.test.{ts,tsx,js,jsx}',
         'src/**/*.{mdx,md}',
-        'src/**/*.test-d.{ts,tsx}',
+        'src/**/*.test-d.{ts,tsx,js,jsx}',
         'src/{test,public}/**',
-        'src/**/*.browser.test.{ts,tsx}',
-        'src/**/*.node.test.{ts,tsx}',
       ],
       provider: 'v8',
       cleanOnRerun: false,
@@ -34,5 +36,9 @@ export default defineConfig({
       },
     },
     clearMocks: true,
+    browser: {
+      screenshotDirectory: path.resolve(__dirname, '__screenshots__'),
+      screenshotFailures: false,
+    },
   },
 });

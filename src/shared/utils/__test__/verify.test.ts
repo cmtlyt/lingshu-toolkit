@@ -50,7 +50,7 @@ describe('utils-verify', () => {
     expect(isFunction).toBeTypeOf('function');
   });
 
-  test('isPromise', () => {
+  test('isPromiseLike', () => {
     expect(isPromiseLike(Promise.resolve())).toBe(true);
     expect(isPromiseLike(1)).toBe(false);
     expect(isPromiseLike(Promise.reject().catch(() => {}))).toBe(true);
@@ -61,6 +61,9 @@ describe('utils-verify', () => {
     expect(isPromiseLike(new Promise(() => {}))).toBe(true);
     // biome-ignore lint/suspicious/noThenProperty: test
     expect(isPromiseLike({ then: () => {} })).toBe(true);
+    // biome-ignore lint/suspicious/noThenProperty: test
+    const func = Object.assign(() => {}, { then: () => {} });
+    expect(isPromiseLike(func)).toBe(true);
   });
 
   test('isFunction', () => {

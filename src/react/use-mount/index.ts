@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { $t, dataHandler } from '@/shared/data-handler';
 
-export function useMount(callback: () => any) {
+function useMount(callback: () => any) {
   const callbackRef = useRef(callback);
 
   useEffect(() => {
@@ -9,3 +9,5 @@ export function useMount(callback: () => any) {
     callbackRef.current();
   }, []);
 }
+
+export { useMount };
