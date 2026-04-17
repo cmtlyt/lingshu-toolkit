@@ -1,4 +1,6 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
+import { logger } from '@/shared/logger';
+import { tryCall } from '@/shared/try-call';
 import type { CompareFn, HeapItem, PriorityQueueOptions } from './types';
 import { defaultCompare, getLeftChildIndex, getParentIndex, getRightChildIndex, updateSmallestIndex } from './utils';
 
@@ -9,6 +11,7 @@ const validInfo = $dt({
 
 class PriorityQueue<T> {
   private readonly heap: HeapItem<T>[] = [];
+  private readonly itemSet: Set<T> = new Set();
   private readonly compare: CompareFn<T>;
   private readonly allowDuplicate: boolean;
   private insertCounter = 0;
@@ -63,18 +66,18 @@ class PriorityQueue<T> {
 
   private isDuplicate(item: T): boolean {
     if (!this.allowDuplicate) {
-      for (let i = 0; i < this.heap.length; i++) {
-        if (Object.is(item, this.heap[i].item)) {
-          return true;
-        }
-      }
+      return this.itemSet.has(item);
     }
     return false;
   }
 
   enqueue(item: T): boolean {
     if (this.isDuplicate(item)) {
-      console.warn(`[PriorityQueue] Duplicate item detected: ${JSON.stringify(item)}`);
+      const desc = tryCall(
+        () => (typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item)),
+        () => Object.prototype.toString.call(item),
+      );
+      logger.warn('PriorityQueue.enqueue', `Duplicate item detected: ${desc}`);
       return false;
     }
 
@@ -83,8 +86,10 @@ class PriorityQueue<T> {
       insertOrder: this.insertCounter++,
     };
 
+    this.itemSet.add(item);
     this.heap.push(heapItem);
     this.heapifyUp(this.heap.length - 1);
+
     return true;
   }
 
@@ -104,6 +109,8 @@ class PriorityQueue<T> {
     const root = this.heap[0].item;
     this.heap[0] = this.heap.pop()!;
     this.heapifyDown(0);
+
+    this.itemSet.delete(root);
     return root;
   }
 

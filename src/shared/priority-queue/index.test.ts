@@ -73,7 +73,10 @@ describe('priorityQueue', () => {
 
       const array = queue.toArray();
       expect(array).toEqual([1, 2, 3]);
-      expect(array).not.toBe(queue.toArray());
+      array.push(999);
+      array[0] = 999;
+      expect(queue.toArray()).toEqual([1, 2, 3]);
+      expect(queue.size()).toBe(3);
     });
 
     test('clear 应该清空队列', () => {
@@ -100,8 +103,14 @@ describe('priorityQueue', () => {
       expect(queue.enqueue(2)).toBe(false);
 
       expect(queue.size()).toBe(2);
-      expect(consoleWarn).toHaveBeenCalledWith('[PriorityQueue] Duplicate item detected: 1');
-      expect(consoleWarn).toHaveBeenCalledWith('[PriorityQueue] Duplicate item detected: 2');
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[@cmtlyt/lingshu-toolkit#PriorityQueue.enqueue]:',
+        'Duplicate item detected: 1',
+      );
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[@cmtlyt/lingshu-toolkit#PriorityQueue.enqueue]:',
+        'Duplicate item detected: 2',
+      );
 
       consoleWarn.mockRestore();
     });
@@ -309,6 +318,43 @@ describe('priorityQueue', () => {
   });
 
   describe('边界情况', () => {
+    test('队列元素为对象, 但是不传入 compare 应该发出警告', () => {
+      const consoleWarn = vi.spyOn(console, 'warn');
+      const queue = priorityQueue<Record<string, any>>();
+      queue.enqueue({});
+      queue.enqueue({});
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[@cmtlyt/lingshu-toolkit#PriorityQueue]:',
+        'Unsupported type: object object',
+      );
+    });
+
+    test('传入重复对象警告应该使用 JSON.stringify 处理', () => {
+      const consoleWarn = vi.spyOn(console, 'warn');
+      const queue = priorityQueue<Record<string, any>>();
+      const obj = {};
+      queue.enqueue(obj);
+      queue.enqueue(obj);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[@cmtlyt/lingshu-toolkit#PriorityQueue.enqueue]:',
+        'Duplicate item detected: {}',
+      );
+    });
+
+    test('传入重复对象警告 JSON.stringify 报错降级', () => {
+      const consoleWarn = vi.spyOn(console, 'warn');
+      const queue = priorityQueue<Record<string, any>>();
+      const obj = {};
+      // @ts-expect-error 手动创建循环引用用于测试 stringify 报错降级逻辑
+      obj.test = obj;
+      queue.enqueue(obj);
+      queue.enqueue(obj);
+      expect(consoleWarn).toHaveBeenCalledWith(
+        '[@cmtlyt/lingshu-toolkit#PriorityQueue.enqueue]:',
+        'Duplicate item detected: [object Object]',
+      );
+    });
+
     test('空队列 dequeue 应该返回 undefined', () => {
       const queue = priorityQueue<number>();
       expect(queue.dequeue()).toBeUndefined();
@@ -421,14 +467,30 @@ describe('priorityQueue', () => {
     });
 
     test('应该正确处理异常选项', () => {
+      const assertRejectsDup = (q: ReturnType<typeof priorityQueue<number>>) => {
+        expect(q.enqueue(1)).toBe(true);
+        expect(q.enqueue(1)).toBe(false);
+      };
       // @ts-expect-error test
-      expect(priorityQueue(null).allowDuplicate).toBe(false);
+      assertRejectsDup(priorityQueue(null));
       // @ts-expect-error test
-      expect(priorityQueue(0).allowDuplicate).toBe(false);
+      assertRejectsDup(priorityQueue(0));
       // @ts-expect-error test
-      expect(priorityQueue('123').allowDuplicate).toBe(false);
+      assertRejectsDup(priorityQueue('123'));
       // @ts-expect-error test
-      expect(priorityQueue(true).allowDuplicate).toBe(false);
+      assertRejectsDup(priorityQueue(true));
+    });
+  });
+
+  describe('人工测试', () => {
+    test('顺序测试', () => {
+      const queue = priorityQueue<number>();
+      queue.enqueue(1);
+      queue.enqueue(2);
+      expect(queue.dequeue()).toBe(1);
+      queue.enqueue(1);
+      expect(queue.dequeue()).toBe(1);
+      expect(queue.dequeue()).toBe(2);
     });
   });
 });

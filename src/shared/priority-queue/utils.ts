@@ -1,6 +1,14 @@
+import { logger } from '@/shared/logger';
+import { getType } from '@/shared/utils';
 import type { CompareFn, HeapItem } from './types';
 
+const defaultCompareAllowType = new Set(['number', 'string', 'date']);
+
 function defaultCompare<T>(left: T, right: T): number {
+  if (!(defaultCompareAllowType.has(getType(left)) && defaultCompareAllowType.has(getType(right)))) {
+    logger.warn('PriorityQueue', `Unsupported type: ${getType(left)} ${getType(right)}`);
+    return 0;
+  }
   if (left < right) {
     return -1;
   }

@@ -236,7 +236,10 @@ function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]
     if (!fs.existsSync(docPath)) {
       continue;
     }
-    const docName = docPath.slice(namespacePath.length + 1);
+    const docName = docPath
+      .slice(namespacePath.length + 1)
+      .split(path.sep)
+      .join('/');
     const docId = `${namespace}@${meta.name}`;
     if (docSet.has(docId)) {
       continue;
