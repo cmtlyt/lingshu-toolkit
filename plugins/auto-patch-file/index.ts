@@ -231,16 +231,18 @@ async function generateDocMeta(namespaceInfos: NamespaceInfo[], metaMap: Record<
 
 function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]>, docSet: Set<string>) {
   for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
-    const { meta, namespace, filePath } = toolInfo;
-    if (!fs.existsSync(path.resolve(path.dirname(filePath), 'index.mdx'))) {
+    const { meta, namespace, namespacePath, filePath } = toolInfo;
+    const docPath = path.resolve(path.dirname(filePath), 'index.mdx');
+    if (!fs.existsSync(docPath)) {
       continue;
     }
-    const docName = `${namespace}@${meta.name}`;
-    if (docSet.has(docName)) {
+    const docName = docPath.slice(namespacePath.length + 1);
+    const docId = `${namespace}@${meta.name}`;
+    if (docSet.has(docId)) {
       continue;
     }
     metaMap[namespace].push({
-      id: `${namespace}@${meta.name}`,
+      id: docId,
       type: 'file',
       label: meta.name,
       name: docName,

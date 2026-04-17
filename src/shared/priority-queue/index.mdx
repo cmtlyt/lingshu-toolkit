@@ -1,0 +1,339 @@
+# priorityQueue
+
+> package version >0.5.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/04/14 15:46:36
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedPriorityQueue.json
+```
+
+## usage
+
+```ts
+import { priorityQueue } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { priorityQueue } from '@cmtlyt/lingshu-toolkit/shared/priority-queue'
+```
+
+## Features
+
+- 🎯 **泛型支持**：支持任意数据类型的优先级队列
+- ⚙️ **可配置**：支持最小堆和最大堆模式切换
+- 🔄 **自定义比较**：提供灵活的自定义比较函数
+- 🚫 **重复检测**：可选的重复元素检测机制
+- 📦 **批量操作**：支持批量入队操作
+- 🧹 **队列管理**：完整的队列操作 API
+- 🔄 **FIFO 保证**：相同优先级的元素按照插入顺序出队
+
+## Examples
+
+### 基本使用（最小堆）
+
+```ts
+const queue = priorityQueue<number>();
+
+queue.enqueue(3);
+queue.enqueue(1);
+queue.enqueue(2);
+
+console.log(queue.dequeue()); // 1
+console.log(queue.dequeue()); // 2
+console.log(queue.dequeue()); // 3
+```
+
+### 最大堆模式
+
+```ts
+const maxQueue = priorityQueue<number>({
+  compare: (a, b) => b - a,
+});
+
+maxQueue.enqueue(1);
+maxQueue.enqueue(3);
+maxQueue.enqueue(2);
+
+console.log(maxQueue.dequeue()); // 3
+console.log(maxQueue.dequeue()); // 2
+console.log(maxQueue.dequeue()); // 1
+```
+
+### 对象类型优先级队列
+
+```ts
+interface Task {
+  id: number;
+  priority: number;
+  name: string;
+}
+
+const taskQueue = priorityQueue<Task>({
+  compare: (a, b) => a.priority - b.priority,
+});
+
+taskQueue.enqueue({ id: 1, priority: 3, name: 'Task 1' });
+taskQueue.enqueue({ id: 2, priority: 1, name: 'Task 2' });
+taskQueue.enqueue({ id: 3, priority: 2, name: 'Task 3' });
+
+console.log(taskQueue.dequeue()); // { id: 2, priority: 1, name: 'Task 2' }
+console.log(taskQueue.dequeue()); // { id: 3, priority: 2, name: 'Task 3' }
+console.log(taskQueue.dequeue()); // { id: 1, priority: 3, name: 'Task 1' }
+```
+
+### 重复元素处理
+
+```ts
+const queue = priorityQueue<number>();
+
+queue.enqueue(1);
+queue.enqueue(2);
+
+// 默认拒绝重复元素
+const result = queue.enqueue(1);
+console.log(result); // false
+// 控制台输出警告: [PriorityQueue] Duplicate item detected: 1
+
+// 允许重复元素
+const allowDupQueue = priorityQueue<number>({ allowDuplicate: true });
+allowDupQueue.enqueue(1);
+allowDupQueue.enqueue(1);
+console.log(allowDupQueue.size()); // 2
+```
+
+### FIFO 顺序保证
+
+```ts
+const queue = priorityQueue<number>({ allowDuplicate: true });
+
+queue.enqueue(1);
+queue.enqueue(2);
+queue.enqueue(1);
+queue.enqueue(1);
+queue.enqueue(2);
+
+// 相同优先级的元素按照插入顺序出队
+console.log(queue.dequeue()); // 1（第一个插入的）
+console.log(queue.dequeue()); // 1（第三个插入的）
+console.log(queue.dequeue()); // 1（第四个插入的）
+console.log(queue.dequeue()); // 2（第二个插入的）
+console.log(queue.dequeue()); // 2（第五个插入的）
+```
+
+### 批量操作
+
+```ts
+const queue = priorityQueue<number>();
+
+const results = queue.enqueueMany([3, 1, 2, 4]);
+console.log(results); // [true, true, true, true]
+
+console.log(queue.size()); // 4
+console.log(queue.dequeue()); // 1
+```
+
+### 队列管理
+
+```ts
+const queue = priorityQueue<number>();
+
+queue.enqueue(1);
+queue.enqueue(2);
+queue.enqueue(3);
+
+// 查看队首元素
+console.log(queue.peek()); // 1
+
+// 获取队列大小
+console.log(queue.size()); // 3
+
+// 检查是否为空
+console.log(queue.isEmpty()); // false
+
+// 转换为数组
+console.log(queue.toArray()); // [1, 2, 3]
+
+// 清空队列
+queue.clear();
+console.log(queue.isEmpty()); // true
+```
+
+### 多字段比较
+
+```ts
+interface Item {
+  value: number;
+  timestamp: number;
+}
+
+const queue = priorityQueue<Item>({
+  compare: (a, b) => {
+    if (a.value !== b.value) {
+      return a.value - b.value;
+    }
+    return a.timestamp - b.timestamp;
+  },
+});
+
+queue.enqueue({ value: 1, timestamp: 3 });
+queue.enqueue({ value: 1, timestamp: 1 });
+queue.enqueue({ value: 2, timestamp: 2 });
+
+console.log(queue.dequeue()); // { value: 1, timestamp: 1 }
+console.log(queue.dequeue()); // { value: 1, timestamp: 3 }
+console.log(queue.dequeue()); // { value: 2, timestamp: 2 }
+```
+### API Reference
+
+### `priorityQueue<T>(options?)`
+
+创建优先级队列实例的工厂函数。
+
+#### Parameters
+
+- `options` - 配置选项（可选）
+  - `compare?: (a: T, b: T) => number` - 自定义比较函数，返回负数表示 a < b，返回正数表示 a > b，返回 0 表示相等。默认为升序比较。
+  - `allowDuplicate?: boolean` - 是否允许重复元素，默认为 `false`
+
+#### Returns
+
+返回 `PriorityQueue<T>` 类实例。
+
+### `class PriorityQueue<T>`
+
+优先级队列类。
+
+#### Constructor
+
+```ts
+constructor(options?: PriorityQueueOptions<T>)
+```
+
+#### Methods
+
+##### `enqueue(item: T): boolean`
+
+入队一个元素。
+
+- **Parameters**: `item` - 要入队的元素
+- **Returns**: 成功返回 `true`，重复元素返回 `false`
+- **Note**: 当 `allowDuplicate` 为 `false` 时，重复元素会输出警告日志并返回 `false`
+
+##### `enqueueMany(items: T[]): boolean[]`
+
+批量入队元素。
+
+- **Parameters**: `items` - 要入队的元素数组
+- **Returns**: 每个元素的入队结果数组
+
+##### `dequeue(): T | undefined`
+
+出队队首元素。
+
+- **Returns**: 队首元素，队列为空时返回 `undefined`
+
+##### `peek(): T | undefined`
+
+查看队首元素但不移除。
+
+- **Returns**: 队首元素，队列为空时返回 `undefined`
+
+##### `size(): number`
+
+获取队列大小。
+
+- **Returns**: 队列中元素的数量
+
+##### `isEmpty(): boolean`
+
+检查队列是否为空。
+
+- **Returns**: 队列为空返回 `true`，否则返回 `false`
+
+##### `clear(): void`
+
+清空队列。
+
+##### `toArray(): T[]`
+
+将队列转换为数组。
+
+- **Returns**: 队列元素的数组副本
+### `PriorityQueueInstance<T>`
+
+优先级队列实例接口。
+
+#### Methods
+
+##### `enqueue(item: T): boolean`
+
+入队一个元素。
+
+- **Parameters**: `item` - 要入队的元素
+- **Returns**: 成功返回 `true`，重复元素返回 `false`
+- **Note**: 当 `allowDuplicate` 为 `false` 时，重复元素会输出警告日志并返回 `false`
+
+##### `enqueueMany(items: T[]): boolean[]`
+
+批量入队元素。
+
+- **Parameters**: `items` - 要入队的元素数组
+- **Returns**: 每个元素的入队结果数组
+
+##### `dequeue(): T | undefined`
+
+出队队首元素。
+
+- **Returns**: 队首元素，队列为空时返回 `undefined`
+
+##### `peek(): T | undefined`
+
+查看队首元素但不移除。
+
+- **Returns**: 队首元素，队列为空时返回 `undefined`
+
+##### `size(): number`
+
+获取队列大小。
+
+- **Returns**: 队列中元素的数量
+
+##### `isEmpty(): boolean`
+
+检查队列是否为空。
+
+- **Returns**: 队列为空返回 `true`，否则返回 `false`
+
+##### `clear(): void`
+
+清空队列。
+
+##### `toArray(): T[]`
+
+将队列转换为数组。
+
+- **Returns**: 队列元素的数组副本
+
+## Notes
+
+- 默认使用最小堆模式，优先级最小的元素先出队
+- 使用自定义比较函数可以实现最大堆模式
+- 重复元素检测基于比较函数返回 `0` 判断
+- **FIFO 保证**：相同优先级的元素按照插入顺序出队（先进先出）
+- 所有操作的时间复杂度：
+  - `enqueue`: O(log n)
+  - `dequeue`: O(log n)
+  - `peek`: O(1)
+  - `size`: O(1)
+  - `isEmpty`: O(1)
+  - `clear`: O(1)
+  - `toArray`: O(n)
