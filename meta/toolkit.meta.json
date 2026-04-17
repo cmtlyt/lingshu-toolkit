@@ -12,7 +12,8 @@
     { "name": "withResolvers", "author": "cmtlyt" },
     { "name": "allx", "author": "cmtlyt" },
     { "name": "apiController", "author": "cmtlyt" },
-    { "name": "tryCall", "author": "cmtlyt" }
+    { "name": "tryCall", "author": "cmtlyt" },
+    { "name": "priorityQueue", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

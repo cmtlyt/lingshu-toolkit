@@ -7,9 +7,9 @@ type Logger = {
 };
 
 declare global {
-  var $$lingshu$$: {
+  var $$lingshu$$: Partial<{
     disableLogger: boolean;
-  };
+  }>;
 }
 
 export const logger = new Proxy(console, {
