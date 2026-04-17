@@ -61,14 +61,20 @@
   },
   {
     "id": "shared@apiController",
-    "type": "dir",
+    "type": "file",
     "label": "apiController",
-    "name": "api-controller"
+    "name": "api-controller/index.mdx"
   },
   {
     "id": "shared@tryCall",
     "type": "file",
     "label": "tryCall",
     "name": "try-call/index.mdx"
+  },
+  {
+    "id": "shared@priorityQueue",
+    "type": "file",
+    "label": "priorityQueue",
+    "name": "priority-queue/index.mdx"
   }
 ]

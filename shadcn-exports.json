@@ -62,6 +62,11 @@
       "path": "src/shared/try-call/index.ts"
     },
     {
+      "name": "sharedPriorityQueue",
+      "author": "cmtlyt",
+      "path": "src/shared/priority-queue/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
       "path": "src/react/use-controllable-value/index.ts"
