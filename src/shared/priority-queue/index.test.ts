@@ -115,8 +115,6 @@ describe('priorityQueue', () => {
         '[@cmtlyt/lingshu-toolkit#PriorityQueue.enqueue]:',
         'Duplicate item detected: 2',
       );
-
-      consoleWarn.mockRestore();
     });
 
     test('allowDuplicate 为 true 时应该允许重复元素', () => {
@@ -381,7 +379,11 @@ describe('priorityQueue', () => {
 
     test('大量元素应该保持正确性', () => {
       const queue = priorityQueue<number>({ allowDuplicate: true });
-      const elements = Array.from({ length: 1000 }, () => Math.floor(Math.random() * 1000));
+      let seed = 0x1_23_45;
+      // biome-ignore lint/suspicious/noAssignInExpressions: test
+      // biome-ignore lint/nursery/noReturnAssign: test
+      const rand = () => (seed = (seed * 1_664_525 + 1_013_904_223) >>> 0) % 1000;
+      const elements = Array.from({ length: 1000 }, rand);
 
       elements.forEach((element) => void queue.enqueue(element));
 
