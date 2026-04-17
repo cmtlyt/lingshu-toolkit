@@ -86,7 +86,10 @@ class PriorityQueue<T> {
       insertOrder: this.insertCounter++,
     };
 
-    this.itemSet.add(item);
+    // 对于不允许重复的队列才添加, 避免内存占用过多
+    if (!this.allowDuplicate) {
+      this.itemSet.add(item);
+    }
     this.heap.push(heapItem);
     this.heapifyUp(this.heap.length - 1);
 
@@ -102,13 +105,15 @@ class PriorityQueue<T> {
       return;
     }
 
-    if (this.heap.length === 1) {
-      return this.heap.pop()!.item;
-    }
+    let root: T | undefined = void 0;
 
-    const root = this.heap[0].item;
-    this.heap[0] = this.heap.pop()!;
-    this.heapifyDown(0);
+    if (this.heap.length === 1) {
+      root = this.heap.pop()!.item;
+    } else {
+      root = this.heap[0].item;
+      this.heap[0] = this.heap.pop()!;
+      this.heapifyDown(0);
+    }
 
     this.itemSet.delete(root);
     return root;
@@ -131,6 +136,7 @@ class PriorityQueue<T> {
 
   clear(): void {
     this.heap.length = 0;
+    this.itemSet.clear();
     this.insertCounter = 0;
   }
 

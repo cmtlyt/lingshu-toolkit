@@ -1,7 +1,11 @@
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { priorityQueue } from './index';
 
 describe('priorityQueue', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   test('导出测试', () => {
     expect(priorityQueue).toBeTypeOf('function');
   });
@@ -94,7 +98,7 @@ describe('priorityQueue', () => {
 
   describe('重复元素处理', () => {
     test('默认情况下应该拒绝重复元素', () => {
-      const consoleWarn = vi.spyOn(console, 'warn');
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const queue = priorityQueue<number>();
 
       expect(queue.enqueue(1)).toBe(true);
@@ -178,7 +182,7 @@ describe('priorityQueue', () => {
     });
 
     test('enqueueMany 应该正确处理重复元素', () => {
-      const consoleWarn = vi.spyOn(console, 'warn');
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const queue = priorityQueue<number>();
       const results = queue.enqueueMany([1, 2, 1, 3, 2]);
 
@@ -319,7 +323,7 @@ describe('priorityQueue', () => {
 
   describe('边界情况', () => {
     test('队列元素为对象, 但是不传入 compare 应该发出警告', () => {
-      const consoleWarn = vi.spyOn(console, 'warn');
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const queue = priorityQueue<Record<string, any>>();
       queue.enqueue({});
       queue.enqueue({});
@@ -330,7 +334,7 @@ describe('priorityQueue', () => {
     });
 
     test('传入重复对象警告应该使用 JSON.stringify 处理', () => {
-      const consoleWarn = vi.spyOn(console, 'warn');
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const queue = priorityQueue<Record<string, any>>();
       const obj = {};
       queue.enqueue(obj);
@@ -342,7 +346,7 @@ describe('priorityQueue', () => {
     });
 
     test('传入重复对象警告 JSON.stringify 报错降级', () => {
-      const consoleWarn = vi.spyOn(console, 'warn');
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const queue = priorityQueue<Record<string, any>>();
       const obj = {};
       // @ts-expect-error 手动创建循环引用用于测试 stringify 报错降级逻辑
@@ -467,6 +471,8 @@ describe('priorityQueue', () => {
     });
 
     test('应该正确处理异常选项', () => {
+      // 静默测试, 不输出内容
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
       const assertRejectsDup = (q: ReturnType<typeof priorityQueue<number>>) => {
         expect(q.enqueue(1)).toBe(true);
         expect(q.enqueue(1)).toBe(false);
@@ -491,6 +497,26 @@ describe('priorityQueue', () => {
       queue.enqueue(1);
       expect(queue.dequeue()).toBe(1);
       expect(queue.dequeue()).toBe(2);
+    });
+
+    test('添加弹出再添加, 不应该触发重复逻辑', () => {
+      const queue = priorityQueue<number>();
+      queue.enqueue(1);
+      expect(queue.peek()).toBe(1);
+      queue.dequeue();
+      expect(queue.size()).toBe(0);
+      queue.enqueue(1);
+      expect(queue.peek()).toBe(1);
+    });
+
+    test('清空后添加不应该触发重复逻辑', () => {
+      const queue = priorityQueue<number>();
+      queue.enqueue(1);
+      expect(queue.peek()).toBe(1);
+      queue.clear();
+      expect(queue.size()).toBe(0);
+      queue.enqueue(1);
+      expect(queue.peek()).toBe(1);
     });
   });
 });
