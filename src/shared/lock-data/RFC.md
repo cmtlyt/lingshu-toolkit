@@ -6,7 +6,7 @@
 >
 > create time: 2026/04/27 11:50:00
 >
-> rfc version: 0.1.2
+> rfc version: 0.1.3
 >
 > scope: `src/shared/lock-data`
 
@@ -26,6 +26,7 @@ RFC 版本独立维护，不跟随包版本。语义：
 | 0.1.0 | 2026/04/27 | 初稿（含 30 条决策记录、依赖倒置适配器聚合、`persistence` + epoch 探测、`StorageAuthority` 权威副本、文档结构重组为「正文 + 附录 A 完整接口索引 + 附录 B 完整示例集」）；随后在同一版本内由 `draft` 转入 `review` |
 | 0.1.1 | 2026/04/28 | 四轮严格自检后的澄清与措辞修正 + 基础设施级前置改动（无 RFC 字段 / 协议级变更）。主要改动：① `update` / `replace` / `getLock` 返回类型契约精确化（按异步条件枚举，替代先前"有 id/无 id"二分）；② `dispose` 幂等语义明确（第二次起恒同步 void）；③ `data === undefined` 边界与 `getValue` 异步分支衔接；④ `LockDisposedError` 在 `getValue` Promise reject 下通过 `cause` 字段传递原始错误；⑤ `read()` 在 `syncMode: 'storage-authority'` 下的过时数据提示；⑥ `dataReadyState` 状态转换表 + listener 异常隔离 + 订阅解绑幂等；⑦ `resolveEpoch` TOCTOU 窗口纳入风险表；⑧ 决策 #10 补入遗漏的 `onCommit`；⑨ 正文 / 附录 A / 附录 B 三方回调示例签名对齐（`onSync` 使用 `LockSyncEvent` 对象）；⑩ 默认实现命名占位说明 + 重载匹配规则说明 + `extractRev` 复杂度注释；⑪ 基础设施：`shared/throw-error` 同步扩展为支持 `options.cause` 参数（ES2022 `Error.cause`），重载兼容既有调用点，RFC 的「错误类型」章节新增「基础设施约定」blockquote 并附签名摘录 |
 | 0.1.2 | 2026/04/28 | 目录结构调整（无 RFC 字段 / 协议级变更）。核心代码不再平铺根目录，按职责分 4 个子目录：`core/`（协调层：`registry` / `actions` / `readonly-view` / `draft` / `signal`）、`authority/`（拆分为 `index`（StorageAuthority 主类 / initAuthority / applyAuthorityIfNewer / onCommitSuccess / 生命周期订阅）+ `serialize`（固化字段顺序 rev→ts→epoch→snapshot）+ `extract`（extractRev / extractEpoch / readIfNewer 快路径过时判定）+ `epoch`（resolveEpoch A~F 六分支 / session-probe / session-reply））、`drivers/`（不变）、`adapters/`（文件名简化：`authority.ts` / `channel.ts` / `session-store.ts` / `logger.ts` / `clone.ts`）；根目录仅保留 `index.ts` / `index.mdx` / `types.ts` / `constants.ts` / `errors.ts` + `RFC.md`。测试目录按源码镜像为 `__test__/{core,adapters,drivers,authority,integration}/`，跨模块集成测试归入 `integration/`。同步更新「目录与文件规划」「依赖倒置与适配器」「测试策略」「风险与取舍」「公开决策记录 #14」等章节的路径引用 |
+| 0.1.3 | 2026/04/28 | API 表面扩展（非 breaking）：`LockDataActions` 新增 `release(): void` 方法，拆分原 `dispose` 过载的"还锁 + 销毁实例"双重职责。`release` 仅处理还锁（release 底层锁 + 清理 `holdTimeout` + state 回 `idle`），不碰引用计数 / 订阅解绑，actions 仍可继续使用；`dispose` 语义不变。同步更新：① 正文「API 设计 / LockDataActions」签名 + JSDoc；② 正文「调用语义要点」新增 `release` vs `dispose` 职责分工说明 + 长生命周期用法示例；③ 正文「Actions 实现要点」拆分 `release` / `dispose` 流程；④ 使用示例「多步事务」新增长生命周期场景（场景 B：用 `release` 还锁、实例复用）；⑤ 附录 A 接口索引同步（共用定义，随正文变更）；⑥ 新增公开决策记录 #31；⑦ 新增风险表「`release` / `dispose` 语义混淆」条目 |
 | X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名；对应的决策追加到「公开决策记录」并引用决策编号（如 #31） |
 
 ## 背景与动机
@@ -242,7 +243,7 @@ interface LockDataActions<T extends object> {
   replace(next: T, opts?: ActionCallOptions): void | Promise<void>
 
   /**
-   * 主动抢锁并持有（直到调用 dispose 或 holdTimeout 到期）
+   * 主动抢锁并持有（直到调用 release / dispose 或 holdTimeout 到期）
    * 用于"多次修改事务"：手动抢一次锁，中间连续调用 update/replace 时复用该锁
    * 返回类型规则同 `update`
    */
@@ -256,13 +257,25 @@ interface LockDataActions<T extends object> {
   read(): T
 
   /**
-   * 主动释放当前持有的锁 + 从 InstanceRegistry 释放一次引用计数
+   * 仅释放当前持有的锁（由 `getLock` 抢到的），不销毁 actions 实例
+   *   - 未持有锁时为 no-op（不报错）
+   *   - 清理 `holdTimeout` 定时器、release 锁、state 回到 `idle`
+   *   - 不影响 InstanceRegistry 引用计数、不解绑订阅；actions 仍可继续 `update` / `replace` / `getLock`
+   *   - `update` / `replace` 自己抢的锁在 recipe 结束时已自动 release，无需再调用 release
+   * 返回类型：始终同步 `void`（release 路径不涉及任何异步 I/O；底层 driver 的 release 可能返回 Promise，
+   *   内部以 fire-and-forget 方式处理，用户无需等待）
+   */
+  release(): void
+
+  /**
+   * 销毁 actions 实例：释放当前持有的锁 + 从 InstanceRegistry 释放一次引用计数 + 解绑订阅
    * 未持有时仅释放引用计数
    * 返回类型：
    *   - 首次调用：`Promise<void>`（有锁需释放）或 `void`（无锁可释）
    *   - 第二次起（已 disposed）：恒为同步 `void`，不再返回 Promise
    *   - `await actions.dispose()` 在两种情况下都安全
-   * dispose 后本 actions 进入 `disposed` 终态，后续任何 action 调用（包含 getLock）reject `LockDisposedError`
+   * dispose 后本 actions 进入 `disposed` 终态，后续任何 action 调用（包含 `release` / `getLock`）reject `LockDisposedError`
+   * 注意与 `release` 的区别：`release` 只还锁、actions 可继续使用；`dispose` 还锁 + 销毁实例
    */
   dispose(): Promise<void> | void
 
@@ -281,9 +294,13 @@ interface LockDataActions<T extends object> {
 
 调用语义要点：
 
-- `update` / `replace` 如果**当前已持锁**（通过 `getLock` 或上一个未 `dispose` 的事务），直接在锁上执行，不重新抢锁
+- `update` / `replace` 如果**当前已持锁**（通过 `getLock` 或上一个未 `release` / `dispose` 的事务），直接在锁上执行，不重新抢锁
 - `update` 若传入异步 recipe，`holdTimeout` 会对整个 recipe 的完成时间计时
-- `getLock` 的典型用法：
+- **`release` 与 `dispose` 的职责分离**：
+  - `release`：只处理"还锁"语义（release 锁 + 清理 `holdTimeout`、state 回 `idle`），actions 仍可继续使用；适合长生命周期实例（如 React 组件内的持续交互）
+  - `dispose`：处理"销毁实例"语义（包含 release 的所有工作 + 引用计数-1 + 订阅解绑 + 进入 `disposed` 终态）；适合短生命周期事务
+  - 只要能同步走完 release 路径，`release` 始终为同步 `void`；`dispose` 则按是否持锁返回 `Promise<void> | void`
+- `getLock` 的典型用法（短事务，`dispose` 收尾）：
 
   ```ts
   await actions.getLock({ holdTimeout: 10_000 })
@@ -291,8 +308,25 @@ interface LockDataActions<T extends object> {
     await actions.update((d) => { d.a = 1 })
     await actions.update((d) => { d.b = 2 })
   } finally {
-    await actions.dispose()
+    await actions.dispose()           // 事务完即销毁实例
   }
+  ```
+
+- `getLock` 的长生命周期用法（`release` 只还锁、actions 复用）：
+
+  ```ts
+  // 例如 React 组件内的多次交互：每次交互抢锁→改→还锁，组件卸载才 dispose
+  await actions.getLock({ holdTimeout: 10_000 })
+  try {
+    await actions.update((d) => { d.a = 1 })
+    await actions.update((d) => { d.b = 2 })
+  } finally {
+    actions.release()                 // 还锁，actions 仍可用
+  }
+  // ... 稍后：
+  await actions.update((d) => { d.c = 3 })   // 重新抢锁、commit、自动 release
+  // ... 组件卸载：
+  await actions.dispose()             // 最终销毁
   ```
 
 ### 错误类型
@@ -388,14 +422,28 @@ actionsA.update(() => {})
 ```ts
 const [, actions] = lockData(data, { id: 'tx', timeout: 5000 })
 
+// 场景 A：短事务（一次性用完就销毁实例）
 await actions.getLock({ holdTimeout: 10_000 })
 try {
   await actions.update((d) => { d.step1 = true })
   await actions.update((d) => { d.step2 = true })
   await actions.replace({ ...snapshot, committed: true })
 } finally {
-  await actions.dispose()
+  await actions.dispose()              // 销毁实例
 }
+
+// 场景 B：长生命周期（还锁但保留实例，后续仍可复用）
+await actions.getLock({ holdTimeout: 10_000 })
+try {
+  await actions.update((d) => { d.step1 = true })
+  await actions.update((d) => { d.step2 = true })
+} finally {
+  actions.release()                    // ✅ 只还锁，actions 仍可继续使用
+}
+// 稍后：
+await actions.update((d) => { d.step3 = true })   // 自动重新抢锁、commit、释放
+// 最终销毁：
+await actions.dispose()
 ```
 
 ### 同进程同 id 自动共享数据（无需 syncMode）
@@ -836,10 +884,18 @@ async runUpdateRecipe(recipe, callOpts):
   - recipe 结束一律将当次 `ctx.validity.isValid = false`，防止闭包泄露
 - `read()`：不抢锁，直接 `structuredClone(entry.data)` / JSON fallback
 - `getLock`：只抢锁、启动 `holdTimeout`，不执行 recipe；释放后的"空持锁期"没有 draft，所以不涉及 validity
+- `release`：
+  - 仅处理"还锁"：清理 `holdTimeout` 定时器、调用底层 `lockHandle.release()`、`isHolding = false`、state 回到 `idle`
+  - **不碰** InstanceRegistry 引用计数、**不解绑** driver 侧监听、**不解绑** authority 订阅
+  - 底层 driver 的 release 若返回 Promise（如 WebLocksDriver），内部 fire-and-forget（错误兜底走 `logger.warn`），`release()` 对外始终同步 `void`
+  - 未持锁（`state !== 'holding'`）时为 no-op
+  - `disposed` 终态下调用 reject `LockDisposedError`
+  - **幂等**：连续调用 release 只有第一次生效，后续直接 no-op
 - `dispose`：
-  - 清理 `holdTimeout`、release 锁、清理 driver 侧监听
+  - 先执行 `release` 的全部工作（清理 `holdTimeout`、release 锁）
+  - 清理 driver 侧监听、解绑 authority 订阅
   - 从 InstanceRegistry 释放一次引用计数；归零时销毁 Entry（`driver.destroy()` + 解绑订阅 + `registry.delete(id)`）
-  - 调用后本 actions 进入 `disposed` 终态（幂等）：重复 `dispose()` 仅第一次生效；后续任何 `update` / `replace` / `getLock` 调用 reject `LockDisposedError`
+  - 调用后本 actions 进入 `disposed` 终态（幂等）：重复 `dispose()` 仅第一次生效；后续任何 `update` / `replace` / `getLock` / `release` 调用 reject `LockDisposedError`
   - `options.signal.aborted` 等价于自动触发一次 `dispose()`，语义与手动调用一致
 - **NEVER_TIMEOUT 处理**：`acquireTimeout === NEVER_TIMEOUT` 时不注册抢锁超时 AbortSignal；`holdTimeout === NEVER_TIMEOUT` 时不注册 hold 定时器
 - **AbortSignal 组合**：内部用 [`AbortSignal.any`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static)（或等价 polyfill）把 `options.signal` / `callOpts.signal` / 超时 / dispose 四路信号合成一个派生 signal，传递给 driver
@@ -1364,6 +1420,7 @@ src/shared/lock-data/
 | 同 id 单例的 data 污染 | 不同模块对同一 id 调用但期望不同初始值 | 设计上"同 id = 同一份逻辑数据"，后续传入 initial 被忽略；业务应自己约定 id 命名空间 |
 | 心跳间隔的取舍 | 过短耗电，过长响应慢 | 默认 200ms 心跳 + 3 次丢失判死，允许通过 constants 覆盖 |
 | `holdTimeout` 误伤长事务 | 异步 recipe 耗时超过 5000ms 会被中断 | 用户可在每次 action 调用时覆盖；文档明示默认 5000；也可用 `NEVER_TIMEOUT` + `signal` 交由业务自行控制 |
+| `release` 与 `dispose` 语义混淆 | 用户不清楚区别可能：① 长生命周期场景误用 `dispose` 导致后续 action 全部 reject；② 短事务场景误用 `release` 导致 actions 实例泄漏（Entry 引用计数不归零） | API 文档明示两者职责分工（`release` 还锁 + 实例可复用 / `dispose` 还锁 + 销毁实例 + 引用计数-1）；附录 B 同时提供两种场景示例；`disposed` 终态下 `release` 调用也 reject 防止误操作 |
 | `syncMode: 'storage-authority'` 的一致性 | localStorage 是单点权威，读写顺序依赖锁串行化；写入方 Tab 不会收到自己的 `storage` 事件（规范） | 通过 `rev` 单调序号 + `lastAppliedRev` 去重；acquire 时 pull + storage 事件 push + 激活时 pull 三条路径协同，**保证"拿到锁 = 拿到最新值"**；`rev` 乱序到达时直接丢弃旧值不会回退 |
 | `StorageAuthority` 的 `getItem` / `JSON.parse` 开销 | 每次 acquire + 每次 storage 事件都要读 localStorage | `localStorage.getItem` 亚毫秒级；**lazy parse 快路径**：按固化字段顺序用 `extractRev` 正则提取 rev，`rev <= lastAppliedRev` 时完全不 `JSON.parse` snapshot，绝大多数事件命中快路径 |
 | localStorage value 格式契约 | 序列化顺序必须固化为 `rev → ts → epoch → snapshot`，否则 `extractRev` / `extractEpoch` 失效 | 由 `serialize` 函数手动拼接，不走 `JSON.stringify` 对象；`extractRev` 失败时走全量 `JSON.parse` 兜底，保证向后兼容 |
@@ -1423,6 +1480,7 @@ src/shared/lock-data/
 | 28 | `syncMode` 枚举重命名 | `'holder-broadcast'` → `'storage-authority'`，名字语义对齐实现（localStorage 权威副本而非单向 broadcast）；RFC 未发布，非 breaking |
 | 29 | `persistence` 字段 + epoch 探测 | 新增 `LockDataOptions.persistence: 'session' \| 'persistent'`，**默认 `'session'`**（符合"协作仅在多 Tab 活跃期"的直觉）；`'session'` 通过 `sessionStorage.${LOCK_PREFIX}:${id}:epoch` + `BroadcastChannel('${LOCK_PREFIX}:${id}:session')` 的 `session-probe` / `session-reply` 协议实现"所有 Tab 关闭即重置"；首次启动探测超时默认 `sessionProbeTimeout: 100ms`；localStorage 存储格式扩展为 `{"rev":N,"ts":T,"epoch":"xxx","snapshot":...}`（rev 仍首位兼容 lazy parse，新增 `extractEpoch` 快路径 epoch 过滤）；首个 Tab 判定为"所有 Tab 关闭后重启"时**主动 `removeItem` 清空 localStorage 权威副本**；`'persistent'` 固定 epoch 为常量 `'persistent'`、不做探测，保留跨会话持久化能力；`sessionStorage` 不可用时 `'session'` 降级为 `'persistent'` + `logger.warn` |
 | 30 | 依赖倒置聚合到 `options.adapters` | 所有可外部化的环境依赖（锁驱动 / 权威副本 / 广播通道 / 会话存储 / 日志 / 克隆）收敛到 `options.adapters` 单一入口，替代原先平铺在 options 顶层的 `getLock`；每个字段可独立注入，缺省走默认实现（`pickDefaultAdapters` 组合）。**接口风格**：涉及 id 作用域的依赖（`getLock` / `getAuthority` / `getChannel` / `getSessionStore`）用工厂函数 `getXxx(ctx) => Adapter`，与原 `getLock` 对齐；无作用域的依赖（`logger` / `clone`）直接传实例。**设计原则**：① 单一入口减少 options 表面积；② 用户提供 > 默认实现 > null（触发降级）；③ 存储格式 codec 由内部固化不开放（跨 Tab 语义对齐由用户保证"A 写 B 能读"）；④ 语义正确性由提供方负责，内部不做行为探测。**收益**：彻底支持非浏览器环境（Node / SSR / RN / Electron / Worker）；单元测试可用内存 adapter 在 Node 跑完整链路，大幅精简浏览器集成测试；顺带关闭"是否引入自研深克隆工具"开放问题（用户可注入 `adapters.clone`）。**兼容性**：RFC 未发布，顶层 `getLock` 移入 `adapters.getLock` 非 breaking；决策 #9 相关描述更新但语义不变 |
+| 31 | `release` / `dispose` 职责分离 | 新增 `actions.release(): void`，仅处理"还锁"语义（release 底层锁 + 清理 `holdTimeout` + state 回 `idle`），不碰 InstanceRegistry 引用计数、不解绑订阅，actions 仍可继续使用。**动机**：原先只有 `dispose` 既负责还锁又负责销毁实例，语义过载；对长生命周期场景（如 React 组件内多次交互）用户容易误用（以为 `dispose` 只是还锁，导致后续 action 全部 reject `LockDisposedError`）。**API 对称性**：`getLock` ↔ `release`（同级别操作）、`lockData` ↔ `dispose`（整个生命周期）。**返回类型**：`release` 始终同步 `void`（底层 driver 的 Promise release 内部 fire-and-forget，错误走 `logger.warn`）；`dispose` 返回规则不变。**幂等性**：重复 `release` no-op；`disposed` 终态下 `release` 同样 reject `LockDisposedError`（与其他 action 一致）。**兼容性**：RFC 未发布，纯新增 API 非 breaking；附录 B「多步事务」补长生命周期用法示例 |
 
 ## 开放问题
 
