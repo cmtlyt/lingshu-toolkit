@@ -6,7 +6,7 @@
 >
 > create time: 2026/04/27 11:50:00
 >
-> rfc version: 0.1.1
+> rfc version: 0.1.2
 >
 > scope: `src/shared/lock-data`
 
@@ -25,6 +25,7 @@ RFC 版本独立维护，不跟随包版本。语义：
 | --- | --- | --- |
 | 0.1.0 | 2026/04/27 | 初稿（含 30 条决策记录、依赖倒置适配器聚合、`persistence` + epoch 探测、`StorageAuthority` 权威副本、文档结构重组为「正文 + 附录 A 完整接口索引 + 附录 B 完整示例集」）；随后在同一版本内由 `draft` 转入 `review` |
 | 0.1.1 | 2026/04/28 | 四轮严格自检后的澄清与措辞修正 + 基础设施级前置改动（无 RFC 字段 / 协议级变更）。主要改动：① `update` / `replace` / `getLock` 返回类型契约精确化（按异步条件枚举，替代先前"有 id/无 id"二分）；② `dispose` 幂等语义明确（第二次起恒同步 void）；③ `data === undefined` 边界与 `getValue` 异步分支衔接；④ `LockDisposedError` 在 `getValue` Promise reject 下通过 `cause` 字段传递原始错误；⑤ `read()` 在 `syncMode: 'storage-authority'` 下的过时数据提示；⑥ `dataReadyState` 状态转换表 + listener 异常隔离 + 订阅解绑幂等；⑦ `resolveEpoch` TOCTOU 窗口纳入风险表；⑧ 决策 #10 补入遗漏的 `onCommit`；⑨ 正文 / 附录 A / 附录 B 三方回调示例签名对齐（`onSync` 使用 `LockSyncEvent` 对象）；⑩ 默认实现命名占位说明 + 重载匹配规则说明 + `extractRev` 复杂度注释；⑪ 基础设施：`shared/throw-error` 同步扩展为支持 `options.cause` 参数（ES2022 `Error.cause`），重载兼容既有调用点，RFC 的「错误类型」章节新增「基础设施约定」blockquote 并附签名摘录 |
+| 0.1.2 | 2026/04/28 | 目录结构调整（无 RFC 字段 / 协议级变更）。核心代码不再平铺根目录，按职责分 4 个子目录：`core/`（协调层：`registry` / `actions` / `readonly-view` / `draft` / `signal`）、`authority/`（拆分为 `index`（StorageAuthority 主类 / initAuthority / applyAuthorityIfNewer / onCommitSuccess / 生命周期订阅）+ `serialize`（固化字段顺序 rev→ts→epoch→snapshot）+ `extract`（extractRev / extractEpoch / readIfNewer 快路径过时判定）+ `epoch`（resolveEpoch A~F 六分支 / session-probe / session-reply））、`drivers/`（不变）、`adapters/`（文件名简化：`authority.ts` / `channel.ts` / `session-store.ts` / `logger.ts` / `clone.ts`）；根目录仅保留 `index.ts` / `index.mdx` / `types.ts` / `constants.ts` / `errors.ts` + `RFC.md`。测试目录按源码镜像为 `__test__/{core,adapters,drivers,authority,integration}/`，跨模块集成测试归入 `integration/`。同步更新「目录与文件规划」「依赖倒置与适配器」「测试策略」「风险与取舍」「公开决策记录 #14」等章节的路径引用 |
 | X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名；对应的决策追加到「公开决策记录」并引用决策编号（如 #31） |
 
 ## 背景与动机
@@ -938,11 +939,11 @@ type CloneFn = <V>(value: V) => V
 | Adapter | 默认实现 | 位置 | 不可用时的降级 |
 | --- | --- | --- | --- |
 | `getLock` | `pickDriver(options, id)` 能力检测（Web Locks → Broadcast → Storage → Local） | `drivers/index.ts` | 由能力检测自行兜底 |
-| `getAuthority` | `DefaultLocalStorageAuthority`：localStorage + `storage` 事件订阅 + `QuotaExceededError` 捕获 | `adapters/authority-local-storage.ts` | 探测 `localStorage` 不可用 → 返回 null → `entry.authority = null` + `logger.warn` |
-| `getChannel` | `DefaultBroadcastChannel`：`BroadcastChannel` 包装 | `adapters/channel-broadcast.ts` | 探测 `BroadcastChannel` 不可用 → 返回 null → session-probe 跳过 + `logger.warn` |
-| `getSessionStore` | `DefaultSessionStore`：sessionStorage 包装 | `adapters/session-store-session-storage.ts` | 探测 `sessionStorage` 不可用 → 返回 null → `persistence: 'session'` 降级为 `'persistent'` + `logger.warn` |
-| `logger` | `shared/logger` | `adapters/logger-default.ts` | 始终可用 |
-| `clone` | `structuredCloneSafe`：`structuredClone` 优先 + JSON fallback + `logger.warn` | `adapters/clone-structured.ts` | 始终可用（兜底 JSON） |
+| `getAuthority` | `DefaultLocalStorageAuthority`：localStorage + `storage` 事件订阅 + `QuotaExceededError` 捕获 | `adapters/authority.ts` | 探测 `localStorage` 不可用 → 返回 null → `entry.authority = null` + `logger.warn` |
+| `getChannel` | `DefaultBroadcastChannel`：`BroadcastChannel` 包装 | `adapters/channel.ts` | 探测 `BroadcastChannel` 不可用 → 返回 null → session-probe 跳过 + `logger.warn` |
+| `getSessionStore` | `DefaultSessionStore`：sessionStorage 包装 | `adapters/session-store.ts` | 探测 `sessionStorage` 不可用 → 返回 null → `persistence: 'session'` 降级为 `'persistent'` + `logger.warn` |
+| `logger` | `shared/logger` | `adapters/logger.ts` | 始终可用 |
+| `clone` | `structuredCloneSafe`：`structuredClone` 优先 + JSON fallback + `logger.warn` | `adapters/clone.ts` | 始终可用（兜底 JSON） |
 
 **组合时机**：`getOrCreateEntry` 首次创建 Entry 时调用 `pickDefaultAdapters(options.adapters, { id, ... })`，产出最终的 `ResolvedAdapters` 对象挂到 `entry.adapters`；后续所有内部模块通过 `entry.adapters` 访问，彻底解耦对全局 API 的直接依赖。
 
@@ -1250,58 +1251,77 @@ const validInfo = $dt({
 
 ```
 src/shared/lock-data/
-├── RFC.md                    # 本文档
-├── index.ts                  # lockData 主入口
-├── types.ts                  # 公共类型（含 LockDataAdapters / AuthorityAdapter / ChannelAdapter / ...）
-├── constants.ts              # NEVER_TIMEOUT / LOCK_PREFIX / HEARTBEAT_INTERVAL 等
-├── registry.ts               # InstanceRegistry（同 id 单例池 / 引用计数 / listeners fanout）
-├── readonly-view.ts          # ReadonlyView 代理实现
-├── draft.ts                  # 事务式 Draft：validityRef / mutationLog / rollback
-├── actions.ts                # LockDataActions 实现
-├── authority.ts              # StorageAuthority：权威副本 + lazy parse + 订阅（经 adapters.authority）
-├── signal.ts                 # AbortSignal.any 兼容封装
-├── adapters/
-│   ├── index.ts              # pickDefaultAdapters 组合 + ResolvedAdapters 类型
-│   ├── authority-local-storage.ts  # DefaultLocalStorageAuthority（localStorage + storage 事件）
-│   ├── channel-broadcast.ts        # DefaultBroadcastChannel（BroadcastChannel 包装）
-│   ├── session-store-session-storage.ts # DefaultSessionStore（sessionStorage 包装）
-│   ├── logger-default.ts           # 默认 logger（委托 shared/logger）
-│   └── clone-structured.ts         # 默认 clone（structuredClone + JSON fallback）
-├── drivers/
-│   ├── index.ts              # pickDriver 能力检测
-│   ├── custom.ts             # CustomDriver（适配 adapters.getLock）
-│   ├── local.ts              # LocalLockDriver
-│   ├── web-locks.ts          # WebLocksDriver
-│   ├── broadcast.ts          # BroadcastDriver
-│   └── storage.ts            # StorageDriver
-├── errors.ts                 # LockTimeoutError 等错误定义
-├── index.mdx                 # 用户向文档（RFC 落地后产出）
-└── __test__/
-    ├── README.md                          # 各测试文件的细粒度用例清单与断言快照（实施阶段产出）
-    ├── readonly-view.node.test.ts         # 只读代理行为（纯逻辑，无需浏览器）
-    ├── actions-local.node.test.ts         # 无 id 本地锁 + actions（纯逻辑）
-    ├── options-validate.node.test.ts      # 参数校验 / NEVER_TIMEOUT 处理（纯逻辑）
-    ├── custom-driver.node.test.ts         # adapters.getLock 自定义锁（mock driver 即可）
-    ├── registry.node.test.ts              # 同 id 单例 / 引用计数 / options 冲突 warn
-    ├── draft-transaction.node.test.ts     # 事务式 Draft / mutation log / rollback / validity
-    ├── signal.node.test.ts                # options.signal / ActionCallOptions.signal 行为
-    ├── adapters-resolve.node.test.ts      # pickDefaultAdapters 合成 / 优先级 / 探测失败降级
-    ├── memory-adapter.node.test.ts        # 基于内存 adapter 端到端跑通 storage-authority + session 全链路
-    ├── actions-webLocks.browser.test.ts   # navigator.locks
-    ├── actions-broadcast.browser.test.ts  # BroadcastChannel
-    ├── actions-storage.browser.test.ts    # localStorage + storage 事件
-    ├── authority.browser.test.ts          # StorageAuthority：localStorage 权威副本 / storage 事件 / lazy parse
-    ├── authority-lifecycle.browser.test.ts # pageshow / visibilitychange 激活 pull
-    └── authority-persistence.browser.test.ts # persistence: 'session' epoch 探测 / 跨会话重置
+├── RFC.md                      # 本文档
+├── index.ts                    # lockData 主入口（组装 core + authority + drivers + adapters）
+├── index.mdx                   # 用户向文档（RFC 落地后产出）
+├── types.ts                    # 公共类型（含 LockDataAdapters / AuthorityAdapter / ChannelAdapter / ...）
+├── constants.ts                # NEVER_TIMEOUT / LOCK_PREFIX / HEARTBEAT_INTERVAL 等
+├── errors.ts                   # LockTimeoutError 等错误定义
+│
+├── core/                       # 核心协调层（与底层能力解耦，跑纯逻辑测试即可覆盖）
+│   ├── registry.ts             # InstanceRegistry（同 id 单例池 / 引用计数 / listeners fanout / listener 异常隔离 / signal.aborted 自动 dispose）
+│   ├── actions.ts              # LockDataActions 实现（update / replace / read / dispose / getLock 五个方法 + 参数校验 + Draft 衔接 + 事件派发）
+│   ├── readonly-view.ts        # ReadonlyView 代理实现（深只读 Proxy / Set/Map mutation 拦截 / 代理身份稳定）
+│   ├── draft.ts                # 事务式 Draft：validityRef / mutationLog / rollback / 嵌套 draft 合并
+│   └── signal.ts               # AbortSignal.any 兼容封装（两路 signal "与"组合 + 老环境 polyfill）
+│
+├── authority/                  # 权威副本 + 会话纪元协议
+│   ├── index.ts                # StorageAuthority 主类：initAuthority 初始化 / applyAuthorityIfNewer 应用读路径 / onCommitSuccess 写路径 / pageshow / visibilitychange 激活 pull / dispose 解绑
+│   ├── serialize.ts            # serialize() 固化字段顺序 rev → ts → epoch → snapshot（手动拼接，不走 JSON.stringify 对象）
+│   ├── extract.ts              # extractRev / extractEpoch lazy parse 快路径（锚定开头正则，O(首部长度)）+ readIfNewer 过时判定（rev / epoch 校验）
+│   └── epoch.ts                # resolveEpoch 协议（A~F 六个启动分支 / session-probe / session-reply / freshEpoch + authority.remove 清空残留）
+│
+├── drivers/                    # 锁驱动（底层能力层，按能力检测选择）
+│   ├── index.ts                # pickDriver 能力检测（优先级：CustomDriver → LocalLockDriver（无 id） → WebLocksDriver → BroadcastDriver → StorageDriver；首次创建 Entry 时调用一次，后续复用）
+│   ├── local.ts                # LocalLockDriver：进程内单例 Map<id, Holder>；无 id 时退化为直接获得锁，force / timeout / 排队语义不启用（由 dataHandler 校验时 warn）
+│   ├── web-locks.ts            # WebLocksDriver（首选）：navigator.locks.request(name, { mode: 'exclusive', steal, signal }, cb)；force → steal: true + onRevoked('force')；timeout → AbortController.abort；dispose → resolve holdPromise 释放锁
+│   ├── broadcast.ts            # BroadcastDriver（降级）：BroadcastChannel + 随机 token + 200ms alive 心跳 + 3 次丢失判死 + 队列 FIFO 晋升 + force 抢占去重
+│   ├── storage.ts              # StorageDriver（兜底降级）：localStorage key `${LOCK_PREFIX}:${id}`、value `{ token, heartbeat, queue }`；setInterval 心跳；storage 事件跨 Tab；已知局限「同 Tab 多实例不触发 storage 事件」由本地补发排队 + token 重试兜底
+│   └── custom.ts               # CustomDriver：adapters.getLock 存在时跳过能力检测；负责拼接 name / 准备 AbortSignal / 接入 LockHandle.release 到 release 链 / 把 onRevokedByDriver 桥接到 listeners.onRevoked('force' \| 'timeout')
+│
+├── adapters/                   # 依赖倒置的默认适配器（目录即语义，文件名精简）
+│   ├── index.ts                # pickDefaultAdapters 组合：逐字段合并 userAdapters 与默认实现（userAdapters.getXxx?.(ctx) ?? tryDefaultXxx(ctx)）+ ResolvedAdapters 类型
+│   ├── authority.ts            # 默认 AuthorityAdapter（localStorage + storage 事件订阅 + QuotaExceededError 捕获）；降级：localStorage 不可用 → 返回 null → entry.authority = null + logger.warn
+│   ├── channel.ts              # 默认 ChannelAdapter（BroadcastChannel 包装）；降级：BroadcastChannel 不可用 → 返回 null → session-probe 跳过 + logger.warn
+│   ├── session-store.ts        # 默认 SessionStoreAdapter（sessionStorage 包装）；降级：sessionStorage 不可用 → 返回 null → persistence: 'session' 降级为 'persistent' + logger.warn
+│   ├── logger.ts               # 默认 LoggerAdapter（委托 shared/logger）；始终可用
+│   └── clone.ts                # 默认 CloneFn（structuredCloneSafe：structuredClone 优先 + 不可克隆值时 JSON fallback + logger.warn）；始终可用（兜底 JSON）
+│
+└── __test__/                   # 按源码结构镜像组织，便于定位与维护
+    ├── README.md                              # 各测试文件的细粒度用例清单与断言快照（实施阶段产出）
+    ├── core/
+    │   ├── readonly-view.node.test.ts         # 只读代理行为（纯逻辑，无需浏览器）
+    │   ├── draft-transaction.node.test.ts     # 事务式 Draft / mutation log / rollback / validity
+    │   ├── registry.node.test.ts              # 同 id 单例 / 引用计数 / options 冲突 warn / signal.aborted 自动 dispose
+    │   └── signal.node.test.ts                # options.signal / ActionCallOptions.signal 行为 / 两路 signal 与组合
+    ├── adapters/
+    │   ├── resolve.node.test.ts               # pickDefaultAdapters 合成 / 优先级 / 探测失败降级 / clone JSON fallback
+    │   └── memory-integration.node.test.ts    # 基于内存 adapter 端到端跑 storage-authority + session 全链路
+    ├── drivers/
+    │   ├── local.node.test.ts                 # LocalLockDriver 纯逻辑
+    │   ├── custom.node.test.ts                # adapters.getLock 自定义锁（mock driver 即可）
+    │   ├── web-locks.browser.test.ts          # navigator.locks 并发排队 / acquireTimeout / holdTimeout / force
+    │   ├── broadcast.browser.test.ts          # BroadcastChannel 心跳 / 队列晋升 / 并发去重
+    │   └── storage.browser.test.ts            # localStorage + storage 事件 / 同 Tab 多实例补发 / token 重试
+    ├── authority/
+    │   ├── main.browser.test.ts               # syncMode 语义 / rev-first 字段顺序 / onSync / lazy parse / 乱序丢弃 / 降级
+    │   ├── lifecycle.browser.test.ts          # pageshow(e.persisted) / visibilitychange 激活 pull / bfcache / dispose 解绑
+    │   └── persistence.browser.test.ts        # persistence 三类启动场景 / 残留清空 / epoch 不匹配跳 parse / 降级
+    └── integration/
+        ├── actions-local.node.test.ts         # 无 id 本地锁 + actions 端到端行为
+        └── options-validate.node.test.ts      # 参数校验 / NEVER_TIMEOUT 处理 / 非法值走 throwType
 ```
 
-测试目录约定：
+**目录约定**：
 
-- 统一放在方法目录下的 `__test__/` 子目录
-- 按 **是否依赖浏览器环境** 拆分后缀：
-  - `*.browser.test.ts`：需要真实浏览器 API（`navigator.locks` / `BroadcastChannel` / `storage` 事件 / JSDOM 无法完整模拟的场景）
-  - `*.node.test.ts`：纯逻辑用例（参数校验、只读代理、本地锁、CustomDriver 适配），用 Node 运行以降低测试开销
-- 两类测试由 `vitest.project.config.ts` 分别声明，浏览器用例走 browser provider，node 用例走 node provider
+- **顶层**仅保留入口 + 基础设施（types / constants / errors），核心代码按职责进入四个子目录：
+  - `core/`：纯逻辑协调层，不直接依赖浏览器 API，Node 环境即可完整测试
+  - `authority/`：单点权威副本 + 会话纪元协议，内部细分序列化、快路径提取、纪元探测三块
+  - `drivers/`：锁驱动按能力分层，`pickDriver` 能力检测选择 `local` / `web-locks` / `broadcast` / `storage` / `custom`
+  - `adapters/`：依赖倒置的默认实现；目录名已隐含"默认适配器"语义，文件名精简为 `authority.ts` / `channel.ts` / `session-store.ts` / `logger.ts` / `clone.ts`
+- **测试镜像源码结构**：`__test__/<source-dir>/*.test.ts` 一一对应，出问题按路径直接找到目标测试
+  - 跨模块集成测试统一放 `__test__/integration/`
+- **测试后缀** `*.node.test.ts` / `*.browser.test.ts`：按"是否依赖浏览器 API"拆分，浏览器用例走 browser provider，node 用例走 node provider（由 `vitest.project.config.ts` 分别声明）
 
 导出路径需要在 `src/shared/index.ts` 追加 `export * from './lock-data'`，并确保 `NEVER_TIMEOUT` 一同导出。
 
@@ -1311,21 +1331,22 @@ src/shared/lock-data/
 
 | 文件 | 环境 | 核心覆盖点 |
 | --- | --- | --- |
-| `readonly-view.node.test.ts` | Node | 深只读：嵌套对象 / 数组 / Set / Map 的 mutation 全抛 `ReadonlyMutationError`；代理身份一致；actions 写入后读到最新值 |
-| `actions-local.node.test.ts` | Node | 无 `id` 时 `lockData` 同步；`update` / `replace` / `read` / `dispose` / `getLock` 行为；`dispose` 后可再 `getLock`；`listeners.onLockStateChange` 状态机流转 |
-| `options-validate.node.test.ts` | Node | `timeout` / `listeners` / `ActionCallOptions` 合法值与非法值校验；`getValue` 同步 / 异步 / reject 各路径；`NEVER_TIMEOUT` 不注册定时器 |
-| `custom-driver.node.test.ts` | Node | `adapters.getLock` 覆盖默认 driver；同步 / 异步 release；`onRevokedByDriver` 桥接到 `listeners.onRevoked('force')` |
-| `registry.node.test.ts` | Node | 同 id 多实例共享 data；后续 `initial` 忽略；非 listeners 字段冲突 `logger.warn`；refCount 归零销毁；`signal.aborted` 自动 dispose |
-| `draft-transaction.node.test.ts` | Node | 正常 recipe / 抛错回滚 / 异步期间被 force / `holdTimeout` / 嵌套 draft / `replace` 语义 / mutation log 精确性 |
-| `signal.node.test.ts` | Node | `options.signal` + `ActionCallOptions.signal` 的 acquiring / holding 阶段 abort 行为；两路 signal 的"与"组合 |
-| `adapters-resolve.node.test.ts` | Node | `pickDefaultAdapters` 字段级优先级；默认 authority / channel / sessionStore 探测失败的降级；`adapters.clone` 的 JSON fallback；用户 adapter 参数校验 |
-| `memory-adapter.node.test.ts` | Node | 用内存 adapter 端到端跑 `syncMode: 'storage-authority'` + `persistence: 'session' \| 'persistent'` 全链路，替代一大半浏览器集成测试 |
-| `actions-webLocks.browser.test.ts` | Browser | 并发排队（FIFO）；`acquireTimeout` / `holdTimeout` / `force` 抢占 + `onRevoked('force')` |
-| `actions-broadcast.browser.test.ts` | Browser（mock `navigator.locks = undefined`） | 心跳丢失后队列晋升；并发抢锁去重；`force` 抢占 |
-| `actions-storage.browser.test.ts` | Browser（再 mock `BroadcastChannel = undefined`） | `storage` 事件跨 Tab 模拟；同 Tab 多实例本地补发排队；并发竞态下的 token 重试兜底 |
-| `authority.browser.test.ts` | Browser | `syncMode: 'none' \| 'storage-authority'` 语义；`rev`-first 字段顺序；`onSync` 触发；lazy parse 快路径；rev 乱序丢弃；不可克隆值 / `QuotaExceededError` / localStorage 不可用的降级 |
-| `authority-lifecycle.browser.test.ts` | Browser | `pageshow(e.persisted)` / `visibilitychange` 激活时 pull；bfcache 场景；`dispose` 后解绑 |
-| `authority-persistence.browser.test.ts` | Browser | `persistence: 'session' \| 'persistent'` 三类启动场景（首个 Tab / 同会话组新开 / 刷新）+ 残留清空 + epoch 不匹配跳过 parse + 降级（sessionStorage / BroadcastChannel 不可用） |
+| `core/readonly-view.node.test.ts` | Node | 深只读：嵌套对象 / 数组 / Set / Map 的 mutation 全抛 `ReadonlyMutationError`；代理身份一致；actions 写入后读到最新值 |
+| `core/draft-transaction.node.test.ts` | Node | 正常 recipe / 抛错回滚 / 异步期间被 force / `holdTimeout` / 嵌套 draft / `replace` 语义 / mutation log 精确性 |
+| `core/registry.node.test.ts` | Node | 同 id 多实例共享 data；后续 `initial` 忽略；非 listeners 字段冲突 `logger.warn`；refCount 归零销毁；`signal.aborted` 自动 dispose |
+| `core/signal.node.test.ts` | Node | `options.signal` + `ActionCallOptions.signal` 的 acquiring / holding 阶段 abort 行为；两路 signal 的"与"组合 |
+| `adapters/resolve.node.test.ts` | Node | `pickDefaultAdapters` 字段级优先级；默认 authority / channel / sessionStore 探测失败的降级；`adapters.clone` 的 JSON fallback；用户 adapter 参数校验 |
+| `adapters/memory-integration.node.test.ts` | Node | 用内存 adapter 端到端跑 `syncMode: 'storage-authority'` + `persistence: 'session' \| 'persistent'` 全链路，替代一大半浏览器集成测试 |
+| `drivers/local.node.test.ts` | Node | LocalLockDriver 纯逻辑：同实例内互斥排队、acquire/release、hold 超时触发 revoke |
+| `drivers/custom.node.test.ts` | Node | `adapters.getLock` 覆盖默认 driver；同步 / 异步 release；`onRevokedByDriver` 桥接到 `listeners.onRevoked('force')` |
+| `drivers/web-locks.browser.test.ts` | Browser | `navigator.locks` 并发排队（FIFO）；`acquireTimeout` / `holdTimeout` / `force` 抢占 + `onRevoked('force')` |
+| `drivers/broadcast.browser.test.ts` | Browser（mock `navigator.locks = undefined`） | 心跳丢失后队列晋升；并发抢锁去重；`force` 抢占 |
+| `drivers/storage.browser.test.ts` | Browser（再 mock `BroadcastChannel = undefined`） | `storage` 事件跨 Tab 模拟；同 Tab 多实例本地补发排队；并发竞态下的 token 重试兜底 |
+| `authority/main.browser.test.ts` | Browser | `syncMode: 'none' \| 'storage-authority'` 语义；`rev`-first 字段顺序；`onSync` 触发；lazy parse 快路径；rev 乱序丢弃；不可克隆值 / `QuotaExceededError` / localStorage 不可用的降级 |
+| `authority/lifecycle.browser.test.ts` | Browser | `pageshow(e.persisted)` / `visibilitychange` 激活时 pull；bfcache 场景；`dispose` 后解绑 |
+| `authority/persistence.browser.test.ts` | Browser | `persistence: 'session' \| 'persistent'` 三类启动场景（首个 Tab / 同会话组新开 / 刷新）+ 残留清空 + epoch 不匹配跳过 parse + 降级（sessionStorage / BroadcastChannel 不可用） |
+| `integration/actions-local.node.test.ts` | Node | 无 `id` 时 `lockData` 同步；`update` / `replace` / `read` / `dispose` / `getLock` 行为；`listeners.onLockStateChange` 状态机流转 |
+| `integration/options-validate.node.test.ts` | Node | `timeout` / `listeners` / `ActionCallOptions` 合法值与非法值校验；`getValue` 同步 / 异步 / reject 各路径；`NEVER_TIMEOUT` 不注册定时器 |
 
 每个文件的细粒度用例清单 + 断言快照在实施阶段随代码一并产出到 `__test__/README.md`，不在 RFC 中穷举。
 
@@ -1353,8 +1374,8 @@ src/shared/lock-data/
 | `resolveEpoch` 的 TOCTOU 窗口 | `sessionStorage.getItem` → 判空 → `broadcast probe` 之间，理论上另一 Tab 可能刚好 commit 新 epoch | 实际概率极低（同 Tab 主线程执行窗口 <1ms）；即便发生，新 epoch 会通过 session-probe 响应或后续 `storage` 事件收敛，最多表现为短暂读到旧 epoch 的残留权威副本（rev/epoch 校验自动丢弃），不影响数据正确性 |
 | localStorage value 清理时机 | `persistence: 'session'` 下 Tab 关闭不会立即清 localStorage，只在下次首个 Tab 启动时清 | 可接受：浏览器未打开期间残留不影响任何运行时；避免依赖不可靠的 `beforeunload` |
 | 队列公平性 | BroadcastDriver / StorageDriver 无法做到严格原子 FIFO | 允许极小概率并发抢锁；用 token 比较 + 重试兜底 |
-| AbortSignal.any 兼容性 | 较老环境缺失 `AbortSignal.any` | 通过 `signal.ts` 的统一封装做 polyfill |
-| 适配器语义契约依赖用户自律 | 用户注入的 `AuthorityAdapter.subscribe` 若不按"写入 / 删除均触发"实现，跨进程同步会失效；`ChannelAdapter.postMessage` 若丢消息，session-probe 会误判为"首个 Tab" | RFC 以接口 JSDoc 为准；内部不做行为探测；提供 `MemoryAdapter` 参考实现给测试与用户作对照；建议用户用 `memory-adapter.node.test.ts` 的用例集验证自己的实现 |
+| AbortSignal.any 兼容性 | 较老环境缺失 `AbortSignal.any` | 通过 `core/signal.ts` 的统一封装做 polyfill |
+| 适配器语义契约依赖用户自律 | 用户注入的 `AuthorityAdapter.subscribe` 若不按"写入 / 删除均触发"实现，跨进程同步会失效；`ChannelAdapter.postMessage` 若丢消息，session-probe 会误判为"首个 Tab" | RFC 以接口 JSDoc 为准；内部不做行为探测；提供 `MemoryAdapter` 参考实现给测试与用户作对照；建议用户用 `__test__/adapters/memory-integration.node.test.ts` 的用例集验证自己的实现 |
 | 跨 Tab adapter 语义等价契约 | 同一 id 的多个 Tab 必须使用语义等价（能互相看到写入、互相收到订阅）的 authority / channel adapter，否则权威副本各自独立、同步失效 | 内部存储格式（rev → ts → epoch → snapshot）由 `serialize` 固化，不开放给 adapter；用户只需保证 "A 写 B 能读 / A 发 B 能收"，codec 由内部保证；跨不同底层（如 A 用 localStorage、B 用 IndexedDB）不互通为预期行为 |
 | 默认实现与自定义 adapter 混用 | 一个 Tab 不传 `adapters`（走默认 localStorage）、另一个 Tab 注入自定义 Electron store，二者不互通 | 预期行为：同 id 的所有进程应采用一致策略；文档明示"要么全用默认，要么全用同一套自定义 adapter"；不做运行时检测 |
 
@@ -1385,7 +1406,7 @@ src/shared/lock-data/
 | 11 | `NEVER_TIMEOUT` | 导出的 unique symbol，可用在 `timeout` / `acquireTimeout` / `holdTimeout` 任意位置 |
 | 12 | `syncMode` | 语义收敛为"仅跨进程同步"；同进程同 id 始终共享；本期提供 `'none' \| 'storage-authority'`，CRDT 留给未来；非 `'none'` 时 `lockData` 返回 Promise（被 #28 最终定稿） |
 | 13 | `actions.getLock` | 提供手动抢锁接口用于多步事务 |
-| 14 | 测试文件 | `*.node.test.ts`（纯逻辑）+ `*.browser.test.ts`（浏览器 API）拆分存放于 `__test__/` |
+| 14 | 测试文件 | `*.node.test.ts`（纯逻辑）+ `*.browser.test.ts`（浏览器 API）拆分存放于 `__test__/`，按源码结构镜像分为 `core/` / `adapters/` / `drivers/` / `authority/` / `integration/` 五个子目录 |
 | 15 | 文档位置 | `src/shared/lock-data/RFC.md` |
 | 16 | 同 id 单例 | 进程内 `InstanceRegistry` 以 id 作 key，共享 data 引用与 driver；首次注册的 options 为准，冲突字段 `logger.warn`；listeners 不冲突，多实例 fanout；引用计数归零时销毁 Entry |
 | 17 | `AbortSignal` 支持 | `LockDataOptions.signal` 控制实例生命周期（abort == dispose）；`ActionCallOptions.signal` 控制本次调用；两者"与"组合；新增 `LockAbortedError` |
