@@ -6,7 +6,7 @@
 >
 > create time: 2026/04/27 11:50:00
 >
-> rfc version: 0.1.0
+> rfc version: 0.1.1
 >
 > scope: `src/shared/lock-data`
 
@@ -24,6 +24,7 @@ RFC 版本独立维护，不跟随包版本。语义：
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
 | 0.1.0 | 2026/04/27 | 初稿（含 30 条决策记录、依赖倒置适配器聚合、`persistence` + epoch 探测、`StorageAuthority` 权威副本、文档结构重组为「正文 + 附录 A 完整接口索引 + 附录 B 完整示例集」）；随后在同一版本内由 `draft` 转入 `review` |
+| 0.1.1 | 2026/04/28 | 四轮严格自检后的澄清与措辞修正 + 基础设施级前置改动（无 RFC 字段 / 协议级变更）。主要改动：① `update` / `replace` / `getLock` 返回类型契约精确化（按异步条件枚举，替代先前"有 id/无 id"二分）；② `dispose` 幂等语义明确（第二次起恒同步 void）；③ `data === undefined` 边界与 `getValue` 异步分支衔接；④ `LockDisposedError` 在 `getValue` Promise reject 下通过 `cause` 字段传递原始错误；⑤ `read()` 在 `syncMode: 'storage-authority'` 下的过时数据提示；⑥ `dataReadyState` 状态转换表 + listener 异常隔离 + 订阅解绑幂等；⑦ `resolveEpoch` TOCTOU 窗口纳入风险表；⑧ 决策 #10 补入遗漏的 `onCommit`；⑨ 正文 / 附录 A / 附录 B 三方回调示例签名对齐（`onSync` 使用 `LockSyncEvent` 对象）；⑩ 默认实现命名占位说明 + 重载匹配规则说明 + `extractRev` 复杂度注释；⑪ 基础设施：`shared/throw-error` 同步扩展为支持 `options.cause` 参数（ES2022 `Error.cause`），重载兼容既有调用点，RFC 的「错误类型」章节新增「基础设施约定」blockquote 并附签名摘录 |
 | X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名；对应的决策追加到「公开决策记录」并引用决策编号（如 #31） |
 
 ## 背景与动机
@@ -136,6 +137,7 @@ type LockDataTuple<T extends object> = readonly [ReadonlyView<T>, LockDataAction
 
 - 当 `getValue` 存在时，`data` 入参可作为"fallback 初始值"；`getValue` resolve 前 `readonly` 读到的是 `data`（或空对象 + 项目 logger warn 提示）
 - `getValue` 返回值的 Promise/同步状态在运行时通过 `value && typeof (value as any).then === 'function'` 判定
+- **重载匹配规则**：分支按声明顺序匹配，命中第一个即返回对应类型；异步条件（`getValue` 返 Promise / `syncMode === 'storage-authority'`）**任一成立**即走对应异步分支，两者同时成立时分支 B 先于分支 C 匹配（运行时行为一致：都返回 `Promise<LockDataTuple<T>>`）；分支 A 仅匹配"明确同步"的组合
 - 当 `syncMode === 'storage-authority'` 时，Promise 会在以下三个条件都满足时 resolve：
   1. localStorage 权威副本的 `storage` 事件订阅已就绪，`BroadcastChannel` 的 `session-probe` 订阅已就绪
   2. **会话 epoch 解析完成**（仅 `persistence === 'session'` 阶段）：
@@ -221,7 +223,13 @@ interface ActionCallOptions {
 interface LockDataActions<T extends object> {
   /**
    * 以 recipe 形式修改数据；draft 是可写草稿，返回值会被忽略
-   * 有 id：返回 Promise（需抢锁）；无 id：同步执行
+   * 返回类型（签名统一为 `void | Promise<void>`；任一异步条件成立即为 Promise）：
+   *   - 异步条件（任一满足即返回 Promise）：
+   *       · 有 id（需抢跨进程锁）
+   *       · `getValue` 返回 Promise 且 `entry.dataReadyState !== 'ready'`
+   *       · 传入的 recipe 本身返回 Promise
+   *       · `syncMode === 'storage-authority'` 且 acquire 需要 pull
+   *   - 全部异步条件都不满足（无 id + 同步 recipe + 已 ready + syncMode 'none'）→ 同步执行，返回 void
    * holdTimeout 超时会自动释放锁，recipe 的剩余逻辑视作"已被 revoked"
    */
   update(
@@ -229,26 +237,43 @@ interface LockDataActions<T extends object> {
     opts?: ActionCallOptions,
   ): void | Promise<void>
 
-  /** 直接替换整份数据；同样走抢锁流程 */
+  /** 直接替换整份数据；同样走抢锁流程，返回类型规则同 `update` */
   replace(next: T, opts?: ActionCallOptions): void | Promise<void>
 
   /**
    * 主动抢锁并持有（直到调用 dispose 或 holdTimeout 到期）
    * 用于"多次修改事务"：手动抢一次锁，中间连续调用 update/replace 时复用该锁
-   * 返回 Promise（有 id 时）或 void（无 id 时）
+   * 返回类型规则同 `update`
    */
   getLock(opts?: ActionCallOptions): void | Promise<void>
 
-  /** 读取一份结构化克隆的数据快照（与 readonly 解耦，可随意修改而不影响锁；不抢锁） */
+  /**
+   * 读取一份结构化克隆的数据快照（与 readonly 解耦，可随意修改而不影响锁；不抢锁、不触发 authority pull）
+   * 注意：`syncMode: 'storage-authority'` 下，`read()` 可能返回本 Tab 视角的过时数据；
+   * 需要跨 Tab 最新值请先 `await actions.getLock()` 再 `read()`（acquire 会主动 pull authority）
+   */
   read(): T
 
-  /** 主动释放当前持有的锁；未持有时为 no-op。dispose 后本 actions 仍可再次 getLock */
+  /**
+   * 主动释放当前持有的锁 + 从 InstanceRegistry 释放一次引用计数
+   * 未持有时仅释放引用计数
+   * 返回类型：
+   *   - 首次调用：`Promise<void>`（有锁需释放）或 `void`（无锁可释）
+   *   - 第二次起（已 disposed）：恒为同步 `void`，不再返回 Promise
+   *   - `await actions.dispose()` 在两种情况下都安全
+   * dispose 后本 actions 进入 `disposed` 终态，后续任何 action 调用（包含 getLock）reject `LockDisposedError`
+   */
   dispose(): Promise<void> | void
 
   /** 当前是否仍然持有锁 */
   readonly isHolding: boolean
 
-  /** 当前 actions 实例的唯一 token（force 抢占时用来识别持有者） */
+  /**
+   * 当前 actions 实例的唯一 token
+   * - 在 actions 构造时一次性生成，整个实例生命周期内保持不变
+   * - 多次 acquire / release 复用同一 token
+   * - `force` 抢占时作为持有者身份标识
+   */
   readonly token: string
 }
 ```
@@ -273,11 +298,22 @@ interface LockDataActions<T extends object> {
 
 所有错误经由 `shared/throw-error#throwError` / `throwType` 抛出，错误消息统一带 `[@cmtlyt/lingshu-toolkit#lockData]` 前缀。
 
+> **基础设施约定**：`shared/throw-error` 已扩展为支持 `options.cause` 参数（基于 ES2022 `new Error(msg, { cause })`），签名兼容既有调用点。本 RFC 的 `LockDisposedError` 在由 `getValue` Promise reject 间接触发时，通过 `throwError('lockData', 'init failed', LockDisposedError, { cause: originalReason })` 统一传递原始错误；业务侧 `catch (err) { err.cause }` 即可读到。
+>
+> 签名（摘录）：
+>
+> ```ts
+> throwError(fnName, message, ErrorClass?, options?: { cause?: unknown }): never
+> throwError(fnName, message, options?: { cause?: unknown }): never    // 重载：省略 ErrorClass
+> throwType(fnName, message, options?: { cause?: unknown }): never
+> createError(fnName, message, ErrorClass?, options?: { cause?: unknown }): Error
+> ```
+
 | 错误 | 触发时机 |
 | --- | --- |
 | `LockTimeoutError`（`Error`） | 超过 `timeout` 仍未获得锁 |
 | `LockRevokedError`（`Error`） | 持有锁期间被 `force` 抢占 / `holdTimeout` 触发；当前 working copy 被丢弃，持有者后续写入 draft 立即抛错 |
-| `LockDisposedError`（`Error`） | `dispose()` 后继续调用 actions；或 `options.signal.aborted` 后任意调用 |
+| `LockDisposedError`（`Error`） | `dispose()` 后继续调用 actions；或 `options.signal.aborted` 后任意调用；或 `options.getValue` 返回的 Promise reject 后共享同一 Entry 的任意调用 |
 | `LockAbortedError`（`Error`） | `ActionCallOptions.signal` 在 acquiring / holding 阶段 abort |
 | `ReadonlyMutationError`（`TypeError`） | 直接修改 `readonly` 视图 |
 | `InvalidOptionsError`（`TypeError`） | `options` 不合法（如 `timeout < 0`） |
@@ -559,7 +595,7 @@ await actions.getLock({ acquireTimeout: NEVER_TIMEOUT, holdTimeout: NEVER_TIMEOU
 | `listenersSet` | `Set<LockDataListeners>`，每实例独立；driver 事件向全部 fanout |
 | `initOptions` | 首次注册时的冻结配置（用于冲突检查） |
 | `dataReadyPromise` | `getValue` 异步初始化时共享的就绪 Promise |
-| `dataReadyState` | `'pending' \| 'ready' \| 'failed'` |
+| `dataReadyState` | `'pending' \| 'ready' \| 'failed'`；转换规则见下 |
 | `rev` | 当前 data 的权威单调序号；commit 成功 +1，初始 0 |
 | `lastAppliedRev` | 最近一次应用 authority snapshot 的 rev，用于去重 |
 | `authority` | `syncMode: 'storage-authority'` 时存在；承载权威副本读写 + 订阅 |
@@ -575,8 +611,10 @@ await actions.getLock({ acquireTimeout: NEVER_TIMEOUT, holdTimeout: NEVER_TIMEOU
 **行为规则**：
 
 - **data 引用以首次注册为准**：后续 `lockData(newInitial, { id })` 传入的 `newInitial` 直接忽略（不做浅合并）；需要改数据请走 `actions.update`
+  - 边界：若首次注册时 `data === undefined`（仅允许出现在「`getValue` 返回 Promise」的异步分支 B），初始 `entry.data` 为空对象 `{}` 并 `logger.warn`；`getValue` Promise resolve 后由 `Entry.dataReadyPromise` 原地替换为真实值，后续同 id 实例传入的 `data`（无论是否 undefined）同样被忽略
 - **`options` 冲突策略**：非 `listeners` 字段若与 `initOptions` 不一致，`logger.warn('[lockData] option conflict on id=<id>, using first registered value')`
 - **listeners 不冲突**：每个实例独立保留一份 listeners，driver 触发事件时向全部 listeners fanout
+- **listener 异常隔离**：fanout 时单个 listener 抛错由内部 `try/catch` 拦截并走 `logger.error('[lockData] listener threw', err)`，继续 fanout 给其他 listener，不打断主流程 / 不影响 actions 状态机；listener 异步抛错（Promise reject）同样吞掉 + 记录
 - **引用计数回收**：每次 `lockData(...)` 产出新实例时 `refCount +1`；`actions.dispose()` 或 `options.signal.aborted` 时 `-1`；归零时销毁 Entry、释放 driver、清理数据通道
 - **`dataReadyPromise` 共享**：
   - `getValue` 返回 Promise 时由首次注册的 Entry 统一持有；后续同 id 实例直接 `await entry.dataReadyPromise`，不重复调用 `getValue`
@@ -584,6 +622,16 @@ await actions.getLock({ acquireTimeout: NEVER_TIMEOUT, holdTimeout: NEVER_TIMEOU
   - 已 `'ready'` 后新实例走同步分支，不再创建新 Promise
   - `'failed'` 终态下新实例 `lockData` 立即 reject，并触发 `refCount -1`
 - **无 id**：不进入 InstanceRegistry，每次 `lockData` 完全独立；`dataReadyPromise` 仅存在于 actions 内部
+
+**`dataReadyState` 状态转换**（隐式有限状态机，无外部事件钩子；终态）：
+
+| from | 触发 | to |
+| --- | --- | --- |
+| `pending` | `options.getValue` 未传 / 返回同步值 | `ready` |
+| `pending` | `options.getValue` 返回的 Promise resolve | `ready` |
+| `pending` | `options.getValue` 返回的 Promise reject | `failed` |
+
+进入 `failed` 后，任何 action 调用立即 reject `LockDisposedError`（`cause` 字段携带 `getValue` 原始 reject 原因），共享该 Entry 的所有实例一并不可用。
 
 ### 能力检测与降级
 
@@ -789,15 +837,16 @@ async runUpdateRecipe(recipe, callOpts):
 - `getLock`：只抢锁、启动 `holdTimeout`，不执行 recipe；释放后的"空持锁期"没有 draft，所以不涉及 validity
 - `dispose`：
   - 清理 `holdTimeout`、release 锁、清理 driver 侧监听
-  - 从 InstanceRegistry 释放引用计数；归零时销毁 Entry
-  - **不销毁** actions 本体在"dispose 后"仅限 `isHolding === false` 下的 no-op；但一旦 `options.signal.aborted` 为 true，则整个 actions 进入 `disposed` 终态，任何后续调用 reject `LockDisposedError`
+  - 从 InstanceRegistry 释放一次引用计数；归零时销毁 Entry（`driver.destroy()` + 解绑订阅 + `registry.delete(id)`）
+  - 调用后本 actions 进入 `disposed` 终态（幂等）：重复 `dispose()` 仅第一次生效；后续任何 `update` / `replace` / `getLock` 调用 reject `LockDisposedError`
+  - `options.signal.aborted` 等价于自动触发一次 `dispose()`，语义与手动调用一致
 - **NEVER_TIMEOUT 处理**：`acquireTimeout === NEVER_TIMEOUT` 时不注册抢锁超时 AbortSignal；`holdTimeout === NEVER_TIMEOUT` 时不注册 hold 定时器
 - **AbortSignal 组合**：内部用 [`AbortSignal.any`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/any_static)（或等价 polyfill）把 `options.signal` / `callOpts.signal` / 超时 / dispose 四路信号合成一个派生 signal，传递给 driver
 - **getValue 异步期间的抢锁**：
   - `getValue` 返回 Promise 时，**由 `Entry.dataReadyPromise` 统一持有**；同 id 多个实例共享同一个 Promise，不会重复触发 `getValue`
   - 此期间如调用 `update` / `replace` / `getLock`，action 将**等待 `entry.dataReadyPromise` resolve 后再进入抢锁流程**（而不是直接 reject）
   - `acquireTimeout` 计时从"进入抢锁流程"时开始计算，等待 `dataReadyPromise` 的时间不计入抢锁超时
-  - 若 `entry.dataReadyState === 'failed'`，任何 action 调用直接 reject `LockDisposedError`（视为初始化失败，所有共享该 Entry 的实例一并不可用）
+  - 若 `entry.dataReadyState === 'failed'`，任何 action 调用直接 reject `LockDisposedError`（视为初始化失败，所有共享该 Entry 的实例一并不可用；错误 `cause` 字段携带 `getValue` 原始 reject 原因，便于业务区分"初始化失败"与"主动 dispose"）
   - 无 id 场景下 `dataReadyPromise` 由 actions 内部持有，语义与上述一致
 
 ### syncMode 实现要点
@@ -899,6 +948,8 @@ type CloneFn = <V>(value: V) => V
 
 **优先级**：用户提供 > 默认实现探测成功 > 返回 null（对应字段走"降级"分支）。
 
+> `DefaultLocalStorageAuthority` / `DefaultBroadcastChannel` / `DefaultSessionStore` / `structuredCloneSafe` 等为内部实现的默认适配器命名占位，仅用于文档交叉引用，**不对外导出**；用户覆盖时通过 `adapters.getAuthority` / `getChannel` / `getSessionStore` / `clone` 注入自己的实现即可，无需 import 这些内部命名。
+
 ### StorageAuthority（localStorage 权威副本）
 
 **动机**：commit 广播若走 BroadcastChannel 会与锁释放走不同通道，非 holder 在 `driver.acquire` 成功瞬间可能尚未收到最新 snapshot；而后台 Tab 进入 bfcache / freeze 时还会直接丢失广播消息。将"权威副本"抽象为 `AuthorityAdapter`（默认实现为 localStorage），把"推送"与"拉取"两条路径收敛到同一份持久化数据上，实现：
@@ -948,6 +999,8 @@ function serialize(rev: number, ts: number, snapshot: unknown): string {
 ```ts
 function extractRev(raw: string): number | null {
   // 匹配 `{"rev":<整数>` 开头；失败（旧格式 / 手动写入）返回 null 走全量 parse 兜底
+  // 正则锚定开头 + 有界整数匹配，匹配成本恒为 O(首部长度)，与 value 总长无关；
+  // 即便 localStorage value 达到 MB 级（浏览器通常配额 5~10MB），快路径开销仍稳定在亚微秒
   const match = /^\{"rev":(-?\d+)/.exec(raw)
   return match ? Number(match[1]) : null
 }
@@ -1124,7 +1177,7 @@ on-message(msg):
 - 写入 snapshot 使用 `entry.adapters.clone(entry.data)`（默认 `structuredClone` → JSON 兜底）；含 `Function` / `Symbol` / DOM 等不可克隆内容时 `logger.warn` 并跳过写入
 - `authority.write` 抛出（如 localStorage 超配额 `QuotaExceededError`）时 `logger.warn`，本地 commit 仍视为成功（跨进程同步本次失效，下次 commit 重试）
 - **authority 不可用**（默认实现探测 localStorage 不可用 / 用户未提供 adapter）时 `entry.authority` 为 `null`：降级为"同进程同 id 共享、跨进程完全不同步"，与 `syncMode: 'none'` 效果一致，并 `logger.warn('[lockData] authority unavailable, fallback to in-process sharing')`
-- `dispose` / `refCount === 0` 时解绑所有订阅（`authority.subscribe` 返回的取消函数 / `pageshow` / `visibilitychange` / `channel.close()`），避免 Entry 被销毁后的野生回调
+- `dispose` / `refCount === 0` 时解绑所有订阅（`authority.subscribe` 返回的取消函数 / `pageshow` / `visibilitychange` / `channel.close()`），避免 Entry 被销毁后的野生回调；解绑操作**幂等**：`options.signal.aborted` + `actions.dispose()` 同时触发时，内部以一次性 `disposed` 标志位保证仅解绑一次
 - `syncMode: 'none'` 时 `entry.authority = null`，`entry.rev` 仍维护（只做本 Tab 内的单调计数，不参与持久化与广播）；`persistence` 字段被忽略；`adapters.getAuthority` / `adapters.getChannel` / `adapters.getSessionStore` 均不会被调用
 
 ## 默认值总览
@@ -1224,6 +1277,7 @@ src/shared/lock-data/
 ├── errors.ts                 # LockTimeoutError 等错误定义
 ├── index.mdx                 # 用户向文档（RFC 落地后产出）
 └── __test__/
+    ├── README.md                          # 各测试文件的细粒度用例清单与断言快照（实施阶段产出）
     ├── readonly-view.node.test.ts         # 只读代理行为（纯逻辑，无需浏览器）
     ├── actions-local.node.test.ts         # 无 id 本地锁 + actions（纯逻辑）
     ├── options-validate.node.test.ts      # 参数校验 / NEVER_TIMEOUT 处理（纯逻辑）
@@ -1266,9 +1320,9 @@ src/shared/lock-data/
 | `signal.node.test.ts` | Node | `options.signal` + `ActionCallOptions.signal` 的 acquiring / holding 阶段 abort 行为；两路 signal 的"与"组合 |
 | `adapters-resolve.node.test.ts` | Node | `pickDefaultAdapters` 字段级优先级；默认 authority / channel / sessionStore 探测失败的降级；`adapters.clone` 的 JSON fallback；用户 adapter 参数校验 |
 | `memory-adapter.node.test.ts` | Node | 用内存 adapter 端到端跑 `syncMode: 'storage-authority'` + `persistence: 'session' \| 'persistent'` 全链路，替代一大半浏览器集成测试 |
-| `actions-webLocks.browser.test.ts` | Browser | 并发排队；`acquireTimeout` / `holdTimeout` / `force` 抢占 + `onRevoked('force')` |
-| `actions-broadcast.browser.test.ts` | Browser（mock `navigator.locks = undefined`） | 心跳丢失后队列晋升；`force` 抢占 |
-| `actions-storage.browser.test.ts` | Browser（再 mock `BroadcastChannel = undefined`） | `storage` 事件跨 Tab 模拟；同 Tab 多实例本地补发排队 |
+| `actions-webLocks.browser.test.ts` | Browser | 并发排队（FIFO）；`acquireTimeout` / `holdTimeout` / `force` 抢占 + `onRevoked('force')` |
+| `actions-broadcast.browser.test.ts` | Browser（mock `navigator.locks = undefined`） | 心跳丢失后队列晋升；并发抢锁去重；`force` 抢占 |
+| `actions-storage.browser.test.ts` | Browser（再 mock `BroadcastChannel = undefined`） | `storage` 事件跨 Tab 模拟；同 Tab 多实例本地补发排队；并发竞态下的 token 重试兜底 |
 | `authority.browser.test.ts` | Browser | `syncMode: 'none' \| 'storage-authority'` 语义；`rev`-first 字段顺序；`onSync` 触发；lazy parse 快路径；rev 乱序丢弃；不可克隆值 / `QuotaExceededError` / localStorage 不可用的降级 |
 | `authority-lifecycle.browser.test.ts` | Browser | `pageshow(e.persisted)` / `visibilitychange` 激活时 pull；bfcache 场景；`dispose` 后解绑 |
 | `authority-persistence.browser.test.ts` | Browser | `persistence: 'session' \| 'persistent'` 三类启动场景（首个 Tab / 同会话组新开 / 刷新）+ 残留清空 + epoch 不匹配跳过 parse + 降级（sessionStorage / BroadcastChannel 不可用） |
@@ -1296,6 +1350,7 @@ src/shared/lock-data/
 | `persistence: 'session'` 的"会话组"判定依赖 BroadcastChannel | 不可用时无法识别"同会话组新开 Tab" | 降级为"首个 Tab"处理（清空 localStorage + 新 epoch）+ `logger.warn`；每个 Tab 各自独立但 localStorage 仍是权威，不影响数据正确性 |
 | `sessionStorage` 不可用 | 极罕见，但隐身模式部分浏览器会禁用 | 自动降级 `persistence: 'session'` → `'persistent'` + `logger.warn`，跨会话恢复但不会丢数据 |
 | session-probe 的消息竞态 | 多个 Tab 同时启动时相互探测，可能都收到响应都不做清空 | 正确行为：它们会收敛到**最早启动 Tab 的 epoch**（其他 Tab 探测时已有响应）；即便出现 2 个 Tab 互相都是"首个"，各自生成不同 epoch 也只有一方 commit 能被对方接受，`readIfNewer` epoch 校验会自动丢弃另一方的写入 → 最多损失一次 commit（由用户重试） |
+| `resolveEpoch` 的 TOCTOU 窗口 | `sessionStorage.getItem` → 判空 → `broadcast probe` 之间，理论上另一 Tab 可能刚好 commit 新 epoch | 实际概率极低（同 Tab 主线程执行窗口 <1ms）；即便发生，新 epoch 会通过 session-probe 响应或后续 `storage` 事件收敛，最多表现为短暂读到旧 epoch 的残留权威副本（rev/epoch 校验自动丢弃），不影响数据正确性 |
 | localStorage value 清理时机 | `persistence: 'session'` 下 Tab 关闭不会立即清 localStorage，只在下次首个 Tab 启动时清 | 可接受：浏览器未打开期间残留不影响任何运行时；避免依赖不可靠的 `beforeunload` |
 | 队列公平性 | BroadcastDriver / StorageDriver 无法做到严格原子 FIFO | 允许极小概率并发抢锁；用 token 比较 + 重试兜底 |
 | AbortSignal.any 兼容性 | 较老环境缺失 `AbortSignal.any` | 通过 `signal.ts` 的统一封装做 polyfill |
@@ -1326,7 +1381,7 @@ src/shared/lock-data/
 | 7 | `timeout` 语义 | options 层默认 5000；action 调用可拆 `acquireTimeout` / `holdTimeout` 覆盖；支持 `NEVER_TIMEOUT` 永不超时 |
 | 8 | `getValue` | 可同步可异步，返回值决定 `lockData` 是否为 Promise；异步期间抢锁为"等待"语义 |
 | 9 | `options.getLock`（**已被 #30 移入 `adapters.getLock`**） | 自定义锁驱动入口，覆盖默认能力检测；不再承担观察回调职责（语义不变，仅字段位置收敛到 `adapters`） |
-| 10 | 事件回调 | 收敛到 `options.listeners`（`onLockStateChange` / `onRevoked` / `onSync`） |
+| 10 | 事件回调 | 收敛到 `options.listeners`（`onLockStateChange` / `onRevoked` / `onCommit` / `onSync`；`onCommit` 由 #21 补入） |
 | 11 | `NEVER_TIMEOUT` | 导出的 unique symbol，可用在 `timeout` / `acquireTimeout` / `holdTimeout` 任意位置 |
 | 12 | `syncMode` | 语义收敛为"仅跨进程同步"；同进程同 id 始终共享；本期提供 `'none' \| 'storage-authority'`，CRDT 留给未来；非 `'none'` 时 `lockData` 返回 Promise（被 #28 最终定稿） |
 | 13 | `actions.getLock` | 提供手动抢锁接口用于多步事务 |
@@ -1400,6 +1455,7 @@ interface LockDataOptions<T extends object> {
    *     - 其他 Tab 通过 `storage` 事件接收并按 `rev` 去重后原地更新 `entry.data`
    *     - acquire 成功后额外同步 `getItem` + lazy parse 拉一次，保证"拿到锁 = 拿到最新值"
    *     - `pageshow` / `visibilitychange` 激活时主动 pull，覆盖 bfcache / freeze 期间丢失的消息
+   *       （仅浏览器环境注册；自定义 `adapters.getAuthority` 可在非浏览器环境通过 `subscribe` 回调自行触发等价 pull）
    * 注意：storage-authority 为覆盖式同步，并发合并依赖锁的串行化
    */
   syncMode?: 'none' | 'storage-authority'
@@ -1521,7 +1577,7 @@ interface LockDataListeners<T extends object = object> {
 interface LockCommitEvent<T extends object> {
   source: 'update' | 'replace'
   token: string
-  /** 本次 commit 后的权威单调序号 */
+  /** 本次 commit 后的权威单调序号；无 id 场景下仅为本实例单调递增计数，不具跨进程可比性 */
   rev: number
   /** 本次变更的最小路径集（只读深冻结） */
   readonly mutations: ReadonlyArray<{
@@ -1592,7 +1648,7 @@ lockData(data, {
       if (evt.phase === 'rejected') toast(`lock failed: ${evt.reason}`)
     },
     onRevoked: (reason) => toast(`lock revoked: ${reason}`),
-    onSync: (evt) => console.log('received remote update', evt.snapshot),
+    onSync: (evt) => console.log(`received remote update rev=${evt.rev}`, evt.snapshot),
   },
 })
 ```
