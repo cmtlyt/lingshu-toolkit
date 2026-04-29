@@ -1,6 +1,6 @@
 # RFC: lockData — 受控只读数据锁
 
-> status: review
+> status: accepted
 >
 > author: cmtlyt
 >
@@ -1944,4 +1944,12 @@ expect(viewB.count).toBe(1)  // authority.subscribe 同步触达
 
 ---
 
-> 评审通过后，在此文件末尾追加 "Accepted on YYYY/MM/DD" 并开始实施。
+---
+
+## 评审通过记录
+
+**Accepted on 2026/04/29**
+
+- **评审版本**：0.1.4
+- **评审通过方**：@cmtlyt（仓库所有者 / RFC 作者）
+- **后续动作**：进入实施阶段。下一次对本 RFC 的追加或修订发生在实施完成并发布后，版本号按规范直接升至 `1.0.0`（见「版本管理」章节 L22）
