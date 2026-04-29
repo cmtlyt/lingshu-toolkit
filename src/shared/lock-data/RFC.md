@@ -6,7 +6,7 @@
 >
 > create time: 2026/04/27 11:50:00
 >
-> rfc version: 0.1.3
+> rfc version: 0.1.4
 >
 > scope: `src/shared/lock-data`
 
@@ -27,6 +27,7 @@ RFC 版本独立维护，不跟随包版本。语义：
 | 0.1.1 | 2026/04/28 | 四轮严格自检后的澄清与措辞修正 + 基础设施级前置改动（无 RFC 字段 / 协议级变更）。主要改动：① `update` / `replace` / `getLock` 返回类型契约精确化（按异步条件枚举，替代先前"有 id/无 id"二分）；② `dispose` 幂等语义明确（第二次起恒同步 void）；③ `data === undefined` 边界与 `getValue` 异步分支衔接；④ `LockDisposedError` 在 `getValue` Promise reject 下通过 `cause` 字段传递原始错误；⑤ `read()` 在 `syncMode: 'storage-authority'` 下的过时数据提示；⑥ `dataReadyState` 状态转换表 + listener 异常隔离 + 订阅解绑幂等；⑦ `resolveEpoch` TOCTOU 窗口纳入风险表；⑧ 决策 #10 补入遗漏的 `onCommit`；⑨ 正文 / 附录 A / 附录 B 三方回调示例签名对齐（`onSync` 使用 `LockSyncEvent` 对象）；⑩ 默认实现命名占位说明 + 重载匹配规则说明 + `extractRev` 复杂度注释；⑪ 基础设施：`shared/throw-error` 同步扩展为支持 `options.cause` 参数（ES2022 `Error.cause`），重载兼容既有调用点，RFC 的「错误类型」章节新增「基础设施约定」blockquote 并附签名摘录 |
 | 0.1.2 | 2026/04/28 | 目录结构调整（无 RFC 字段 / 协议级变更）。核心代码不再平铺根目录，按职责分 4 个子目录：`core/`（协调层：`registry` / `actions` / `readonly-view` / `draft` / `signal`）、`authority/`（拆分为 `index`（StorageAuthority 主类 / initAuthority / applyAuthorityIfNewer / onCommitSuccess / 生命周期订阅）+ `serialize`（固化字段顺序 rev→ts→epoch→snapshot）+ `extract`（extractRev / extractEpoch / readIfNewer 快路径过时判定）+ `epoch`（resolveEpoch A~F 六分支 / session-probe / session-reply））、`drivers/`（不变）、`adapters/`（文件名简化：`authority.ts` / `channel.ts` / `session-store.ts` / `logger.ts` / `clone.ts`）；根目录仅保留 `index.ts` / `index.mdx` / `types.ts` / `constants.ts` / `errors.ts` + `RFC.md`。测试目录按源码镜像为 `__test__/{core,adapters,drivers,authority,integration}/`，跨模块集成测试归入 `integration/`。同步更新「目录与文件规划」「依赖倒置与适配器」「测试策略」「风险与取舍」「公开决策记录 #14」等章节的路径引用 |
 | 0.1.3 | 2026/04/28 | API 表面扩展（非 breaking）：`LockDataActions` 新增 `release(): void` 方法，拆分原 `dispose` 过载的"还锁 + 销毁实例"双重职责。`release` 仅处理还锁（release 底层锁 + 清理 `holdTimeout` + state 回 `idle`），不碰引用计数 / 订阅解绑，actions 仍可继续使用；`dispose` 语义不变。同步更新：① 正文「API 设计 / LockDataActions」签名 + JSDoc；② 正文「调用语义要点」新增 `release` vs `dispose` 职责分工说明 + 长生命周期用法示例；③ 正文「Actions 实现要点」拆分 `release` / `dispose` 流程；④ 使用示例「多步事务」新增长生命周期场景（场景 B：用 `release` 还锁、实例复用）；⑤ 附录 A 接口索引同步（共用定义，随正文变更）；⑥ 新增公开决策记录 #31；⑦ 新增风险表「`release` / `dispose` 语义混淆」条目 |
+| 0.1.4 | 2026/04/29 | 架构备忘（无 API / 协议变更）：记录"事务式 Draft 暂不外部化为 `shared/transactional-draft`"的决议（方向 A）。实施阶段 `core/draft.ts` 保持 self-contained 实现，源文件顶部加迁移注释指向 RFC；RFC 正文「事务式 Draft」章节新增「外部化前瞻（可选迁移路径）」小节，预留通用化 API 骨架（`createTransaction` / `Transaction` / `Mutation`）+ 需补齐的通用化能力清单 + 明确的抽离触发条件。新增公开决策记录 #32 |
 | X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名；对应的决策追加到「公开决策记录」并引用决策编号（如 #31） |
 
 ## 背景与动机
@@ -871,6 +872,61 @@ async runUpdateRecipe(recipe, callOpts):
 - **`replace(next, opts?)` 的等价语义**：在一个隐式的 update 事务里执行 `Object.keys(draft).forEach(k => delete draft[k])` + `Object.assign(draft, next)`；享有同样的 working copy / 回滚保护
 - **同步 recipe 也走事务**：语义一致、测试路径统一；同步 recipe 的额外开销仅限于 Proxy 访问与 mutation log 的数组 push
 
+#### 外部化前瞻（可选迁移路径）
+
+> **此小节仅为架构备忘，不影响本 RFC 的接收**；实施阶段先在 `core/draft.ts` 内部 self-contained，不预先外部化
+
+**背景**：事务式 Draft（Proxy + mutation log + validity + 原地 rollback）本质是一套与 `lock-data` 解耦的通用机制——任意"先对对象做一串写入、某些条件下要整体回滚"的场景都可复用（表单草稿、乐观更新、编辑器临时操作、配置热更新、批量处理中途回滚等）。与 `immer` 的**差异化定位**：`immer` 产出**新对象**（persistent data structure），事务式 Draft **原地修改 + 失败回滚**，保留引用稳定性（对"同 id 多实例共享 data 引用" / "React 外部 store"等场景是硬需求）。
+
+**当前决策（方向 A）**：
+
+- `core/draft.ts` 实现 **self-contained**，不预先抽离为 `shared/transactional-draft`
+- 源文件顶部加一段迁移注释（指向本 RFC 章节），降低未来迁移的沟通成本
+- 等真正出现**第二个使用者**（即在本仓或其他仓内再次需要同样机制）时再抽离，避免过早抽象导致 API 设计失真
+
+**抽离时机的判定条件**（任一满足才启动抽离）：
+
+1. 仓内新增至少 **1 个** 具体工具需要同样的"原地修改 + 失败回滚"机制（编辑器、动画回放、表单草稿等）
+2. 外部仓反馈有复用需求，且其场景与 `lock-data` 当前用法的交集 ≥ 70%
+3. 通用化 API 能清晰区别于 `immer` 的"产出新对象"语义，且体积仍保持在 `~1KB` 量级
+
+**预留的通用化 API 骨架**（仅作设计备忘，抽离时可据此演进）：
+
+```ts
+// 预期位置：src/shared/transactional-draft/index.ts（未来抽离时）
+interface Mutation {
+  path: PropertyKey[]
+  op: 'set' | 'delete'
+  value?: unknown
+  prevValue?: unknown   // 通用版需暴露 prevValue（lock-data 内部实现中可选），支持审计 / 反向补丁
+}
+
+interface Transaction<T extends object> {
+  readonly draft: T                                 // 可写代理
+  readonly mutations: ReadonlyArray<Mutation>       // 只读 log
+  readonly isValid: boolean
+  commit(): { mutations: ReadonlyArray<Mutation> }  // 冻结 log 并返回补丁
+  rollback(): void                                  // 按 log 逆序恢复 target
+  dispose(): void                                   // validity 置否，防止 draft 泄露后写入
+}
+
+function createTransaction<T extends object>(
+  target: T,
+  options?: {
+    onInvalidWrite?: (path: PropertyKey[]) => void  // 默认抛错；lock-data 内部适配为 LockRevokedError
+  },
+): Transaction<T>
+```
+
+**相对于 `lock-data` 内部实现需要补齐的通用化能力**：
+
+1. 暴露 `prevValue` 字段（内部实现中仅保留在 snapshot 里，通用工具需暴露给用户做审计 / 反向补丁）
+2. Map / Set 支持（内部实现只覆盖普通对象和数组）
+3. 手动 `commit()` / `rollback()` 显式控制（内部实现绑定在 recipe 生命周期上）
+4. 可选：savepoint / nested transaction（子事务独立回滚）
+
+**迁移成本评估**：`core/draft.ts` 在 self-contained 状态下 API 表面小、核心约 80 行；未来抽离时只需在 `shared/transactional-draft` 产出通用实现，`lock-data` 内部用薄适配层（绑定 `LockRevokedError` + recipe 生命周期）即可复用——**不构成预先外部化的理由**，但为未来演进留足空间。
+
 ### Actions 实现要点
 
 - 内部状态机：`idle` → `acquiring` → `holding` → `committing` → `released` / `revoked` / `disposed`
@@ -1481,6 +1537,7 @@ src/shared/lock-data/
 | 29 | `persistence` 字段 + epoch 探测 | 新增 `LockDataOptions.persistence: 'session' \| 'persistent'`，**默认 `'session'`**（符合"协作仅在多 Tab 活跃期"的直觉）；`'session'` 通过 `sessionStorage.${LOCK_PREFIX}:${id}:epoch` + `BroadcastChannel('${LOCK_PREFIX}:${id}:session')` 的 `session-probe` / `session-reply` 协议实现"所有 Tab 关闭即重置"；首次启动探测超时默认 `sessionProbeTimeout: 100ms`；localStorage 存储格式扩展为 `{"rev":N,"ts":T,"epoch":"xxx","snapshot":...}`（rev 仍首位兼容 lazy parse，新增 `extractEpoch` 快路径 epoch 过滤）；首个 Tab 判定为"所有 Tab 关闭后重启"时**主动 `removeItem` 清空 localStorage 权威副本**；`'persistent'` 固定 epoch 为常量 `'persistent'`、不做探测，保留跨会话持久化能力；`sessionStorage` 不可用时 `'session'` 降级为 `'persistent'` + `logger.warn` |
 | 30 | 依赖倒置聚合到 `options.adapters` | 所有可外部化的环境依赖（锁驱动 / 权威副本 / 广播通道 / 会话存储 / 日志 / 克隆）收敛到 `options.adapters` 单一入口，替代原先平铺在 options 顶层的 `getLock`；每个字段可独立注入，缺省走默认实现（`pickDefaultAdapters` 组合）。**接口风格**：涉及 id 作用域的依赖（`getLock` / `getAuthority` / `getChannel` / `getSessionStore`）用工厂函数 `getXxx(ctx) => Adapter`，与原 `getLock` 对齐；无作用域的依赖（`logger` / `clone`）直接传实例。**设计原则**：① 单一入口减少 options 表面积；② 用户提供 > 默认实现 > null（触发降级）；③ 存储格式 codec 由内部固化不开放（跨 Tab 语义对齐由用户保证"A 写 B 能读"）；④ 语义正确性由提供方负责，内部不做行为探测。**收益**：彻底支持非浏览器环境（Node / SSR / RN / Electron / Worker）；单元测试可用内存 adapter 在 Node 跑完整链路，大幅精简浏览器集成测试；顺带关闭"是否引入自研深克隆工具"开放问题（用户可注入 `adapters.clone`）。**兼容性**：RFC 未发布，顶层 `getLock` 移入 `adapters.getLock` 非 breaking；决策 #9 相关描述更新但语义不变 |
 | 31 | `release` / `dispose` 职责分离 | 新增 `actions.release(): void`，仅处理"还锁"语义（release 底层锁 + 清理 `holdTimeout` + state 回 `idle`），不碰 InstanceRegistry 引用计数、不解绑订阅，actions 仍可继续使用。**动机**：原先只有 `dispose` 既负责还锁又负责销毁实例，语义过载；对长生命周期场景（如 React 组件内多次交互）用户容易误用（以为 `dispose` 只是还锁，导致后续 action 全部 reject `LockDisposedError`）。**API 对称性**：`getLock` ↔ `release`（同级别操作）、`lockData` ↔ `dispose`（整个生命周期）。**返回类型**：`release` 始终同步 `void`（底层 driver 的 Promise release 内部 fire-and-forget，错误走 `logger.warn`）；`dispose` 返回规则不变。**幂等性**：重复 `release` no-op；`disposed` 终态下 `release` 同样 reject `LockDisposedError`（与其他 action 一致）。**兼容性**：RFC 未发布，纯新增 API 非 breaking；附录 B「多步事务」补长生命周期用法示例 |
+| 32 | 事务式 Draft 暂不外部化（方向 A） | **决议**：事务式 Draft（Proxy + mutation log + validity + 原地 rollback）具备作为通用 `shared/transactional-draft` 工具的价值（与 `immer` "产出新对象"语义差异化定位为"原地修改 + 失败回滚"），但**本期不预先抽离**，在 `core/draft.ts` 中保持 self-contained 实现。**理由**：① 当前仅有 `lock-data` 一个使用者，过早抽象易导致 API 设计失真；② 仓内暂无第二个确切复用场景（表单草稿、乐观更新、编辑器临时操作、配置热更新等均为潜在而非既定需求）；③ 迁移成本低（核心仅约 80 行），未来抽离时 `lock-data` 可通过薄适配层复用，不阻塞后续演进。**操作**：① 在 `core/draft.ts` 源文件顶部加迁移注释指向本 RFC「外部化前瞻」小节；② RFC 预留 `shared/transactional-draft` 的通用化 API 骨架（`createTransaction` / `Transaction` / `Mutation`）+ 需要补齐的通用化能力清单（`prevValue` 暴露、Map/Set 支持、手动 commit/rollback、可选 nested）；③ 设定明确的抽离触发条件（至少一个新的具体复用场景 / 外部仓反馈 + 场景交集 ≥ 70% / 能清晰区别 `immer` 且体积保持 ~1KB）。**兼容性**：RFC 未发布，纯内部决策，零 API 面变更 |
 
 ## 开放问题
 
