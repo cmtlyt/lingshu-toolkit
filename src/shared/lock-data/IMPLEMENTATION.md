@@ -41,6 +41,26 @@
   - ❌ `for (const item of arr) { ... }`（数组场景）
   - **例外**：`Set` / `Map` / generator / 迭代器等不支持索引访问的容器**允许**使用 `for...of`（语言特性必需），但需在上下文中明确其为迭代器场景
   - 理由：索引 `for` 在 V8 优化路径上更稳定、可通过 `i` 访问上下文、break/continue 语义与异步循环转换更直观
+- **空值兜底运算符**：**非必要场景优先使用 `||`**，仅在需要严格区分 null/undefined 与其他 falsy 值时保留 `??`
+  - 保留 `??`（null/undefined 语义关键）：
+    - `Map.get(key) ?? fallback`（Map 允许存 `0 / '' / false` 作为有效值）
+    - `Storage.getItem(key) ?? fallback`（`null` = 不存在、`''` = 存在空串，语义不同）
+    - JSON 解析结果兜底：`parsed.rev ?? 0`（`rev` 合法值包含 0）
+  - 改用 `||`（非必要场景）：
+    - 参数兜底：`const user = userAdapters || {}`
+    - 配置 fallback 链：`user.clone || createSafeCloneFn(logger)`
+    - 默认空容器：`list || []`、`ctx || {}`
+  - 审查反问："该字段是否存在合法的 `0 / '' / false / NaN` 值？" —— 否则一律用 `||`
+  - ✅ `const user = (userLogger || {}) as Partial<LoggerAdapter>`
+  - ❌ `const user = (userLogger ?? {}) as Partial<LoggerAdapter>`（userLogger 不可能是合法 falsy，`??` 无收益）
+- **logger 字段级混合兜底**：用户传入的 `LoggerAdapter` 可能只实现部分方法（`debug` 可选），内部流转的 logger 必须通过 `resolveLoggerAdapter(userLogger?)` 做字段级合并，产出三方法齐全的 `ResolvedLoggerAdapter`
+  - 合并粒度：按 `warn / error / debug` **独立判定**，用户哪个字段缺失/非 function，该字段单独走默认 logger
+  - 类型契约：内部模块（`clone.ts` / `authority.ts` / `channel.ts` / core 层）接受的 logger 参数一律声明为 `ResolvedLoggerAdapter`（三方法必选），**不接受原始 `LoggerAdapter`**
+  - this 绑定：用户方法解析时 `.bind(userLogger)`，保证用户 logger 内部 `this` 正确
+  - 一次解析全程复用：`pickDefaultAdapters` 产出后挂到 `entry.adapters.logger`，下游调用 `logger.debug(...)` 无需判空
+  - ✅ `const logger: LoggerAdapter = resolveLoggerAdapter(user.logger)`（产物用作 entry.logger）
+  - ❌ `const logger = user.logger ?? createDefaultLogger()`（对象级替换，会整体丢失用户部分字段）
+  - ❌ 调用点 `logger.debug?.(...)` 判空（契约已保证存在，判空反而暗示不信任契约）
 
 ### 进度管理
 
@@ -132,39 +152,58 @@ Phase 7 文档与测试收口
 
 依赖 Phase 1 的 types / errors。**关键点**：每个默认适配器都要有"环境探测 → 不可用时返回 null"的兜底分支。
 
-### 2.1 `adapters/logger.ts`
+### 2.1 `adapters/logger.ts` ✅
 
-- [ ] 实现默认 `LoggerAdapter`：委托到 `shared/logger` → [RFC#默认实现](./RFC.md#默认实现)（L1047）
-- [ ] 验收：`warn` / `error` / `debug` 三个方法齐全
+- [x] 实现默认 `LoggerAdapter`：委托到 `shared/logger` → [RFC#默认实现](./RFC.md#默认实现)（L1047）
+- [x] 验收：`warn` / `error` / `debug` 三个方法齐全（`__test__/adapters/logger.node.test.ts`，6 用例全通）
 
-### 2.2 `adapters/clone.ts`
+### 2.2 `adapters/clone.ts` ✅
 
-- [ ] 实现 `structuredCloneSafe<V>(value)`：`structuredClone` 优先 + JSON fallback + `logger.warn` → [RFC#默认实现](./RFC.md#默认实现)
-- [ ] 验收：`__test__/adapters/clone.node.test.ts` 覆盖 structuredClone 可用 / 不可用 / JSON 失败（循环引用）三条分支
+- [x] 实现 `createSafeCloneFn(logger?)`：`structuredClone` 优先 + JSON fallback + `logger.warn/error` → [RFC#默认实现](./RFC.md#默认实现)
+- [x] 三层降级：原生 `structuredClone` → JSON.parse/stringify → 返回原值（最后一道防线）
+- [x] 工厂构造阶段一次性探测 `structuredClone` 可用性，避免每次 clone 重复探测
+- [x] 验收：`__test__/adapters/clone.node.test.ts` 覆盖 structuredClone 可用 / 不可用 / 对单个 value 失败（function）/ JSON 失败（循环引用）/ 探测抛错 / logger 未注入 六类分支（8 用例全通）
 
-### 2.3 `adapters/authority.ts`（默认 localStorage 实现）
+### 2.3 `adapters/authority.ts`（默认 localStorage 实现） ✅
 
-- [ ] 实现 `DefaultLocalStorageAuthority`：`read` / `write` / `remove` / `subscribe(storage event)` → [RFC#接口定义](./RFC.md#接口定义)（L982，`AuthorityAdapter`）
-- [ ] 写入 `QuotaExceededError` 捕获；通过 throw 委托给内部 logger.warn 降级 → [RFC#接口定义](./RFC.md#接口定义)
-- [ ] 能力探测：`localStorage` 不可用时工厂返回 null → [RFC#默认实现](./RFC.md#默认实现)
-- [ ] 验收：`__test__/adapters/authority.browser.test.ts`（真浏览器） + `__test__/adapters/authority-memory.node.test.ts`（内存替身）
+- [x] 实现 `createDefaultAuthorityAdapter(ctx, deps)`：`read` / `write` / `remove` / `subscribe(storage event)` → [RFC#接口定义](./RFC.md#接口定义)（L982，`AuthorityAdapter`）
+- [x] 写入 `QuotaExceededError` 捕获；通过 `logger.warn` 降级，不向上抛 → [RFC#接口定义](./RFC.md#接口定义)
+- [x] 能力探测：用 **写-删探测法** 判定 localStorage 真实可用性（规避 Safari 隐私模式下 `typeof localStorage === 'object'` 但 setItem 抛错的场景）；不可用时工厂返回 null → [RFC#默认实现](./RFC.md#默认实现)
+- [x] `subscribe` 严格过滤：仅响应同 key + `storageArea === localStorage` 的 `storage` 事件；订阅回调异常走 `logger.error` 隔离
+- [x] key 契约：`buildAuthorityKey(id)` 固化为 `${LOCK_PREFIX}:${id}:latest`
+- [x] 验收：`__test__/adapters/authority-memory.node.test.ts`（内存替身，11 用例）+ `__test__/adapters/authority.browser.test.ts`（真 localStorage，4 用例），共 15 用例全通
 
-### 2.4 `adapters/channel.ts`（默认 BroadcastChannel 实现）
+### 2.4 `adapters/channel.ts`（默认 BroadcastChannel 实现） ✅
 
-- [ ] 实现 `DefaultBroadcastChannel`：`postMessage` / `subscribe` / `close` → [RFC#接口定义](./RFC.md#接口定义)（L982，`ChannelAdapter`）
-- [ ] 能力探测：`BroadcastChannel` 不可用时工厂返回 null → [RFC#默认实现](./RFC.md#默认实现)
-- [ ] 验收：`__test__/adapters/channel.browser.test.ts`
+- [x] 实现 `createDefaultChannelAdapter(ctx, deps)`：`postMessage` / `subscribe` / `close` → [RFC#接口定义](./RFC.md#接口定义)（L982，`ChannelAdapter`）
+- [x] 能力探测：构造器存在 + 构造可执行，双重探测；不可用时工厂返回 null → [RFC#默认实现](./RFC.md#默认实现)
+- [x] `close` 幂等；关闭后 `postMessage` / `subscribe` 降级为 noop 并 warn（上层语义错误）
+- [x] 订阅回调异常走 `logger.error` 隔离，不污染其他订阅者与后续消息
+- [x] key 契约：`buildChannelName(id, channel)` 固化为 `${LOCK_PREFIX}:${id}:${channel}`（channel ∈ `'session' | 'custom'`）
+- [x] 验收：`__test__/adapters/channel.node.test.ts`（node + mock BroadcastChannel，11 用例）
+- [x] **范围说明**：真实浏览器下同 Tab 的两个 `BroadcastChannel` 实例**不会互相收到自己 postMessage 的消息**（规范所致），真跨 Tab 的广播能力属于 Phase 4 `authority/integration.browser.test.ts` 集成测试范畴；本阶段只验证代理封装契约，故测试布局从 `channel.browser.test.ts` 改为 `channel.node.test.ts` + mock BroadcastChannel
 
-### 2.5 `adapters/session-store.ts`（默认 sessionStorage 实现）
+### 2.5 `adapters/session-store.ts`（默认 sessionStorage 实现） ✅
 
-- [ ] 实现 `DefaultSessionStore`：纯同步 `read` / `write` → [RFC#接口定义](./RFC.md#接口定义)（L982，`SessionStoreAdapter`）
-- [ ] 能力探测：`sessionStorage` 不可用时工厂返回 null，调用方降级 `'session'` → `'persistent'` → [RFC#默认实现](./RFC.md#默认实现)
-- [ ] 验收：`__test__/adapters/session-store.browser.test.ts`
+- [x] 实现 `createDefaultSessionStoreAdapter(ctx, deps)`：纯同步 `read` / `write` → [RFC#接口定义](./RFC.md#接口定义)（L982，`SessionStoreAdapter`）
+- [x] 能力探测：同 authority 的写-删探测法；`sessionStorage` 不可用时工厂返回 null，降级 warn 明示 `'session'` → `'persistent'` 的转换 → [RFC#默认实现](./RFC.md#默认实现)
+- [x] `write` 的 `QuotaExceededError` 降级仅 warn（epoch 丢失会被下一次 session-probe 协议自愈，不会造成数据一致性问题）
+- [x] key 契约：`buildSessionStoreKey(id)` 固化为 `${LOCK_PREFIX}:${id}:epoch`
+- [x] 验收：`__test__/adapters/session-store.node.test.ts`（9 用例）+ `__test__/adapters/session-store.browser.test.ts`（5 用例），共 14 用例全通
 
-### 2.6 `adapters/index.ts`（pickDefaultAdapters 聚合）
+### 2.6 `adapters/index.ts`（pickDefaultAdapters 聚合） ✅
 
-- [ ] 实现 `pickDefaultAdapters(userAdapters, ctx) => ResolvedAdapters`：用户提供 > 默认实现 > null → [RFC#设计原则](./RFC.md#设计原则)（L974）
-- [ ] 验收：传入空对象得到全默认；传入部分自定义按字段覆盖；能力不可用时对应字段为 null 且发出降级 `logger.warn`
+- [x] 实现 `pickDefaultAdapters(userAdapters?) => ResolvedAdapters<T>`：用户提供 > 默认实现 > null → [RFC#设计原则](./RFC.md#设计原则)（L974）
+- [x] `logger` / `clone` 优先解析为实例，其他 adapter 工厂构造时复用同一个 logger，保证所有降级日志的出口一致
+- [x] `getAuthority` / `getChannel` / `getSessionStore` 保留工厂形态；用户工厂返回 `null` 时自动 fallback 到默认工厂（允许用户按 ctx 选择性自定义）
+- [x] `getLock` 原样透传（由 Phase 3 drivers 层解释）
+- [x] 验收：`__test__/adapters/index.node.test.ts` 覆盖空对象全默认 / logger 用户覆盖 + 传递性 / clone 透传 / 三个工厂的"用户非 null 用用户" + "用户 null 走默认" + "未提供走默认" / getLock 透传 / 工厂独立性（17 用例全通）
+
+### Phase 2 收口 ✅
+
+- [x] 批量回归：`pnpm run test:ci src/shared/lock-data/__test__/adapters/` 共 8 文件 **71 用例全通**（node 6 文件 62 用例 + browser 2 文件 9 用例）
+- [x] `read_lints` 全净：`adapters/*` 实现文件 + `__test__/adapters/*` 测试文件零 lint 错误
+- [x] 所有适配器共享契约：**能力探测 → 不可用返回 null + 统一 logger 降级 + key 遵循 `${LOCK_PREFIX}:${id}:${suffix}` 规范**，为 Phase 3 锁驱动层的"能力优先级降级链"打好基础
 
 ---
 

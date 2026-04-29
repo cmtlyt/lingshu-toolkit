@@ -1063,6 +1063,46 @@ type CloneFn = <V>(value: V) => V
 
 > `DefaultLocalStorageAuthority` / `DefaultBroadcastChannel` / `DefaultSessionStore` / `structuredCloneSafe` 等为内部实现的默认适配器命名占位，仅用于文档交叉引用，**不对外导出**；用户覆盖时通过 `adapters.getAuthority` / `getChannel` / `getSessionStore` / `clone` 注入自己的实现即可，无需 import 这些内部命名。
 
+#### logger 混合兜底契约
+
+**动机**：`LoggerAdapter` 对外只要求 `warn / error` 必选、`debug` 可选，用户注入自定义 logger 时很容易只实现一部分方法。若下游模块在调用 `logger.debug(...)` 前都做 `typeof === 'function'` 判空，会导致：
+
+- 每个调用点都要散落可选链 / 判空逻辑，代码噪音大
+- 一旦漏判就会在生产抛 `TypeError: logger.debug is not a function`
+- 调试开关语义分裂（有的环境 debug 静默、有的环境 debug 报错）
+
+**契约**：`adapters/logger.ts` 导出 `resolveLoggerAdapter(userLogger?)`，在 `pickDefaultAdapters` 阶段做**字段级混合兜底**，产出 `ResolvedLoggerAdapter`（三方法全部必选），所有下游模块仅与 `ResolvedLoggerAdapter` 交互：
+
+```ts
+/** 内部流转契约：三方法全部必选，调用点无需判空 */
+interface ResolvedLoggerAdapter {
+  warn(message: string, ...extras: unknown[]): void
+  error(message: string, ...extras: unknown[]): void
+  debug(message: string, ...extras: unknown[]): void
+}
+
+function resolveLoggerAdapter(userLogger?: LoggerAdapter): ResolvedLoggerAdapter
+```
+
+**解析规则**（按字段独立判定，互不影响）：
+
+| 字段 | 用户传入情况 | 解析结果 |
+| --- | --- | --- |
+| `warn` / `error` / `debug` | 用户对应字段是 function | 绑定用户 this 后作为该字段实现 |
+| 同上 | 用户未传该字段 / 值不是 function / 显式传 `undefined` | 回落到默认 logger 对应方法 |
+
+**关键性质**：
+
+- **字段级合并，非对象级替换**：用户只实现 `warn/error` 时，`debug` 自动走默认 logger，不会整体退回默认
+- **防御性兜底**：用户字段值不是 function（如误传字符串 / null）也会走默认，不抛错
+- **this 绑定**：用户方法解析时会 `.bind(userLogger)`，保证用户 logger 内部 `this` 引用正确
+- **一次解析，全程复用**：`pickDefaultAdapters` 产出后 `entry.adapters.logger` 始终是 `ResolvedLoggerAdapter`，内部任何模块调用 `logger.debug(...)` 均安全无需判空
+
+**调用者约束**：
+
+- 内部模块（`clone.ts` / `authority.ts` / `channel.ts` / `session-store.ts` / core 层）接受的 `logger` 参数类型一律声明为 `ResolvedLoggerAdapter`，不接受原始 `LoggerAdapter`
+- 外部入口（`options.adapters.logger`）仍保留 `LoggerAdapter` 宽松类型，`debug` 仍可选，保持对用户的 API 兼容性
+
 ### StorageAuthority（localStorage 权威副本）
 
 **动机**：commit 广播若走 BroadcastChannel 会与锁释放走不同通道，非 holder 在 `driver.acquire` 成功瞬间可能尚未收到最新 snapshot；而后台 Tab 进入 bfcache / freeze 时还会直接丢失广播消息。将"权威副本"抽象为 `AuthorityAdapter`（默认实现为 localStorage），把"推送"与"拉取"两条路径收敛到同一份持久化数据上，实现：
