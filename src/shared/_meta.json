@@ -76,5 +76,11 @@
     "type": "file",
     "label": "priorityQueue",
     "name": "priority-queue/index.mdx"
+  },
+  {
+    "id": "shared@lockData",
+    "type": "file",
+    "label": "lockData",
+    "name": "lock-data/index.mdx"
   }
 ]
