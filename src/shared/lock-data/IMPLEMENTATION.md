@@ -61,6 +61,41 @@
   - ✅ `const logger: LoggerAdapter = resolveLoggerAdapter(user.logger)`（产物用作 entry.logger）
   - ❌ `const logger = user.logger ?? createDefaultLogger()`（对象级替换，会整体丢失用户部分字段）
   - ❌ 调用点 `logger.debug?.(...)` 判空（契约已保证存在，判空反而暗示不信任契约）
+- **类型判断**：**优先使用 `@/shared/utils/verify` 的语义函数替代原生 `typeof` 运行时判断**
+  - 映射表：
+    - `typeof x === 'function'` → `isFunction(x)`；`typeof x !== 'function'` → `!isFunction(x)`
+    - `typeof x === 'string'` → `isString(x)`；`typeof x !== 'string'` → `!isString(x)`
+    - `typeof x === 'number' && x > 0` → `isNumber(x) && x > 0`（`> 0` 自动过滤 NaN）
+    - `typeof x === 'boolean'` → `isBoolean(x)`
+    - `typeof x === 'object'` → `isObject(x)`（已排除 null）
+    - `!value || typeof value !== 'object'` → `!isObject(value)`（一步到位，`isObject` 内部已判 null）
+    - `!ret || typeof ret.then !== 'function'` → `!isPromiseLike(ret)`（语义聚合 "thenable"）
+  - **有限数字判定**：`typeof x === 'number' && Number.isFinite(x)` 保留 `Number.isFinite` 组合 —— `isPlainNumber` 仅排除 NaN 不排除 Infinity；建议私有 helper `const isFiniteNumber = (v): v is number => isNumber(v) && Number.isFinite(v)`
+  - **必须保留原生 `typeof`** 的三种场景（**禁止**替换为 verify 函数）：
+    1. **TS 类型操作符**：`ReturnType<typeof setTimeout>` / `ReturnType<typeof setInterval>` / `typeof BroadcastChannel` —— 这些是类型系统行为，不是运行时判断
+    2. **ReferenceError 守卫**：`typeof navigator === 'undefined'` / `typeof globalThis === 'undefined'` —— 未声明的全局变量**直接访问**会抛 ReferenceError，`isUndef(navigator)` 读取 `navigator` 时就会先抛错；只有 `typeof` 操作符能安全探测未声明符号
+    3. **组合判断场景**：`typeof id === 'string' && id.length > 0` 可以改为 `isString(id) && id.length > 0`，**不要**抽成独立工具函数，保持调用点语义直白
+  - ✅ `if (!isFunction(getChannel)) { throwError(...) }`
+  - ✅ `if (isNumber(acquireTimeout) && acquireTimeout > 0) { setTimeout(...) }`
+  - ✅ `if (!isObject(message)) { return false }`（消息 shape 校验）
+  - ✅ `typeof navigator === 'undefined'`（全局对象存在性守卫，**不可替换**）
+  - ❌ `if (typeof cb === 'function') { cb(...) }`（应改为 `isFunction(cb)`）
+  - ❌ `isUndef(navigator)`（会 ReferenceError，必须用 `typeof navigator === 'undefined'`）
+- **外部化 Promise**：当需要把 `resolve` / `reject` 暴露到 `new Promise` 构造回调**之外**使用时，**必须使用 `@/shared/with-resolvers` 的 `withResolvers`**，不要手写 `let resolveXxx!; new Promise(r => { resolveXxx = r })` 模式
+  - 判定条件（满足任一即"外部化"）：
+    - resolve / reject 要在**不同的函数作用域**被调用（如注册到事件监听器、回调闭包、其他 Promise 的 `.then`）
+    - Promise 需要**跨越函数边界**被 `await`（在构造点声明，在其他函数里 resolve）
+    - 同一 Promise 的 resolve 和 reject 被**不同的代码路径**触发（如 resolve 在 success callback、reject 在 settle catch 里）
+  - **不应替换**的场景：resolve / reject 在构造回调**内部立即使用**（如构造 waiter 对象把 resolve/reject 作为字段同步注入）—— 这种情况 `new Promise(...)` 写法更直观，没有外部化需求
+  - 实际案例：
+    - ✅ `web-locks.ts`：`hold = withResolvers<void>()` —— `hold.resolve` 在 `release` 调用，`hold.promise` 在 `navigator.locks.request` callback 返回；`granted = withResolvers<Holding>()` —— `granted.resolve` 在 callback 内、`granted.reject` 在 `wireRequestSettle` 的 catch 里，两条不同路径
+    - ❌ `broadcast.ts` / `storage.ts` / `local.ts`：`return new Promise((resolve, reject) => { const waiter = buildWaiter(ctx, state, resolve, reject) })` —— resolve/reject 在构造回调内立即作为参数注入 waiter，不跨作用域，保持 `new Promise` 更直观
+    - ❌ `storage-state.ts` 的 `withCasRetry` / `tryAcquire`：内部 `run()` 递归闭包调用 resolve，仍在构造回调范围内
+  - 好处：
+    - 消除 `let xxx!:` 的 **definite assignment assertion** 模式噪音
+    - 优先用原生 `Promise.withResolvers`（ES2024），不可用时自动回退到手动实现，兼容性无感知
+  - ✅ `const granted = withResolvers<Holding>(); ...; granted.resolve(holding); ...; await granted.promise`
+  - ❌ `let resolve!: (v: Holding) => void; const p = new Promise<Holding>(r => { resolve = r });`（应改用 `withResolvers`）
 
 ### 进度管理
 
@@ -207,39 +242,53 @@ Phase 7 文档与测试收口
 
 ---
 
-## Phase 3 — 锁驱动层
+## Phase 3 — 锁驱动层 ✅
 
 依赖 Phase 2 的 logger / channel。4 个驱动共享同一 `LockHandle` 接口契约。
 
-### 3.1 `drivers/local.ts`（LocalLockDriver）
+### 3.1 `drivers/local.ts`（LocalLockDriver） ✅
 
-- [ ] 实现仅实例内互斥的轻量锁（无 id 场景） → [RFC#locallockdriver](./RFC.md#locallockdriver)（L732）
-- [ ] 支持 `acquire` / `release` / `onRevokedByDriver`
-- [ ] 验收：`__test__/drivers/local.node.test.ts`
+- [x] 实现仅实例内互斥的轻量锁（无 id 场景） → [RFC#locallockdriver](./RFC.md#locallockdriver)（L732）
+- [x] 支持 `acquire` / `release` / `onRevokedByDriver`
+- [x] 验收：`__test__/drivers/local.node.test.ts`（10 用例全通，覆盖 FIFO / timeout / abort / force / destroy / 幂等）
 
-### 3.2 `drivers/web-locks.ts`（WebLocksDriver，首选）
+### 3.2 `drivers/web-locks.ts`（WebLocksDriver，首选） ✅
 
-- [ ] 基于 `navigator.locks.request(name, { mode, steal, signal })` → [RFC#weblocksdriver首选](./RFC.md#weblocksdriver首选)（L737）
-- [ ] `force` 映射到 `steal: true`；原持有者触发 `onRevokedByDriver('force')`
-- [ ] 验收：`__test__/drivers/web-locks.browser.test.ts`
+- [x] 基于 `navigator.locks.request(name, { mode, steal, signal })` → [RFC#weblocksdriver首选](./RFC.md#weblocksdriver首选)（L737）
+- [x] `force` 映射到 `steal: true`；原持有者触发 `onRevokedByDriver('force')`
+- [x] **W3C 规范修复**：`steal` 与 `signal` 互斥不能共用，按 `ctx.force` 动态分派 `requestOptions`（`force=true → { mode, steal: true }`；`force=false → { mode, signal }`）；同时把 `handleStealRejection` / `wireRequestSettle` 提至模块顶层用 `DriverScope` 容器降低 `createWebLocksDriver` 的 linesPerFunction
+- [x] 验收：`__test__/drivers/web-locks.browser.test.ts`（9 用例全通，覆盖 round-trip / 排队 / timeout / abort / force-steal / 幂等 / destroy）
 
-### 3.3 `drivers/broadcast.ts`（BroadcastDriver，降级）
+### 3.3 `drivers/broadcast.ts`（BroadcastDriver，降级） ✅
 
-- [ ] 基于 BroadcastChannel + token 的排队协议 → [RFC#broadcastdriver降级](./RFC.md#broadcastdriver降级)（L745）
-- [ ] 处理队列公平性风险（决策 #见「风险与取舍」）
-- [ ] 验收：`__test__/drivers/broadcast.browser.test.ts`
+- [x] 基于 BroadcastChannel + token 的排队协议 → [RFC#broadcastdriver降级](./RFC.md#broadcastdriver降级)（L745）
+- [x] 处理队列公平性风险（决策 #见「风险与取舍」）
+- [x] **拆分三文件**：`broadcast-protocol.ts`（常量/消息格式/类型校验）+ `broadcast-state.ts`（状态机 & 消息处理）+ `broadcast.ts`（工厂 + acquire 入口）；落实 BC-1~BC-7 + BC-A/BC-D/BC-J/BC-K/BC-N/BC-O 修复
+- [x] **driver 契约修复**：`acquireBroadcastLock` 在 destroyed 时返回 `Promise.reject`（严禁同步 throw）
+- [x] 验收：`__test__/drivers/broadcast.browser.test.ts`（13 用例全通）
 
-### 3.4 `drivers/storage.ts`（StorageDriver，兜底）
+### 3.4 `drivers/storage.ts`（StorageDriver，兜底） ✅
 
-- [ ] 基于 localStorage 的 token 轮询 + storage 事件 → [RFC#storagedriver兜底降级](./RFC.md#storagedriver兜底降级)（L754）
-- [ ] 验收：`__test__/drivers/storage.browser.test.ts`
+- [x] 基于 localStorage 的 token 轮询 + storage 事件 → [RFC#storagedriver兜底降级](./RFC.md#storagedriver兜底降级)（L754）
+- [x] **拆分三文件**：`storage-protocol.ts`（存储格式 + 常量 `HEARTBEAT_INTERVAL=500ms` / `DEAD_THRESHOLD=2500ms` + nonce 生成）+ `storage-state.ts`（状态机 + CAS 读写 + 队列 + 心跳 + drain）+ `storage.ts`（工厂 + acquire 入口）；落实 ST-1~ST-6 + S-1（force 抢占时导出 `revokeHolding` 清理旧 holding heartbeatTimer）/ S-4（Waiter 增加 `isSettled` 方法，pump/force 路径 resolve 前检查防 abort 泄漏）
+- [x] **driver 契约修复**：`acquireStorageLock` 在 destroyed 时返回 `Promise.reject`（严禁同步 throw）
+- [x] 验收：`__test__/drivers/storage.browser.test.ts`（12 用例全通）
 
-### 3.5 `drivers/custom.ts` + `drivers/index.ts`（CustomDriver + pickDriver）
+### 3.5 `drivers/custom.ts` + `drivers/index.ts`（CustomDriver + pickDriver） ✅
 
-- [ ] `CustomDriver`：包装用户的 `adapters.getLock` 工厂函数 → [RFC#customdriver](./RFC.md#customdriver)（L722）
-- [ ] `pickDriver(options, id)`：能力检测优先级 `Web Locks → Broadcast → Storage → Local` → [RFC#能力检测与降级](./RFC.md#能力检测与降级)（L686）
-- [ ] `adapters.getLock` 存在时 `mode` 被忽略，直接用 CustomDriver
-- [ ] 验收：`__test__/drivers/pick-driver.node.test.ts`
+- [x] `CustomDriver`：包装用户的 `adapters.getLock` 工厂函数 → [RFC#customdriver](./RFC.md#customdriver)（L722）
+- [x] `pickDriver({ adapters, options, id })`：能力检测优先级 —— `custom（adapters.getLock 存在）> local（无 id）> 显式 mode（web-locks/broadcast/storage，能力不足抛 TypeError）> auto 降级链（Web Locks → Broadcast → Storage → 抛 TypeError）` → [RFC#能力检测与降级](./RFC.md#能力检测与降级)（L686）
+- [x] `adapters.getLock` 存在时 `mode` 被忽略，直接用 CustomDriver
+- [x] **types.ts 扩展**：新增 `LockMode = 'auto' | 'web-locks' | 'broadcast' | 'storage'` 类型；`LockDataOptions<T>` 增加 `mode?: LockMode` 字段
+- [x] 验收：`__test__/drivers/custom.node.test.ts`（11 用例）+ `__test__/drivers/pick-driver.node.test.ts`（10 用例）全通
+
+### Phase 3 收口 ✅
+
+- [x] **driver 契约统一**：所有 driver 的 `acquire` 入口在 destroyed 时统一返回 `Promise.reject(new LockAbortedError(...))`，严禁同步 throw（`web-locks.ts` / `broadcast.ts` / `storage.ts` 均已通过 `async function` 天然符合，`local.ts` / `custom.ts` 原已是 async function）
+- [x] **批量回归**：`pnpm run test:ci src/shared/lock-data/__test__/drivers/` 共 6 文件 **65 用例全通**（node 3 文件 31 用例 + browser 3 文件 34 用例）
+- [x] **全量回归**：`pnpm run test:ci src/shared/lock-data/` 共 21 文件 **207 用例全通**（Phase 0-3 累计）
+- [x] **read_lints 全净**：`src/shared/lock-data/` 整个目录零 lint 错误
+- [x] 为 Phase 4/5 奠定基础：统一的 `LockDriver` / `LockDriverHandle` 契约、`pickDriver` 能力选择入口、`LockMode` 类型
 
 ---
 

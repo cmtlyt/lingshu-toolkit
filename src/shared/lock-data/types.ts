@@ -20,6 +20,16 @@ type TimeoutValue = number | typeof NEVER_TIMEOUT;
 type SyncMode = 'none' | 'storage-authority';
 
 /**
+ * 锁驱动选择模式
+ *
+ * 对应 RFC.md「能力检测与降级」；`adapters.getLock` 存在时本字段被忽略
+ *
+ * - `'auto'`（默认）：按能力降级链 web-locks → broadcast → storage
+ * - `'web-locks'` / `'broadcast'` / `'storage'`：强制使用对应 driver；能力不可用时抛错
+ */
+type LockMode = 'auto' | 'web-locks' | 'broadcast' | 'storage';
+
+/**
  * 持久化策略：
  * - `'session'`（默认）：所有 Tab 关闭后重置；协作期的天然语义
  * - `'persistent'`：跨浏览器重启保留；适合用户草稿 / 偏好
@@ -207,6 +217,13 @@ interface LockDataOptions<T> {
   /** 默认抢锁 + 持锁超时，可被 `ActionCallOptions` 覆盖 */
   timeout?: TimeoutValue;
 
+  /**
+   * 锁驱动选择；默认 `'auto'`
+   *
+   * `adapters.getLock` 存在时本字段被忽略（用户自定义 driver 优先级最高）
+   */
+  mode?: LockMode;
+
   /** 跨进程同步模式；默认 `'none'` */
   syncMode?: SyncMode;
 
@@ -283,6 +300,7 @@ export type {
   LockDataResult,
   LockDriverContext,
   LockDriverHandle,
+  LockMode,
   LockPhase,
   LockStateChangeEvent,
   LoggerAdapter,
