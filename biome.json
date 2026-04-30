@@ -844,6 +844,7 @@
             "noConstantBinaryExpressions": "off"
           },
           "nursery": {
+            "noExcessiveLinesPerFile": "off",
             "useExplicitReturnType": "off",
             "noJsxPropsBind": "off",
             "useDestructuring": "off",

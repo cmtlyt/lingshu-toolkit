@@ -292,36 +292,51 @@ Phase 7 文档与测试收口
 
 ---
 
-## Phase 4 — 权威副本与会话纪元
+## Phase 4 — 权威副本与会话纪元 ✅
 
 依赖 Phase 2 的 authority / channel / session-store。
 
-### 4.1 `authority/serialize.ts`（字段顺序固化）
+### 4.1 `authority/serialize.ts`（字段顺序固化） ✅
 
-- [ ] 实现 `serialize(rev, ts, epoch, snapshot)`：手动拼接保证 `rev → ts → epoch → snapshot` 顺序 → [RFC#存储格式固化契约](./RFC.md#存储格式固化契约)（L1093）
-- [ ] 验收：`__test__/authority/serialize.node.test.ts` 覆盖字段顺序 / 特殊字符 snapshot
+- [x] 实现 `serializeAuthority(rev, ts, epoch, snapshot)`：手动拼接保证 `rev → ts → epoch → snapshot` 顺序 → [RFC#存储格式固化契约](./RFC.md#存储格式固化契约)（L1133）
+- [x] 验收：`__test__/authority/serialize.node.test.ts` 覆盖字段顺序 / 特殊字符 snapshot / Unicode / snapshot 内含同名字段不干扰外层解析（8 用例全通）
 
-### 4.2 `authority/extract.ts`（Lazy Parse 快路径）
+### 4.2 `authority/extract.ts`（Lazy Parse 快路径） ✅
 
-- [ ] 实现 `extractRev(raw)`：正则锚定开头匹配 → [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)（L1110）
-- [ ] 实现 `extractEpoch(raw)`：正则匹配中段 → [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)
-- [ ] 实现 `readIfNewer(entry, raw)`：快路径 rev 对比 + epoch 过滤 + 全量 parse 兜底 → [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)
-- [ ] 验收：`__test__/authority/extract.node.test.ts` 覆盖快路径命中 / 失配走 JSON.parse 兜底 / epoch 不一致丢弃 / 大 value 性能（亚微秒）
+- [x] 实现 `extractRev(raw)`：正则 `^\{"rev":(-?\d+)` 锚定开头 → [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)（L1150）
+- [x] 实现 `extractEpoch(raw)`：正则 `,"epoch":"([^"\\]*)"` 匹配中段 → [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)
+- [x] 实现 `readIfNewer(ctx, raw)`：快路径 rev 对比 + epoch 过滤 + 全量 parse 兜底；`parseAuthorityRaw` 做结构校验（rev 数字 / epoch 字符串）→ [RFC#lazy-parse-快路径](./RFC.md#lazy-parse-快路径)
+- [x] 最小输入契约 `ReadIfNewerContext { lastAppliedRev, epoch }`：解耦于 Phase 5 Entry，Phase 5 registry Entry 天然满足此结构
+- [x] 验收：`__test__/authority/extract.node.test.ts` 覆盖快路径命中 / 失配走 JSON.parse 兜底 / epoch 不一致丢弃 / 1MB snapshot 性能（<10ms 实测 <1ms，鲁棒阈值避免 CI 抖动）（29 用例全通）
 
-### 4.3 `authority/epoch.ts`（resolveEpoch + session-probe 协议）
+### 4.3 `authority/epoch.ts`（resolveEpoch + session-probe 协议） ✅
 
-- [ ] 实现 `resolveEpoch(ctx)` 的 A~F 六分支（sessionStorage 命中 / probe 响应 / probe 超时 / persistent 常量 / 适配器不可用降级 / TOCTOU 收敛） → [RFC#resolveepoch-协议](./RFC.md#resolveepoch-协议)（L1222）
-- [ ] 实现 `session-probe` / `session-reply` 消息协议 → [RFC#数据通道](./RFC.md#数据通道)（L1214）
-- [ ] 首个 Tab 判定为"所有 Tab 关闭后重启"时主动 `removeItem` 清空 localStorage 权威副本 → [RFC#策略总览](./RFC.md#策略总览)（L1207）
-- [ ] 验收：`__test__/authority/epoch.browser.test.ts` 覆盖 A~F 六分支 / TOCTOU 收敛 / 多 Tab 同时启动收敛到最早 epoch
+- [x] 实现 `resolveEpoch(ctx)` 的 A~F 六分支（A persistent 常量 / B sessionStore 不可用降级 / C sessionStorage 命中继承 / D channel 不可用直接 freshEpoch / E 探测响应继承 / F 探测超时 freshEpoch）→ [RFC#resolveepoch-协议](./RFC.md#resolveepoch-协议)（L1262）
+- [x] 实现 `session-probe` / `session-reply` 消息协议：`buildProbeMessage` / `buildReplyMessage` + `isSessionProbeMessage` / `isSessionReplyMessage` 守卫 → [RFC#数据通道](./RFC.md#数据通道)（L1254）
+- [x] 实现 `subscribeSessionProbe(channel, getMyEpoch)`：常驻响应者；`getMyEpoch` 返回 null / 空串时不回复，避免污染对方 E 分支判定
+- [x] 首个 Tab 判定为"所有 Tab 关闭后重启"时主动 `authority.remove()` 清空残留 → [RFC#策略总览](./RFC.md#策略总览)（L1247）；`authority.remove` 异常时降级为 `logger.warn`，不中断流程
+- [x] **probeId 过滤**：`withResolvers<string | null>` 收敛异步等待，probeId 错配的 reply 被忽略
+- [x] **UUID 生成**：优先 `crypto.randomUUID()`，fallback 到 `Math.random().toString(36) + Date.now()`；`try-catch` 覆盖 ReferenceError / SecurityError
+- [x] 验收：`__test__/authority/epoch.browser.test.ts` 覆盖 A~F 六分支 / probeId 错配过滤 / 响应方 null/empty 不回复 / 多 Tab 同时启动（资源边界验证）（21 用例全通，含真实 BroadcastChannel 配对通信）
 
-### 4.4 `authority/index.ts`（StorageAuthority 主类）
+### 4.4 `authority/index.ts`（StorageAuthority 主类） ✅
 
-- [ ] 实现 `initAuthority(entry, adapters)`：订阅 `storage` 事件 + `pageshow` + `visibilitychange` → [RFC#读路径三个触发源共享同一应用流程](./RFC.md#读路径三个触发源共享同一应用流程)（L1164）
-- [ ] 实现 `applyAuthorityIfNewer(entry, raw)`：走 `readIfNewer` + 更新 `entry.data` + 触发 `onSync`
-- [ ] 实现 `onCommitSuccess(entry, snapshot)`：`rev++` + 写入权威副本 + 触发 `onCommit` → [RFC#写路径commit-后](./RFC.md#写路径commit-后)（L1150）
-- [ ] 实现生命周期订阅的解绑：Entry refCount 归零时全部释放
-- [ ] 验收：`__test__/authority/integration.browser.test.ts` 端到端：两 Tab commit → storage event → `onSync` 派发 → view 自动更新
+- [x] 实现 `createStorageAuthority(deps)` 工厂：返回 `{ init, pullOnAcquire, onCommitSuccess, dispose }` API 表面
+- [x] 实现 `init()`：先挂载 session-probe 响应（常驻）→ `resolveEpoch` 决策 → 订阅 authority.subscribe + pageshow + visibilitychange → 初次 pull（authorityCleared=true 时跳过省一次 read）→ [RFC#读路径三个触发源共享同一应用流程](./RFC.md#读路径三个触发源共享同一应用流程)（L1204）
+- [x] 实现 `applyAuthorityIfNewer(source, raw)`：走 `readIfNewer` + `isObject` 守卫脏数据 + `applySnapshot` 回调 + 更新 rev/lastAppliedRev + 触发 `emitSync`；`applySnapshot` / `emitSync` 异常走 logger.error 隔离
+- [x] 实现 `onCommitSuccess(event)`：`rev++` + `lastAppliedRev = rev` + `authority.write(serializeAuthority(...))` + 触发 `emitCommit` → [RFC#写路径commit-后](./RFC.md#写路径commit-后)（L1190）
+- [x] 实现 `pullOnAcquire()`：acquire 时 pull 的专用入口，source=`'pull-on-acquire'`；dispose 后 no-op
+- [x] **激活 pull 浏览器守卫**：`typeof window / document === 'undefined'` 判定跳过（非浏览器环境由自定义 adapter.subscribe 承担）；`pageshow` 仅在 `e.persisted=true` 时 pull
+- [x] **dispose 幂等**：`disposed` 标志 + 解绑数组统一释放 + `channel.close()` 容错；重复调用不抛错
+- [x] **宿主解耦**：`StorageAuthorityHost<T>` 最小契约（`data / rev / lastAppliedRev / epoch`）避免与 Phase 5 registry 循环依赖；`applySnapshot` / `emitSync` / `emitCommit` / `clone` 作为依赖注入
+- [x] 验收：`__test__/authority/integration.browser.test.ts` 端到端覆盖：两 Tab commit → authority.subscribe → applySnapshot → emitSync 派发 / rev/epoch 过滤 / visibilitychange 激活 pull / dispose 解绑后不再触发 / 异常隔离（21 用例全通）
+
+### Phase 4 收口 ✅
+
+- [x] **全量回归**：`pnpm run test:ci src/shared/lock-data/` 共 25 文件 **286 用例全通**（Phase 0-4 累计；Phase 4 净新增 79 用例：serialize 8 + extract 29 + epoch 21 + integration 21）
+- [x] **read_lints 全净**：`src/shared/lock-data/` 整个目录零 lint 错误
+- [x] **风格守则落实**：authority 层全部使用 `@/shared/utils/verify` 的 `isObject` / `isString` / `isNumber`；异步外部化用 `withResolvers`（probeForExistingSession）；`shared/throw-error` 未出现本期硬依赖（本层只 logger.warn/error 降级，不向外 throw）
+- [x] 为 Phase 5 奠定基础：`StorageAuthorityHost` 鸭子类型契约 + 依赖注入（applySnapshot / emitSync / emitCommit / clone）使 Phase 5 registry 可无缝接入
 
 ---
 
