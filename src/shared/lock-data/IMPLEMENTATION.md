@@ -340,37 +340,91 @@ Phase 7 文档与测试收口
 
 ---
 
-## Phase 5 — 协调层
+## Phase 5 — 协调层 ✅
 
 依赖 Phase 1-4 全部前置。
 
-### 5.1 `core/registry.ts`（InstanceRegistry 同 id 进程内单例）
+### 5.1 `core/registry.ts`（InstanceRegistry 同 id 进程内单例） ✅
 
-- [ ] 实现 `getOrCreateEntry(id, options)`：首次注册建 Entry、后续调用复用；refCount++ → [RFC#instanceregistry同-id-进程内单例](./RFC.md#instanceregistry同-id-进程内单例)（L635）
-- [ ] 实现 Entry 结构：`data` / `driver` / `authority` / `rev` / `lastAppliedRev` / `epoch` / `dataReadyPromise` / `dataReadyState` / `listenersFanout` / `refCount`
-- [ ] 实现 `releaseEntry(id)`：refCount-- 归零时销毁（`driver.destroy()` + 解绑全部订阅 + `registry.delete(id)`）
-- [ ] 冲突字段处理：首次注册的 options 为准，冲突字段 `logger.warn` → [RFC#instanceregistry同-id-进程内单例](./RFC.md#instanceregistry同-id-进程内单例)
-- [ ] `dataReadyPromise` 共享：同 id 多实例共享同一个 Promise → [RFC#actions-实现要点](./RFC.md#actions-实现要点)（L930）
-- [ ] 验收：`__test__/core/registry.node.test.ts` 覆盖共享 / 冲突警告 / 引用计数 / dataReadyState 状态机
+- [x] 实现 `getOrCreateEntry(id, options)`：首次注册建 Entry、后续调用复用；refCount++ → [RFC#instanceregistry同-id-进程内单例](./RFC.md#instanceregistry同-id-进程内单例)（L635）
+- [x] 实现 Entry 结构：`data` / `driver` / `adapters` / `authority` / `rev` / `lastAppliedRev` / `epoch` / `dataReadyPromise` / `dataReadyState` / `dataReadyError` / `listenersSet` / `refCount` / `registerTeardown` / `initOptions`
+- [x] 实现 `releaseEntry(slot)`：refCount-- 归零时销毁（teardowns 逆序运行 + `driver.destroy()` + `registry.delete(id)`）；`release` 幂等；`alive` 守卫让 disposed 后 `registerTeardown` no-op
+- [x] 冲突字段处理：首次注册的 options 为准，非 `listeners` 字段冲突走 `logger.warn` → [RFC#instanceregistry同-id-进程内单例](./RFC.md#instanceregistry同-id-进程内单例)
+- [x] `dataReadyPromise` / `dataReadyState`：同 id 多实例共享同一份 `resolveInitialData` 结果；`resolveInitialData` 三分支（initial 直用 / getValue 返回 T / getValue 返回 Promise<T>）+ getValue 同步抛错 + Promise reject 统一走 failed 分支（等价 `Promise.reject`）
+- [x] 辅助工具导出：`applyInPlace`（Symbol key 完备）/ `createFailedInitError` / `freezeInitOptions` / `resolveInitialData`
+- [x] 验收：`__test__/core/registry.node.test.ts` 覆盖同 id 复用 / 冲突警告 / refCount 生命周期 / teardown 异常隔离 / release 幂等 / applyInPlace Symbol / createFailedInitError cause 等 12 类（33 用例全通）
 
-### 5.2 `core/actions.ts`（LockDataActions 实现）
+### 5.2 `core/fanout.ts`（listeners fanout） ✅
 
-- [ ] 内部状态机 `idle → acquiring → holding → committing → released / revoked / disposed` → [RFC#actions-实现要点](./RFC.md#actions-实现要点)
-- [ ] `ensureHolding(opts)`：复用锁 / 抢新锁 / 合并 signal / 启动 holdTimeout
-- [ ] `update(recipe, opts)`：走事务式 Draft 流程 → [RFC#提交流程commit](./RFC.md#提交流程commit)
-- [ ] `replace(next, opts)`：隐式 update 事务，等价 `Object.keys(draft).forEach(delete) + Object.assign(draft, next)`
-- [ ] `getLock(opts)`：只抢锁不执行 recipe
-- [ ] `read()`：不抢锁，直接 `adapters.clone(entry.data)` → [RFC#actions-实现要点](./RFC.md#actions-实现要点)
-- [ ] `release()`：仅处理还锁，不碰引用计数、不解绑订阅 → [RFC#actions-实现要点](./RFC.md#actions-实现要点)（决策 #31）
-- [ ] `dispose()`：release + 解绑 driver 监听 + 解绑 authority 订阅 + refCount-- + 终态转 disposed
-- [ ] 返回类型规则：按异步条件枚举（有 id / getValue Promise / recipe Promise / syncMode 非 none 任一满足则返 Promise）→ [RFC#lockdataactionst](./RFC.md#lockdataactionst)（L207）
-- [ ] 验收：`__test__/core/actions.node.test.ts`（同步场景）+ `__test__/core/actions.browser.test.ts`（异步 + 跨 Tab）
+- [x] 实现 `fanoutLockStateChange` / `fanoutRevoked` / `fanoutCommit` / `fanoutSync` 四事件扇出；单 listener 异常 → `logger.error` 隔离，不影响其他 listener
+- [x] 覆盖 `onLockStateChange` / `onRevoked` / `onCommit` / `onSync` 四个事件，独立 try/catch 分发
+- [x] 缺省 listeners 字段（listener 未实现某事件）静默跳过，不产生 warn
+- [x] 验收：`__test__/core/fanout.node.test.ts` 覆盖 listener 异常隔离 / 缺省字段容忍 / 多 listener 顺序 / 空 Set 无副作用（14 用例全通）
 
-### 5.3 `core/fanout.ts`（listeners fanout）
+### 5.3 `core/actions.ts`（LockDataActions 实现） ✅
 
-- [ ] 实现 `listenersFanout`：同 id 多实例的 listeners 聚合分发，单个 listener 异常不影响其他 → [RFC#instanceregistry同-id-进程内单例](./RFC.md#instanceregistry同-id-进程内单例)
-- [ ] 覆盖 `onLockStateChange` / `onRevoked` / `onCommit` / `onSync` 四个事件
-- [ ] 验收：`__test__/core/fanout.node.test.ts` 覆盖 listener 异常隔离 / 订阅解绑幂等
+- [x] 内部状态机 `idle → acquiring → holding → committing → released / revoked / disposed` → [RFC#actions-实现要点](./RFC.md#actions-实现要点)
+- [x] `ensureHolding(opts)`：复用 holding 锁 / acquiring 时 await 当前 pending handle / 抢新锁；合并 `options.signal` + `update.signal` + `timeout` → `anySignal` + `signalWithTimeout`；acquire 失败回滚 phase 为 idle 避免悬挂
+- [x] `update(recipe, opts)`：走 `createDraft` 事务式 working copy → recipe 执行 → `finalize()` + `applyInPlace` + rev++ → authority.onCommitSuccess（若有）→ fanoutCommit；recipe 抛错自动 discard → rollback phase
+- [x] `replace(next, opts)`：实现为 `update(draft => { applyInPlace(draft, next) })` 的语法糖，通过 Draft 统一走事务
+- [x] `getLock(opts)`：只抢锁不执行 recipe，返回 release 句柄；重复 getLock 复用 holding
+- [x] `read()`：不抢锁，直接 `adapters.clone(entry.data)` 返回快照 → [RFC#actions-实现要点](./RFC.md#actions-实现要点)
+- [x] `release()`：仅处理还锁（driver.release + 重置 phase 为 idle），不碰 refCount、不解绑订阅 → [RFC#actions-实现要点](./RFC.md#actions-实现要点)（决策 #31）
+- [x] `dispose()`：release + 解绑 options.signal 监听 + 从 listenersSet 移除 listeners + 调 releaseFromRegistry（refCount-- / 归零销毁 Entry）+ 终态转 disposed；幂等
+- [x] `onRevokedByDriver` 回调：driver 主动撤销时丢弃 draft + phase → revoked + fanoutRevoked + LockRevokedError
+- [x] **修复构造期 12 类严重问题**：接口合并 hack / 死代码 / signal 泄漏 / acquire 失败 phase 悬挂 / LockDisposedError 不支持 cause 等均已修正
+- [x] 验收：`__test__/core/actions.browser.test.ts` 覆盖 12 组契约共 28 用例（状态机转换 / 锁复用 / signal 合并 / timeout / revoke / dispose 幂等 / read 快照 / replace 语义 / recipe 抛错回滚 / update race 等），全通
+
+### 5.4 `core/entry.ts`（lockData 主入口 + Entry 组装） ✅
+
+- [x] 实现 `lockData(initial, options)` 主入口：参数校验（`extractValidId` / `normalizeSyncMode` / `normalizePersistence`）→ 分派 Registry / 无 id 独立路径 → 组装 Actions + ReadonlyView → `finalizeResult` 按 dataReadyPromise 返回同步 `[view, actions]` 或 `Promise<[view, actions]>`
+- [x] 实现 `createEntryFactory<T>(initial)`：组装 `pickDefaultAdapters` → `resolveInitialData` → `pickDriver` → listenersSet 初始化 → 可选 `attachAuthority` → `mergeReadyPromises` 合并 initialPatch 与 authority init Promise
+- [x] 实现 `attachAuthority`：`syncMode === 'storage-authority' && id` 时构造 `StorageAuthority`；全适配器不可用时 `logger.warn` 降级为同进程共享；`authority.init` 失败走 logger.warn 不阻塞返回；dispose 时 `authority.dispose()` + `FanoutGuard` 防止滞后 emit 污染
+- [x] 实现 `acquireFromRegistry` / `acquireStandalone` 双路径：有 id 走进程单例 Registry（`defaultRegistry` 懒初始化 + `__resetDefaultRegistry` 测试钩子）；无 id 走一次性 ctx（无复用）
+- [x] Entry 天然满足 `StorageAuthorityHost` 契约：直接把 `mutableEntry` 作为 host 注入；依赖注入 `applyInPlace` / `emitSync` / `emitCommit` / `clone` 保持 authority 层与 core 层解耦
+- [x] **修复构造期 6 类自审问题**：死代码清理（`void ERROR_FN_NAME`/`createError`/`throwError` 全删）/ emit 事件类型正确化 / onStateChange 冗余 pending 缓存删除 / teardown 逆序语义修正 / return 路径 lint 净化
+- [x] 验收：`__test__/core/entry.browser.test.ts` 集成测试覆盖 9 类契约共 16 用例（无 id 路径 / 同 id 复用 / dataReady 异步 / getValue 同步抛错 / ReadonlyView / listeners fanout / adapters.getLock 注入 / signal.abort 端到端 / dispose 级联后 initial 重新生效），全通
+
+### Phase 5 收口 ✅
+
+- [x] **全量回归**：`pnpm vitest run src/shared/lock-data/` 共 29 文件 **377 用例全通**（Phase 0-5 累计；Phase 5 净新增 91 用例：registry 33 + fanout 14 + actions 28 + entry 16）
+- [x] **环境解耦修复**：`__test__/drivers/pick-driver.node.test.ts` 原先假设 "node 环境 `navigator.locks` 不可用"，Node v24 原生支持 Web Locks API 导致断言漂移；改用 `vi.stubGlobal('navigator', {})` 显式 stub 能力探测，测试与 Node 版本解耦
+- [x] **自审修复 P0（第一轮）**：`core/actions.ts::runTransaction` 的 rollback 条件原先耦合 `aliveToken === token`，导致 recipe 执行期间被 dispose/revoke 时未提交的脏写入**永久泄漏到 `entry.data`**，污染共享 Entry 的其他实例 / readonly view。修复为 `committed` 标志判定：未 commit 即 rollback（与锁状态解耦，finally 兜底），语义正确
+- [x] **自审修复 P1（第二轮，biome CLI 暴露 IDE LSP 漏报）**：`pnpm biome lint` 扫出 12 个 **`read_lints`（IDE LSP）漏报的 nursery 错误**：
+  - 🔴 生产 bug 3 处 `nursery/noMisusedPromises`：`core/actions.ts:283`（`safeReleaseHandle` thenable 判定）+ `core/actions.ts:355`（`ensureDataReady` 的 `dataReadyPromise` 条件）+ `core/entry.ts:264`（`mergeReadyPromises` 双 promise 条件）—— 全部是 `Promise | null` 被用作布尔条件的语义歧义，修复为显式 `!== null` / `!== undefined` 空检查 + `??` 合并
+  - 🟡 `core/fanout.ts:41` `nursery/noShadow`：`fanoutEvent` 的外层 `event: TEvent` 参数与 `pickHook` 回调类型签名中的 `event` 参数同名遮蔽，重命名为 `eventPayload` / `payload` 消除歧义；顺带把同文件 L57 的 `result &&` 风格统一为 `result !== undefined &&`
+  - 🟡 `__test__/core/actions.browser.test.ts` 4 处：删除未使用 `LockStateChangeEvent` 导入、`makeHandle` 箭头函数展开为块体、3 处 `(d) => void (d.v = 1)` 改为 `(d) => { d.v = 1; }`（同时解决 `noAssignInExpressions` + `noReturnAssign`）
+- [x] **自审修复 P2（第三轮，语义精确化回炉）**：第二轮为过 `noMisusedPromises` 把 `result && typeof (result as Promise<void>).then === 'function'` 简化成 `result !== undefined && typeof...`，但这是信息收集不充分的简化实现 —— `actions.ts::safeReleaseHandle` 的 `result: unknown`（driver.release 实际返回值可能偏离 `void | Promise<void>` 契约，如用户自定义 driver 返回 `null` / primitive），`fanout.ts::fanoutEvent` 的 hook 是用户 listener（TS 类型约束在运行时丢失）。`!== undefined` 弱守卫过不滤 `null`，对 `null` 做 `typeof (null as Promise<void>).then` 虽不 runtime 错误但语义已偏离"只对 thenable 生效"的原意。两处统一加固为**严谨的三重鸭子类型守卫**：`isObject(result) && 'then' in result && isFunction(result.then)` —— 既过滤所有非 object 值（undefined / null / primitive），又用 `'then' in` 精确判定 thenable，同时 `isFunction` 确认可调用，复用 `@/shared/utils/verify` 统一风格，避开 `noMisusedPromises`
+- [x] **自审修复 P2（第四轮，彻底性修复）**：第三轮只修了 `safeReleaseHandle` / `fanoutEvent` 两处，但同文件 `actions.ts` 还有 **2 处同型遗漏**（`releaseLockHandle` L267 / `runTransaction` recipe 判定 L502）以及 **2 处最小 thenable 不安全的 `.catch` 挂钩**（第三轮修复后残留）。具体修复：
+  - 🔴 `actions.ts::releaseLockHandle` L267 thenable 判定加固为三重守卫（同 safeReleaseHandle 模式），避免 driver 返回 `null` / primitive 时的 truthy 漏网
+  - 🔴 `actions.ts::runTransaction` L502 recipe 返回值判定加固为三重守卫，避免用户 recipe 意外返回 truthy 非 thenable 值时走 `await` 产生不必要 microtask 延迟（影响同步 update 时序契约）
+  - 🔴 **最小 thenable `.catch` 不安全修复**：Promises/A+ 规范只保证 thenable 有 `.then`，不保证有 `.catch`。`(result as Promise<void>).catch(...)` 对最小 thenable（只实现 `.then` 不实现 `.catch`）会抛 `TypeError: catch is not a function`。修复为 `Promise.resolve(result as Promise<void>).catch(...)` —— `Promise.resolve` 把任意 thenable 正规化为 Promise 再挂 catch，覆盖 `actions.ts` 3 处 release 场景 + `fanout.ts` listener hook 场景
+  - 🟢 `runTransaction` 里 `await result` 保持不变（`await` 本身对 thenable 已正规化，无需 `Promise.resolve` 包装）
+- [x] **自审修复 P2（第五轮，回归测试保护网）**：第四轮修复核心是 "最小 thenable `.catch` 不安全"，但测试文件里**没有对应回归用例保护**，属于"修复缺失测试网的简化实现"。未来任何人把 `Promise.resolve(...).catch(...)` 回退成 `(result as Promise<void>).catch(...)` 都不会触发测试失败。追加 **第 13 组 describe — 最小 thenable 安全（回归保护）**到 `actions.browser.test.ts`，共 2 个用例：
+  - 用例 1：自定义 driver 的 `release()` 返回只实现 `.then` 的最小 rejected thenable，验证 `actions.dispose()` 触发 `releaseLockHandle` → `driver.release()` 路径**不抛 TypeError**（未正规化的 `.catch` 在此处会崩）
+  - 用例 2：`listeners.onCommit` 返回最小 rejected thenable，验证 `actions.update()` 触发 `fanoutCommit` → `fanoutEvent` 路径**不抛 TypeError**，且**后续 listener 仍被分发**（前一个 listener 的最小 thenable 不阻断广播）
+  - 工具函数 `createMinimalRejectedThenable(reason)` 通过 `queueMicrotask` 模拟真实异步 reject，递归返回同类 thenable 以模拟 `.then` 链式；定义处显式 `biome-ignore lint/suspicious/noThenProperty`（测试专用，刻意构造 Promises/A+ 最小合规形态）
+  - 全量测试由 377 增至 **379 用例全通**，29 files 全绿
+- [x] **自审修复 P2（第六轮，测试有效性反向验证）**：第五轮追加的 2 个回归测试虽当下通过，但**未证明"若修复被回退测试必然失败"** —— 这是"测试通过即合格"的假实现。执行**反向验证**：临时把 3 处 `Promise.resolve(...).catch(...)` 回退为老写法 `(result as Promise<void>).catch(...)`，跑第 13 组：
+  - 用例 1 **精确 FAIL** `TypeError: result.catch is not a function` at `actions.ts:269`（`releaseDriverHandle` 在 `dispose` 调用链中穿透）
+  - 用例 2 **精确 FAIL** `TypeError: result.catch is not a function` at `fanout.ts:60`（`fanoutEvent` → `applyCommit` → `runTransaction` → `actions.update` 穿透）
+  - 证明测试断言**真实有效** —— `await actions.dispose()` / `await actions.update()` 能捕获穿透的 TypeError
+  - 恢复修复后在代码注释里显式交叉引用 `"回归测试：actions.browser.test.ts 第 13 组 describe..."`，形成代码 ↔ 测试双向引用，便于后续维护者定位
+- [x] **自审修复 P2（第七轮，回归保护网覆盖缺口）**：第五轮的 2 个用例走的是 `releaseDriverHandle` + `fanoutEvent` 路径，但 `actions.ts` 第四轮修复实际有 **3 处**三重守卫 + `Promise.resolve` 正规化加固 —— 其中 `safeReleaseHandle`（L279，dispose-race 场景的独立 release，与 `releaseDriverHandle` 是 DRY 两份 copy）**完全未被独立测试覆盖**。未来任何人回退 `safeReleaseHandle:291` 的正规化，现有测试不会 catch 到。严谨的语义分析同时澄清：`runTransaction::recipe return` 的三重守卫与老写法 `result && typeof (result as Promise).then === 'function'` 在**所有运行时场景下完全等价**（逐一验证 primitive / null / `{ foo: 1 }` / `{ then: 1 }` / 最小 thenable 全场景一致），属于风格统一非功能修复，**不构成回归风险，无需测试**。追加第 13 组用例 3 —— `dispose-race：acquire 期间 dispose 触发 → safeReleaseHandle 处理最小 thenable 不抛 TypeError`：
+  - `pauseNextAcquire` 让 acquire 挂起 → `getLock()` 发起 → `dispose()` 触发 `state.disposed=true` → `resolveAcquire(handle)` 让 acquire 完成 → actions 检测到 `state.disposed=true` 走 L431 `safeReleaseHandle` 独立路径 → handle.release 返回最小 rejected thenable
+  - **反向验证精确捕获**：临时回退 `safeReleaseHandle:291` 为 `(result as Promise<void>).catch(...)` → 用例 FAIL `TypeError: result.catch is not a function`，且期望的 `LockDisposedError` 被 TypeError 穿透覆盖 → 证明保护网真实有效
+  - **串扰验证**：反向回退只回退了 `safeReleaseHandle`，第 13 组前 2 个老用例（走 `releaseDriverHandle` / `fanoutEvent` 路径）**仍然 PASS**，证明这两条 DRY 路径**独立触发**，坐实第七轮发现的保护网空洞
+  - 配套修复 biome CLI 暴露的 2 个新 lint 错误：`noShadow` 参数 `handle` 遮蔽 → 重命名为 `h`；`useConsistentArrowReturn` `acquire` 回调改为隐式返回
+  - 用例总数 379 → **380 全通**，29 files 全绿
+  - 注释里在 `safeReleaseHandle` 上方加交叉引用「回归测试：actions.browser.test.ts 第 13 组 describe「dispose-race...」」
+- [x] **DRY copy 覆盖准则**（Phase 5+ 新增工程规则）：当多个函数是 DRY 的 copy（如 `releaseDriverHandle` / `safeReleaseHandle`），**每一份 copy 必须有独立的回归测试覆盖**；仅对其中一份做反向验证不构成完整保护网，后续维护者可能只动其中一份 copy 而测试无法 catch
+- [x] **flaky test 识别**（第七轮全量回归一次偶发 `extract.node.test.ts:185 性能快路径` 断言 `elapsed < 10ms` 但实测 15ms 失败，duration 64s 表征机器高负载）：独立重跑 47ms 全绿、稳定化全量重跑 48.32s 全绿 → 确认是性能时序硬编码断言在机器负载抖动下的 flaky，与本轮修改无因果关联，忽略
+- [x] **DRY 重构**：删除 `core/actions.ts::applyReplaceRecipe`（32 行），统一复用 `core/registry.ts::applyInPlace`；两者原先语义完全等价（数组 `length=0 + push` / 对象 `Reflect.ownKeys + deleteProperty + set`，含 Symbol key 兼容），重复实现无意义
+- [x] **lint 权威性修正（重要教训）**：`read_lints`（IDE LSP）对 biome nursery 规则覆盖不完整，会漏报 `noMisusedPromises` / `noShadow` / `noReturnAssign` 等。**Phase 5+ 以 `pnpm biome lint` CLI 为权威**，`read_lints` 仅作 IDE 内实时提示参考
+- [x] **biome lint CLI 全净**：`pnpm biome lint src/shared/lock-data/` 共 66 文件零错误
+- [x] **风格守则落实**：core 层全部使用 `@/shared/utils/verify` 的 `isObject` / `isString` / `isFunction`；异步外部化用 `withResolvers`；错误构造走 `@/shared/throw-error`；逻辑或统一 `||` 语义；严禁 `throw new Error`；`Promise | null` 类条件判断统一用 `!== null` / `!== undefined` 显式空检查
+- [x] **ES 模块语义守则**：tool 入口 `core/entry.ts` 所有导出放文件尾 `export { __resetDefaultRegistry, lockData }`；helper 文件（registry/actions/fanout/readonly-view/authority/…）全部使用 `export function` / `export const` / `export type` 内联导出
+- [x] 为 Phase 6 奠定基础：`lockData` 主入口已存在且可直接用；Phase 6 只需做 `src/shared/index.ts` 的 barrel 导出 + 三重载类型签名验证
 
 ---
 

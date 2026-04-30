@@ -21,7 +21,7 @@
  */
 /** biome-ignore-all lint/nursery/noConditionalExpect: ignore */
 
-import { describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { pickDefaultAdapters } from '@/shared/lock-data/adapters/index';
 import {
   hasBroadcastChannel,
@@ -30,6 +30,19 @@ import {
   pickDriver,
 } from '@/shared/lock-data/drivers/index';
 import type { LockDriverContext, LockDriverHandle } from '@/shared/lock-data/types';
+
+/**
+ * 强制能力探测返回 "不可用"，用于覆盖"显式 mode + 能力不足 → 抛错"等分支
+ *
+ * 背景：Node.js v24 起原生提供了 `navigator.locks`（Web Locks API），若直接依赖 node
+ * 自身环境会导致测试断言漂移；此处显式 stub globals 让能力探测与 node 版本解耦
+ */
+function stubGlobalsUnavailable(): void {
+  // navigator.locks：stubGlobal 整个 navigator 为空对象（即使 node 原生有）
+  vi.stubGlobal('navigator', {});
+  // localStorage：stubGlobal 为 undefined（node 原生无，但保险起见）
+  vi.stubGlobal('localStorage', undefined);
+}
 
 function buildArgs(
   options: { mode?: 'auto' | 'web-locks' | 'broadcast' | 'storage' },
@@ -44,7 +57,15 @@ function buildArgs(
 }
 
 describe('drivers/pickDriver (node)', () => {
-  test('能力探测：node 环境 navigator.locks / localStorage 不可用', () => {
+  beforeEach(() => {
+    stubGlobalsUnavailable();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('能力探测：显式 stub 后 navigator.locks / localStorage 不可用', () => {
     expect(hasNavigatorLocks()).toBe(false);
     expect(hasUsableLocalStorage()).toBe(false);
     // hasBroadcastChannel 取决于 node 版本，不做硬断言，仅校验函数返回布尔

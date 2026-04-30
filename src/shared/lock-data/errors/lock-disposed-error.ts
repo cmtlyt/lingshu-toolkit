@@ -9,8 +9,8 @@
  * 对应 RFC.md「错误类型」章节
  */
 class LockDisposedError extends Error {
-  constructor(message?: string) {
-    super(message);
+  constructor(message?: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'LockDisposedError';
   }
 }
