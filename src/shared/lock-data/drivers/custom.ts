@@ -108,7 +108,7 @@ function wrapUserHandle(handle: LockDriverHandle, deps: LockDriverDeps, token: s
 
   const wrapped = {
     release: () => {
-      let ret: void | Promise<void>;
+      let ret: void | PromiseLike<void>;
       try {
         // `.call(handle)` 保证用户 release 是普通方法（非箭头函数）时 this 指向用户 handle 本体；
         // 箭头函数下 .call 的 thisArg 被忽略，两种形态均安全

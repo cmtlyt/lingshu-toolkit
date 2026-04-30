@@ -247,12 +247,14 @@ describe('entry / dataReady 异步', () => {
   test('getValue 同步抛错：返回的 Promise reject LockDisposedError 且 cause 保留原错误', async () => {
     const boom = new Error('sync getValue boom');
     // resolveInitialData 对「getValue 同步抛错」按 Promise.reject 等价处理（RFC L684 的 failed 分支统一入口）
+    // core/entry.ts::lockData 签名是 LockDataResult | Promise<LockDataResult> 联合，这里显式断言为
+    // Promise 分支（getValue 返回 Promise / syncMode storage-authority 命中异步路径）
     const result = lockData<{ v: number }>(undefined, {
       getValue: () => {
         throw boom;
       },
       adapters: { logger: createSilentLogger() },
-    });
+    }) as Promise<readonly [{ v: number }, LockDataActions<{ v: number }>]>;
     expect(result).toBeInstanceOf(Promise);
 
     const captured = await result.then(
@@ -268,7 +270,7 @@ describe('entry / dataReady 异步', () => {
     const result = lockData<{ v: number }>(undefined, {
       getValue: () => Promise.reject(boom),
       adapters: { logger: createSilentLogger() },
-    });
+    }) as Promise<readonly [{ v: number }, LockDataActions<{ v: number }>]>;
     expect(result).toBeInstanceOf(Promise);
 
     const captured = await result.then(
@@ -306,7 +308,8 @@ describe('entry / adapters.getLock', () => {
   test('自定义 getLock 覆盖能力检测：自定义 handle.release 在 update 后被调用', async () => {
     const releaseMock = vi.fn();
     let capturedCtx: LockDriverContext | null = null;
-    const userGetLock: LockDataAdapters<unknown>['getLock'] = (ctx) => {
+    // getLock 字段类型不依赖 T（签名里没有 T），使用具体 T 让 ctx 被正确推断为 LockDriverContext
+    const userGetLock: NonNullable<LockDataAdapters<{ v: number }>['getLock']> = (ctx) => {
       capturedCtx = ctx;
       const handle: LockDriverHandle = {
         release: releaseMock,
@@ -330,7 +333,10 @@ describe('entry / adapters.getLock', () => {
     });
 
     expect(capturedCtx).not.toBeNull();
-    expect(capturedCtx?.name).toContain('custom-driver-id');
+    // capturedCtx 在 userGetLock 回调里被赋值，TS CFA 不跨闭包作用域推断，仍视为 null
+    // 上一行 expect(...).not.toBeNull() 是 vitest 断言，不做类型守卫 —— 通过 unknown 中转断言收窄
+    const narrowedCtx = capturedCtx as unknown as LockDriverContext;
+    expect(narrowedCtx.name).toContain('custom-driver-id');
     expect(releaseMock).toHaveBeenCalled();
 
     await actions.dispose();

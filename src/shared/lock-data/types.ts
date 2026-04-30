@@ -140,7 +140,13 @@ interface LockDriverContext {
 
 /** 锁驱动句柄；由 `adapters.getLock` 返回 */
 interface LockDriverHandle {
-  release: () => void | Promise<void>;
+  /**
+   * 释放锁
+   *
+   * 返回值兼容 Promises/A+ 规范的最小 thenable（仅需实现 `.then`），
+   * 实现侧通过 `Promise.resolve(...).catch(...)` 正规化后挂错误处理
+   */
+  release: () => void | PromiseLike<void>;
   onRevokedByDriver: (callback: (reason: 'force' | 'timeout') => void) => void;
 }
 
@@ -279,8 +285,42 @@ interface LockDataActions<T extends object> {
  * lockData 返回值
  *
  * 同步初始化时为元组；异步初始化（getValue 返回 Promise 或 syncMode 非 none）时为 Promise<元组>
+ *
+ * 内部视角类型（第一个元素为裸 T），用于 `core/entry.ts` 及其调用链的实现；
+ * 对外公开契约请使用 `LockDataTuple<T>`（第一个元素为 `ReadonlyView<T>`）
  */
 type LockDataResult<T extends object> = readonly [T, LockDataActions<T>];
+
+/**
+ * 深只读视图
+ *
+ * - 函数类型透传不递归（避免破坏 this / 参数类型）
+ * - 对象类型递归加 readonly，所有属性只读
+ * - 其他类型（primitive / symbol）原样透传
+ *
+ * 运行时由 `core/readonly-view.ts::createReadonlyView` 返回深只读 Proxy 保证；
+ * 用户通过 `lockData()` 返回的 tuple 第一个元素拿到的即为 `ReadonlyView<T>` 实例
+ *
+ * 对应 RFC.md「ReadonlyView\<T\>」章节
+ *
+ * 注：`(...args: any[]) => any` 是 RFC 合同语义（匹配任意函数签名的透传），
+ * 无法用 `unknown[]` / `unknown` 替代（否则 `keyof` 分发到函数类型会得出 `never`）
+ */
+type ReadonlyView<T> = T extends (...args: never[]) => unknown
+  ? T
+  : T extends object
+    ? { readonly [K in keyof T]: ReadonlyView<T[K]> }
+    : T;
+
+/**
+ * lockData 公开契约的返回元组类型
+ *
+ * 与内部 `LockDataResult<T>` 的区别：第一个元素类型为 `ReadonlyView<T>`（深只读代理），
+ * 明确向用户传达"读句柄只读、写操作必须经 `actions.update/replace`"的设计意图
+ *
+ * 对应 RFC.md「签名」章节
+ */
+type LockDataTuple<T extends object> = readonly [ReadonlyView<T>, LockDataActions<T>];
 
 export type {
   ActionCallOptions,
@@ -298,6 +338,7 @@ export type {
   LockDataMutationOp,
   LockDataOptions,
   LockDataResult,
+  LockDataTuple,
   LockDriverContext,
   LockDriverHandle,
   LockMode,
@@ -305,6 +346,7 @@ export type {
   LockStateChangeEvent,
   LoggerAdapter,
   Persistence,
+  ReadonlyView,
   RevokeEvent,
   RevokeReason,
   SessionStoreAdapter,

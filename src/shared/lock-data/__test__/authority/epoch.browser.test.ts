@@ -15,11 +15,14 @@ import type { AuthorityAdapter, ChannelAdapter, LoggerAdapter, SessionStoreAdapt
 /**
  * 构造测试用 LoggerAdapter（全部 vi.fn 便于断言调用次数）
  */
-function createTestLogger(): LoggerAdapter & { warn: ReturnType<typeof vi.fn>; error: ReturnType<typeof vi.fn> } {
+function createTestLogger(): LoggerAdapter & {
+  warn: ReturnType<typeof vi.fn>;
+  error: ReturnType<typeof vi.fn>;
+} {
   return {
-    warn: vi.fn(),
-    error: vi.fn(),
-    debug: vi.fn(),
+    warn: vi.fn<(message: string, ...extras: unknown[]) => void>(),
+    error: vi.fn<(message: string, ...extras: unknown[]) => void>(),
+    debug: vi.fn<(message: string, ...extras: unknown[]) => void>(),
   };
 }
 
@@ -440,10 +443,15 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
     const unsub = subscribeSessionProbe(paired.tabB, () => 'responder-epoch');
 
     paired.tabA.postMessage(buildProbeMessage('probe-xyz'));
-    // 等待 BroadcastChannel 投递
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 正向断言：用 vi.waitFor 显式轮询等待 BroadcastChannel 广播到达
+    // 比固定 setTimeout 更稳健，避免高并发 workspace 下 50ms 窗口不足的 flaky
+    await vi.waitFor(
+      () => {
+        expect(replies).toHaveLength(1);
+      },
+      { timeout: 500, interval: 10 },
+    );
 
-    expect(replies).toHaveLength(1);
     expect(replies[0]).toEqual({ type: 'session-reply', probeId: 'probe-xyz', epoch: 'responder-epoch' });
     unsub();
   });
@@ -458,7 +466,9 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
 
     const unsub = subscribeSessionProbe(paired.tabB, () => null);
     paired.tabA.postMessage(buildProbeMessage('probe-abc'));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 反向断言（期望始终为空）：必须等"足够久"才能证明确实无消息，vi.waitFor 不适用
+    // 150ms 为高并发 workspace 下 BroadcastChannel 可能的最坏投递窗口
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(replies).toHaveLength(0);
     unsub();
@@ -474,7 +484,8 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
 
     const unsub = subscribeSessionProbe(paired.tabB, () => '');
     paired.tabA.postMessage(buildProbeMessage('probe-empty'));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 反向断言：同上，150ms 等够高并发下最坏投递窗口
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(replies).toHaveLength(0);
     unsub();
@@ -493,7 +504,8 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
     paired.tabA.postMessage({ type: 'some-other-message', payload: 'x' });
     paired.tabA.postMessage('plain string');
     paired.tabA.postMessage(null);
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 反向断言：同上，150ms 等够高并发下最坏投递窗口
+    await new Promise((resolve) => setTimeout(resolve, 150));
 
     expect(replies).toHaveLength(0);
     unsub();
@@ -511,7 +523,8 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
     unsub();
 
     paired.tabA.postMessage(buildProbeMessage('probe-after-unsub'));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // 反向断言：同上，150ms 等够高并发下最坏投递窗口
+    await new Promise((resolve) => setTimeout(resolve, 150));
     expect(replies).toHaveLength(0);
   });
 });

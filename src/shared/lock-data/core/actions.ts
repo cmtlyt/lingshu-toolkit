@@ -130,10 +130,7 @@ function issueToken(state: ActionsInternalState, id: string): string {
  *
  * 优先级：`callOpts.acquireTimeout` > `options.timeout` > `DEFAULT_TIMEOUT`
  */
-function resolveAcquireTimeout(
-  options: LockDataOptions<unknown>,
-  callOpts: ActionCallOptions | undefined,
-): TimeoutValue {
+function resolveAcquireTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
   if (callOpts && callOpts.acquireTimeout !== undefined) {
     return callOpts.acquireTimeout;
   }
@@ -144,7 +141,7 @@ function resolveAcquireTimeout(
 }
 
 /** 同 resolveAcquireTimeout，维度换为 holdTimeout */
-function resolveHoldTimeout(options: LockDataOptions<unknown>, callOpts: ActionCallOptions | undefined): TimeoutValue {
+function resolveHoldTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
   if (callOpts && callOpts.holdTimeout !== undefined) {
     return callOpts.holdTimeout;
   }

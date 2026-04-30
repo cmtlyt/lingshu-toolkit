@@ -102,7 +102,7 @@ function __resetDefaultRegistry(): void {
  *
  * id 非字符串不抛错 —— 视为"纯本地只读锁"分支（RFC L107）；类型层用户已经受约束
  */
-function extractValidId(options: LockDataOptions<unknown>): string | undefined {
+function extractValidId<T>(options: LockDataOptions<T>): string | undefined {
   const { id } = options;
   return isString(id) && id.length > 0 ? id : undefined;
 }

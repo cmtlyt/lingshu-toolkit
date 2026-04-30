@@ -806,20 +806,30 @@ describe('actions / 参数校验', () => {
 // ---------------------------------------------------------------------------
 
 describe('actions / 最小 thenable 安全（回归保护）', () => {
-  /** 构造一个只实现 .then 不实现 .catch 的最小 thenable（Promises/A+ 合规） */
+  /**
+   * 构造一个只实现 .then 不实现 .catch 的最小 thenable（Promises/A+ 合规）
+   *
+   * 类型注释：TS lib 要求 `.then()` 返回 `PromiseLike<TResult1 | TResult2>`（依赖 onFulfilled/onRejected
+   * 的返回类型推断），但测试专用 thenable 始终返回 `PromiseLike<void>` —— 用双重断言
+   * `as unknown as PromiseLike<void>` 豁免泛型推断。biome 的 noExplicitAny 不适用于此类测试骨架
+   */
   function createMinimalRejectedThenable(reason: unknown): PromiseLike<void> {
-    return {
+    const thenable: PromiseLike<void> = {
       // biome-ignore lint/suspicious/noThenProperty: 测试专用：刻意构造 Promises/A+ 最小 thenable 验证实现侧的正规化保护
-      then: (_onFulfilled, onRejected): PromiseLike<void> => {
+      then: <TResult1 = void, TResult2 = never>(
+        _onFulfilled?: ((value: undefined) => TResult1 | PromiseLike<TResult1>) | null,
+        onRejectedCallback?: ((rejectReason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+      ): PromiseLike<TResult1 | TResult2> => {
         // 延迟到 microtask 触发 reject，模拟真实异步 release
         queueMicrotask(() => {
-          if (onRejected) {
-            onRejected(reason);
+          if (onRejectedCallback) {
+            onRejectedCallback(reason);
           }
         });
-        return createMinimalRejectedThenable(reason);
+        return createMinimalRejectedThenable(reason) as unknown as PromiseLike<TResult1 | TResult2>;
       },
     };
+    return thenable;
   }
 
   test('driver.release 返回最小 rejected thenable → dispose 不抛 TypeError', async () => {
@@ -929,7 +939,9 @@ describe('actions / 最小 thenable 安全（回归保护）', () => {
         /* no-op */
       },
     };
-    resolveAcquire?.(handle);
+    // resolveAcquire 在 driver.acquire Promise executor 回调里被赋值，TS CFA 不跨作用域推断
+    // 所以认为它仍为 null —— 通过 unknown 中转显式断言为非 null 函数类型
+    (resolveAcquire as unknown as (acquiredHandle: LockDriverHandle) => void)(handle);
 
     // 4) getLock 应抛 LockDisposedError（acquire 成功但 disposed=true → throwDisposed）
     await expect(getLockPromise).rejects.toThrow(LockDisposedError);

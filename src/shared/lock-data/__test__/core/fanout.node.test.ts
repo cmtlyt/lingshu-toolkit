@@ -264,8 +264,8 @@ describe('fanout 异常隔离 — 异步 Promise reject', () => {
   test('hook 同步返回非 Promise（void / 普通值）不触发 .catch 链', () => {
     const logger = createTestLogger();
     const resolved = resolveLoggerAdapter(logger);
-    // @ts-expect-error 允许 hook 返回任意值；fanout 只关心是否 thenable
-    const hook = vi.fn(() => 42);
+    // hook 返回非 thenable 值（42）由 fanout 内部通过鸭子类型判定跳过 .catch 挂钩
+    const hook = vi.fn((): number => 42);
     const listeners = new Set<LockDataListeners<{ a: number }>>([{ onSync: hook }]);
     const event: SyncEvent<{ a: number }> = {
       source: 'storage-event',

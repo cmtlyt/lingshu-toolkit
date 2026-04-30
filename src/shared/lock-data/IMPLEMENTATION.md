@@ -432,16 +432,16 @@ Phase 7 文档与测试收口
 
 ### 6.1 `index.ts`（lockData 主入口）
 
-- [ ] 实现三个重载分支 A/B/C → [RFC#签名](./RFC.md#签名)（L112）
-- [ ] 参数校验走 `dataHandler` → [RFC#参数校验](./RFC.md#参数校验)（L1321）
-- [ ] 默认值应用走 `shared/data-mixed-manager` 或等价方式 → [RFC#默认值总览](./RFC.md#默认值总览)（L1296）
-- [ ] 重载匹配规则：分支 A 同步 / 分支 B getValue Promise / 分支 C syncMode storage-authority → [RFC#签名](./RFC.md#签名)
-- [ ] 验收：`__test__/integration/entry.node.test.ts` 覆盖三个重载分支的返回类型
+- [x] 实现三个重载分支 A/B/C → [RFC#签名](./RFC.md#签名)（L112）
+- [x] 参数校验走 `dataHandler`（**实施调整**：Phase 5 在 `core/entry.ts` 内部以 `extractValidId` / `normalizeSyncMode` / `normalizePersistence` 等类型守卫 + `InvalidOptionsError` 抛错实现等价校验；主入口保持纯类型重载 + 委托，不重复校验逻辑）→ [RFC#参数校验](./RFC.md#参数校验)（L1321）
+- [x] 默认值应用走 `shared/data-mixed-manager` 或等价方式（**实施调整**：Phase 5 在 `core/entry.ts` 的 `normalize*` helper 里以字面量 fallback + RFC 规定默认值做等价实现，未引入 `data-mixed-manager` 依赖，契约与 RFC「默认值总览」一致）→ [RFC#默认值总览](./RFC.md#默认值总览)（L1296）
+- [x] 重载匹配规则：分支 A 同步 / 分支 B getValue Promise / 分支 C syncMode storage-authority → [RFC#签名](./RFC.md#签名)
+- [x] 验收：`__test__/integration/entry.node.test.ts` 覆盖三个重载分支的返回类型（10 用例全通：3 分支运行时 + 类型层 `expectTypeOf` 断言 `LockDataTuple<T>` vs `Promise<LockDataTuple<T>>` + `ReadonlyView<T>` 深只读递归）
 
 ### 6.2 从 `src/shared/index.ts` 导出
 
-- [ ] 导出 `lockData` / `NEVER_TIMEOUT` / 全部错误类 / 核心类型
-- [ ] 验收：在外部消费侧 `import { lockData } from '@cmtlyt/lingshu-toolkit/shared'` 能拿到类型
+- [x] 导出 `lockData` / `NEVER_TIMEOUT` / 全部错误类 / 核心类型（`src/shared/index.ts` 通过 `export * from './lock-data'` 自动 re-export 主入口的所有命名导出；主入口已导出 6 个错误类 + 28 个公开类型 + `lockData` + `NEVER_TIMEOUT`）
+- [x] 验收：在外部消费侧 `import { lockData } from '@cmtlyt/lingshu-toolkit/shared'` 能拿到类型（`index.test.ts` 7 用例 + `integration/entry.node.test.ts` 10 用例均通过主入口的 `import { ... } from './index'` 形式间接验证了 barrel 可达性）
 
 ---
 
@@ -463,6 +463,17 @@ Phase 7 文档与测试收口
 
 - [ ] 提供"用户自定义 adapter 的合规性测试套件"（RFC 风险表已承诺）→ [RFC#风险与取舍](./RFC.md#风险与取舍)（L1465，`适配器语义契约依赖用户自律` 条目）
 - [ ] 用户可以导入这个套件，传入自己的 adapter 实现跑一遍，确认语义等价
+
+### 7.4 既有测试稳定性修复（Phase 6 收口时发现的 flaky 用例）
+
+- [x] 修复 `__test__/authority/epoch.browser.test.ts` L449 用例 `authority/epoch — subscribeSessionProbe (响应方) > 持有 epoch 的 Tab 收到 probe 时广播 reply`
+  - **症状**：Phase 6 全量 workspace 回归时偶发 `expected [] to have a length of 1 but got +0`；**单独跑该文件稳定全绿**（多次复现确认 1207 passed）
+  - **根因**：用例依赖 `await new Promise(r => setTimeout(r, 50))` 等待 BroadcastChannel 广播到达，在 workspace 高并发（109 文件并行）下 50ms 窗口不足，广播时序被其他 suite 的 microtask 压栈推迟
+  - **与 Phase 6 改动无关**：Phase 6 修改仅涉及 `types.ts::LockDriverHandle.release` 类型放宽 / `core/entry.ts` helper 泛型透传 / 主入口三重载 / `index.test.ts` 改写 / 集成测试新增；**完全不触及 epoch / BroadcastChannel 逻辑**
+  - **实际采用方案**（双轨处理同文件 5 处同类 flaky）：
+    1. **正向断言（1 处，L447 即原失败点）**：`setTimeout(50ms)` → `vi.waitFor(() => { expect(replies).toHaveLength(1); }, { timeout: 500, interval: 10 })`；轮询等待条件成立，彻底消除时序赌博
+    2. **反向断言（4 处，L474 / L489 / L503 / L521，期望 replies 始终为空）**：`setTimeout(50ms)` → `setTimeout(150ms)`；反向断言必须等"足够久"才能证明确实无消息（`vi.waitFor` 不适用于"期望恒空"场景），150ms 覆盖高并发 workspace 下 BroadcastChannel 最坏投递窗口
+  - **验证结果**：`biome check` 单文件零错误 + `tsc --noEmit` 全量零错误 + workspace 全量回归 `1207 passed / 109 files / 0 FAIL`（相比 Phase 6 收口时 `1 failed + 1206 passed`，修复后稳定全绿）
 
 ---
 
