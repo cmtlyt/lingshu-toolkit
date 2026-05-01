@@ -497,7 +497,12 @@ async function runTransaction<T extends object>(
 }
 
 /**
- * commit 成功路径：rev++ / 更新 lastAppliedRev / authority.onCommitSuccess / fanoutCommit
+ * commit 成功路径：rev 自增 + lastAppliedRev 同步 + 事件派发
+ *
+ * rev 自增的归属约定（避免双增 bug）：
+ *   - `entry.authority` 存在 → 由 `StorageAuthority.onCommitSuccess` 内部统一
+ *     自增 rev + 写权威副本 + 派发 onCommit（见 `authority/index.ts::performCommitSuccess`）
+ *   - `entry.authority === null` → Actions 直接在此自增 rev 并派发 fanoutCommit
  *
  * 事件的 `snapshot` 必须 clone 隔离：fanout 期间用户可能继续修改 data，
  * 让 snapshot 与 data 引用断开避免用户事后误改数据
@@ -510,13 +515,14 @@ function applyCommit<T extends object>(
   mutations: readonly LockDataMutation[],
 ): void {
   const { entry } = deps;
-  entry.rev++;
-  entry.lastAppliedRev = entry.rev;
   const snapshot = entry.adapters.clone(entry.data);
   if (entry.authority) {
+    // authority 路径：rev 自增 + 权威副本写入 + onCommit 派发全部在 onCommitSuccess 内部完成
     entry.authority.onCommitSuccess({ source, token, mutations, snapshot });
   } else {
-    // 无 authority 场景下由 Actions 直接派发 onCommit（authority 路径已在内部派发）
+    // 无 authority 路径：本地自增 rev 后直接 fanoutCommit
+    entry.rev++;
+    entry.lastAppliedRev = entry.rev;
     fanoutCommit(entry.listenersSet, { source, token, rev: entry.rev, mutations, snapshot }, entry.adapters.logger);
   }
   transitionTo(deps, state, 'holding', token);

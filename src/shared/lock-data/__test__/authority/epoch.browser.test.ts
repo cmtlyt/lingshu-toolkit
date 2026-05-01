@@ -441,15 +441,20 @@ describe('authority/epoch — subscribeSessionProbe (响应方)', () => {
     });
 
     const unsub = subscribeSessionProbe(paired.tabB, () => 'responder-epoch');
+    // 让订阅真正生效 —— BroadcastChannel.addEventListener 在某些浏览器实现下
+    // 需要走一次 microtask 才会注册到内核的订阅表；直接 postMessage 可能丢首条
+    await Promise.resolve();
 
     paired.tabA.postMessage(buildProbeMessage('probe-xyz'));
     // 正向断言：用 vi.waitFor 显式轮询等待 BroadcastChannel 广播到达
-    // 比固定 setTimeout 更稳健，避免高并发 workspace 下 50ms 窗口不足的 flaky
+    // timeout 放宽到 2000ms：全量 workspace 并发下 BroadcastChannel 可能经历
+    // tabA→kernel→tabB→subscribeSessionProbe 回调→tabB→kernel→tabA 两次跨 Tab 投递，
+    // 高并发 worker 拥挤时累计延迟可能 > 500ms
     await vi.waitFor(
       () => {
         expect(replies).toHaveLength(1);
       },
-      { timeout: 500, interval: 10 },
+      { timeout: 2000, interval: 10 },
     );
 
     expect(replies[0]).toEqual({ type: 'session-reply', probeId: 'probe-xyz', epoch: 'responder-epoch' });
