@@ -323,7 +323,7 @@
             "allowedNames": []
           }
         },
-        "noMisleadingReturnType": "error",
+        "noMisleadingReturnType": "off",
         "useDisposables": "error",
         "noAmbiguousAnchorText": {
           "level": "error",
@@ -844,6 +844,7 @@
             "noConstantBinaryExpressions": "off"
           },
           "nursery": {
+            "noExcessiveLinesPerFile": "off",
             "useExplicitReturnType": "off",
             "noJsxPropsBind": "off",
             "useDestructuring": "off",

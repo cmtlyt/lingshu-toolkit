@@ -6,7 +6,7 @@
 >
 > author: cmtlyt
 >
-> update time: 2026/04/01 16:07:21
+> update time: 2026/04/28 13:37:00
 
 `throwError` 是一个用于创建和抛出错误的工具函数，自动为错误消息添加 `@cmtlyt/lingshu-toolkit` 包名前缀，便于追踪和调试。**推荐在 lingshu-toolkit 包内部使用**。
 
@@ -14,6 +14,7 @@
 
 - **自动添加包名前缀**：错误消息自动包含 `@cmtlyt/lingshu-toolkit` 包名
 - **支持自定义错误类型**：可以指定 `Error`、`TypeError` 等错误类型
+- **支持错误链（`cause`）**：可通过 `{ cause }` 选项传递原始错误，便于错误追踪（ES2022）
 - **提供错误创建函数**：`createError` 只创建错误对象，不抛出
 - **类型安全**：完整的 TypeScript 类型支持
 - **推荐内部使用**：专为 lingshu-toolkit 包内部设计
@@ -99,6 +100,29 @@ class CustomError extends Error {
 throwError('myFunction', 'Custom error occurred', CustomError);
 ```
 
+### 携带原始错误（cause）
+
+```ts
+import { throwError, throwType, createError } from '@cmtlyt/lingshu-toolkit/shared/throw-error';
+
+// 将底层错误作为 cause 传递，便于错误链追踪
+try {
+  await fetchData();
+} catch (originalError) {
+  throwError('loadConfig', 'Failed to load config', { cause: originalError });
+}
+
+// 自定义错误类型 + cause
+throwError('validate', 'Invalid input', RangeError, { cause: originalError });
+
+// throwType + cause
+throwType('parse', 'Expected JSON string', { cause: originalError });
+
+// createError + cause
+const error = createError('task', 'Task failed', { cause: originalError });
+console.log(error.cause); // → originalError
+```
+
 ### 在函数中使用
 
 ```ts
@@ -146,9 +170,9 @@ function validateInput(input: string) {
 
 ## API
 
-### throwError(fnName, message, ErrorClass?)
+### throwError(fnName, message, ErrorClass?, options?)
 
-抛出一个错误，错误消息会自动添加包名前缀。
+抛出一个错误，错误消息会自动添加包名前缀。支持两种调用形式：`throwError(fnName, message, ErrorClass?, options?)` 或 `throwError(fnName, message, options?)`（省略 `ErrorClass` 默认为 `Error`）。
 
 #### 参数
 
@@ -158,6 +182,8 @@ function validateInput(input: string) {
   - 错误消息
 - **ErrorClass?**: `ErrorConstructor`
   - 错误类型构造函数，默认为 `Error`
+- **options?**: `{ cause?: unknown }`
+  - 可选配置；`cause` 用于携带原始错误，便于错误链追踪（ES2022 `Error.cause`）
 
 #### 返回值
 
@@ -172,9 +198,15 @@ throwError('myFunction', 'Something went wrong');
 
 throwError('myFunction', 'Invalid type', TypeError);
 // 抛出: TypeError: [@cmtlyt/lingshu-toolkit#myFunction]: Invalid type
+
+throwError('myFunction', 'Task failed', { cause: originalError });
+// 抛出: Error: ...; error.cause === originalError
+
+throwError('myFunction', 'Out of range', RangeError, { cause: originalError });
+// 抛出: RangeError: ...; error.cause === originalError
 ```
 
-### throwType(fnName, message)
+### throwType(fnName, message, options?)
 
 抛出一个 `TypeError`，错误消息会自动添加包名前缀。
 
@@ -184,6 +216,8 @@ throwError('myFunction', 'Invalid type', TypeError);
   - 函数名称，用于标识错误的来源
 - **message**: `string`
   - 错误消息
+- **options?**: `{ cause?: unknown }`
+  - 可选配置；`cause` 用于携带原始错误
 
 #### 返回值
 
@@ -195,11 +229,14 @@ throwError('myFunction', 'Invalid type', TypeError);
 ```ts
 throwType('myFunction', 'Expected a string');
 // 抛出: TypeError: [@cmtlyt/lingshu-toolkit#myFunction]: Expected a string
+
+throwType('myFunction', 'Invalid JSON', { cause: parseError });
+// 抛出: TypeError: ...; error.cause === parseError
 ```
 
-### createError(fnName, message, ErrorClass?)
+### createError(fnName, message, ErrorClass?, options?)
 
-创建一个错误对象，错误消息会自动添加包名前缀，但不会抛出。
+创建一个错误对象，错误消息会自动添加包名前缀，但不会抛出。支持两种调用形式：`createError(fnName, message, ErrorClass?, options?)` 或 `createError(fnName, message, options?)`。
 
 #### 参数
 
@@ -209,6 +246,8 @@ throwType('myFunction', 'Expected a string');
   - 错误消息
 - **ErrorClass?**: `ErrorConstructor`
   - 错误类型构造函数，默认为 `Error`
+- **options?**: `{ cause?: unknown }`
+  - 可选配置；`cause` 用于携带原始错误
 
 #### 返回值
 
@@ -223,6 +262,9 @@ const error = createError('myFunction', 'Something went wrong');
 
 console.log(error.message);
 // [@cmtlyt/lingshu-toolkit#myFunction]: Something went wrong
+
+const errWithCause = createError('myFunction', 'Task failed', { cause: originalError });
+console.log(errWithCause.cause); // → originalError
 
 throw error;
 ```

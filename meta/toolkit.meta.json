@@ -13,7 +13,8 @@
     { "name": "allx", "author": "cmtlyt" },
     { "name": "apiController", "author": "cmtlyt" },
     { "name": "tryCall", "author": "cmtlyt" },
-    { "name": "priorityQueue", "author": "cmtlyt" }
+    { "name": "priorityQueue", "author": "cmtlyt" },
+    { "name": "lockData", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },
