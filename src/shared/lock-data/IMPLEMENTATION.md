@@ -560,6 +560,30 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 194 文件 clean
   - **关联文件**：`authority/index.ts::performInit`（核心修复，仅追加 1 个 if 分支）/ `__test__/authority/init-dispose-race.node.test.ts`（新增）/ `fixes/init-dispose-race.md`（方案文档归档）
 
+- [x] **`core/actions.ts::handleRevoke` 未清空 `acquiredByGetLock` 导致下一次 update 误留锁**（2026/05/06 修复）
+  - **症状**：`acquiredByGetLock` 是「上一次锁是通过 `getLock()` 主动留下的」状态位，`maybeAutoRelease` 用它决定 recipe 结束后是否自动释放（`if (alreadyHeld || state.acquiredByGetLock) return;`）。`handleRevoke` 是所有 revoke 路径（driver `onRevokedByDriver('force')` / `holdTimeout` 触发 / 用户主动 `revoke()`）的统一收口，但只清理了 `aliveToken` / `currentHandle` / `holdTimer`，**漏清** `acquiredByGetLock`。如果上一轮锁是 getLock 拿的（flag=true），revoke 之后 flag 残留，下一次普通 `update()` 跑完 `maybeAutoRelease(false)` 时仍会被 `state.acquiredByGetLock=true` 提前 return，**普通 update 抢的锁被永久留住**，直到下次显式 `release()/getLock()/dispose()` —— 行为像「死锁但无报错」
+  - **影响范围**：
+    - 任何先 `getLock()` 后被外部 revoke（其他 Tab force / hold-timeout）再继续调用 `update()` 的串联场景：锁泄漏导致其他 Tab / 同 id 实例无法进入临界区
+    - 与 `update()` 文档约定的「recipe 边界自动释放」语义相违
+    - 与 `performRelease`（已清 flag）/ `doDispose`（已清 flag）的归零行为不对称，是状态机护栏的明显疏漏
+  - **修复**（`src/shared/lock-data/core/actions.ts::handleRevoke`）：在 `state.aliveToken = ''` 之后追加 `state.acquiredByGetLock = false;`，与 `aliveToken / handle / holdTimer` 一起作为「持锁周期出口」的原子归零操作
+    - **关键设计点 1：修复点选在 handleRevoke 而非 ensureHolding 入口**：handleRevoke 是 revoke 的唯一收口，与 performRelease / doDispose 形成「持锁周期出口必清 flag」的对称性；入口侧防御违背「flag 谁置位谁负责清理」，且无法处理 revoke 后调用方不再触发新 update / 直接 dispose 的语义对称性
+    - **关键设计点 2：不在 ensureHolding 入口主动重置**：若 `alreadyHeld === true`，用户可能在前一次 `getLock()` 之后接着调 `update()`，此时 `acquiredByGetLock` 应保留前一次置位语义；入口处粗暴清零会破坏 getLock + update 串联场景
+    - **关键设计点 3：不影响 revoked 事件语义**：修复仅改 flag，不影响 `transitionTo('revoked')` / `fanoutRevoked` 的事件广播；订阅 `onRevoked` / `onLockStateChange` 的监听器无感知
+  - **测试补强**（`src/shared/lock-data/__test__/core/actions-revoke-getlock.node.test.ts`，**新增 3 组用例**）：
+    1. `getLock` → `triggerRevoke('force')` → `update(recipe)` → 断言 `actions.isHolding === false` 且 `releaseCount === 1`（自动释放生效）
+    2. `getLock` → `triggerRevoke('timeout')` → `update(recipe)` → 同样自动释放（验证 reason 字段不影响清理逻辑）
+    3. 反向校验：`getLock` → 不 revoke → `update(recipe)` → 断言 `actions.isHolding === true` 且 `releaseCount === 0`（getLock 语义未被误伤）
+    - **不依赖 fakeTimers**：直接通过 `triggerRevoke('timeout')` 驱动 handleRevoke 的 timeout 路径，避免 fakeTimers 与 async/await microtask 调度交互的脆弱时序
+  - **方案归档**：`src/shared/lock-data/fixes/revoke-clear-acquired-by-get-lock.md`（缺陷复现路径、为何修复点选在 handleRevoke 而非入口、为何不在入口主动重置、测试设计依据）
+  - **验证**（2026/05/06 12:32 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/actions-revoke-getlock.node.test.ts` → **node#shared 3/3 全绿**（实测 952ms / tests 14ms）
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/` 子目录回归 → **8 files / 151 tests 全绿**（含既有 actions.browser.test.ts 31 个用例）
+    - 联合跑 `actions-revoke-getlock.node.test.ts + actions.browser.test.ts` → **34/34 全绿**（实测 17.19s）
+    - `pnpm run check` → 全仓 195 文件 clean（biome 自动规整了新增注释格式）
+  - **关联文件**：`core/actions.ts::handleRevoke`（核心修复，新增 1 行赋值 + 4 行行内注释）/ `__test__/core/actions-revoke-getlock.node.test.ts`（新增）/ `fixes/revoke-clear-acquired-by-get-lock.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）

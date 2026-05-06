@@ -221,6 +221,11 @@ function handleRevoke<T extends object>(deps: ActionsDeps<T>, state: ActionsInte
   }
   const token = state.aliveToken;
   state.aliveToken = '';
+  // 与 performRelease / doDispose 对称：所有「持锁周期出口」必须把 acquiredByGetLock 归零，
+  // 否则上一轮 getLock() 留下的 flag 会污染下一轮 update()，导致 maybeAutoRelease 误判
+  // 为「这把锁是 getLock 主动留的」从而跳过自动释放，普通 update 抢的锁被永久留住。
+  // 详见 src/shared/lock-data/fixes/revoke-clear-acquired-by-get-lock.md
+  state.acquiredByGetLock = false;
   clearHoldTimer(state);
   releaseDriverHandle(deps, state);
   transitionTo(deps, state, 'revoked', token);
