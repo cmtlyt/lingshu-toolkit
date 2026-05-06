@@ -287,6 +287,15 @@ async function performInit<T extends object>(
     logger,
   };
   const resolved = await resolveEpoch(epochCtx);
+
+  // ⚠️ await resolveEpoch 期间外部可能已经调用 dispose()。
+  // 若已销毁：不回写 host.epoch、不挂 push/pull、不做初次 pull —— 直接交还
+  // resolveEpoch 结果，让 dataReadyPromise 仍能 resolve（init() 契约不破坏），
+  // 同时彻底避免悬挂 listener 与「已销毁实例被重新接回事件流」的状态错配。
+  // 详见 src/shared/lock-data/fixes/init-dispose-race.md
+  if (state.disposed) {
+    return resolved;
+  }
   host.epoch = resolved.epoch;
 
   // 3. 订阅 authority 推送 + 激活 pull

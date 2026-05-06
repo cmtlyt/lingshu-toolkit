@@ -535,6 +535,31 @@ Phase 7 文档与测试收口
     - 同时跑通的工作流：`source ~/.nvm/nvm.sh && cd ... && nvm use && pnpm run test:ci <filepath>`（已总结到根目录 `AGENTS.md` 的「Agent 运行环境」段）
   - **关联文件**：`authority/extract.ts`（核心修复）/ `__test__/authority/extract.node.test.ts`（测试补强）；调用方 `authority/index.ts::applyAuthorityIfNewer` 无需改动 —— 应用层兜底保留作为深度防御
 
+- [x] **`authority/index.ts::performInit` 与 `dispose()` 并发悬挂 push/pull 监听**（2026/05/06 修复）
+  - **症状**：`createStorageAuthority(...).init()` 内部 `await resolveEpoch(...)` 是唯一异步切点；外部在这段等待期间调用 `dispose()` 后，`state.disposed = true` 且 `unsubscribers` 已清空，但 `await` 恢复后步骤 3（`attachAuthorityPushSubscription`）/ 步骤 4（`attachActivationPullSubscription`）/ 步骤 5（初次 `applyAuthorityIfNewer('pull-on-acquire', ...)`）仍会执行，将一个**已声明销毁的实例重新接回 storage 事件流**：`authority.subscribe` 注册的 unsubscribe 回调被 push 进空数组后再无人消费、`window.addEventListener('pageshow' / 'visibilitychange', ...)` 同理悬挂、初次 pull 还会触发 `emitSync` 把数据应用到一个事实上已废弃的 host
+  - **影响范围**：
+    - 任何先 `init()` 后立刻 `dispose()` 的取消语义场景（如组件 mount → unmount 极快、StrictMode 双调用、外部 cancel 控制流）都会留下监听器内存泄漏 + 监听器回调在销毁后被错误唤起
+    - 跨用例污染：销毁后仍接到 storage 事件 → 触发 onSync 重入 → 是 Phase 7.4 治理 flaky 用例时未根治的潜在背景源之一
+  - **修复**（`src/shared/lock-data/authority/index.ts::performInit`）：在 `await resolveEpoch(epochCtx)` 恢复后立即追加 `if (state.disposed) return resolved;` 短路返回
+    - **关键设计点 1：仍然 `return resolved`**：`init()` 契约是 `Promise<ResolveEpochResult>`，宿主 `dataReadyPromise` 在 await 它；短路返回让契约不破坏（不会卡住 await），同时彻底跳过所有副作用（不回写 `host.epoch`、不挂 push/pull、不做初次 pull）
+    - **关键设计点 2：不复用 `state.initialized` flag**：`initialized` 防"重复 init"，`disposed` 防"销毁后副作用"，两者语义独立必须分立
+    - **关键设计点 3：不需要事务化撤销**：dispose 已 close channel + 清空 unsubscribers，只要主动跳过 step 3-5 就不会再产生需要清理的资源；step 1（`attachSessionProbeResponder`）在 await 之前就已 push 进 `state.unsubscribers`，dispose 时已被消费，不存在悬挂
+  - **测试补强**（`src/shared/lock-data/__test__/authority/init-dispose-race.node.test.ts`，**新增 6 组用例**）：
+    1. `await resolveEpoch` 期间调用 dispose → `authority.subscribe` / `authority.read` 调用计数为 0（push 订阅 + 初次 pull 都没挂上）
+    2. 同上场景下 `host.epoch` 保持 null（不被回写）
+    3. 同上场景下 `applySnapshot` / `emitSync` 均未被调用（初次 pull 不应错误唤起监听器）
+    4. 反向校验 1：正常路径（先完成 init 再 dispose）push 订阅照常挂上
+    5. 反向校验 2：C 分支（sessionStore 已有 epoch）正常路径下 `authority.read` 照常触发初次 pull —— 防止修复误伤
+    6. dispose 幂等：连续两次调用，`channel.close` 仅被触发一次
+    - **构造异步 await 切点的方式**：`persistence: 'session'` + 自定义 silent channel（postMessage 不回环、subscribe 注册但永不被外部触发）→ `resolveEpoch` 走 session-probe 超时分支（F 分支），稳定地等待 `sessionProbeTimeout` 才 settle，这段窗口期可精准插入 `dispose()` 调用
+  - **方案归档**：`src/shared/lock-data/fixes/init-dispose-race.md`（缺陷复现路径、为何用 disposed 而非 initialized、为何仍要返回 resolved、测试设计依据）
+  - **验证**（2026/05/06 12:11 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/authority/init-dispose-race.node.test.ts` → **node#shared 6/6 全绿**（实测 1.04s / tests 195ms）
+    - `pnpm run test:ci src/shared/lock-data` 全量回归 → **35 files / 450 tests 全绿**（实测 19.00s）
+    - `pnpm run check` → 全仓 194 文件 clean
+  - **关联文件**：`authority/index.ts::performInit`（核心修复，仅追加 1 个 if 分支）/ `__test__/authority/init-dispose-race.node.test.ts`（新增）/ `fixes/init-dispose-race.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）
