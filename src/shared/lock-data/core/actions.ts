@@ -96,6 +96,17 @@ interface ActionsInternalState {
   acquiredByGetLock: boolean;
   /** dispose 终态标记；之后所有调用 reject LockDisposedError */
   disposed: boolean;
+  /**
+   * 写操作串行链：update / replace / getLock 通过此 Promise 链严格 FIFO 排队
+   *
+   * 解决「未 await 的并发写操作」不安全问题：当 phase 处于 acquiring / committing
+   * 时，原 ensureHolding 仅在 holding 状态复用既有锁，其他状态会再次进入
+   * performAcquire 覆盖 currentToken / currentHandle，造成前一个事务被误判 revoked
+   * 或 driver handle 泄漏。引入串行链后，同一时刻只有一个写操作处于关键区
+   *
+   * 详见 src/shared/lock-data/fixes/concurrent-acquire-serialize.md
+   */
+  writeChain: Promise<void>;
 }
 
 function createInitialState(): ActionsInternalState {
@@ -108,6 +119,7 @@ function createInitialState(): ActionsInternalState {
     holdTimer: null,
     acquiredByGetLock: false,
     disposed: false,
+    writeChain: Promise.resolve(),
   };
 }
 
@@ -119,6 +131,28 @@ function createInitialState(): ActionsInternalState {
 function issueToken(state: ActionsInternalState, id: string): string {
   state.tokenSeq++;
   return `${LOCK_PREFIX}:${id}:token:${state.tokenSeq}`;
+}
+
+/**
+ * 写操作串行化排队 helper
+ *
+ * 关键设计点：
+ * 1. `state.writeChain.then(task, task)` —— 无论前一个任务成功或失败，下一个任务都会
+ *    继续执行；保证 FIFO 严格串行（事务语义对齐）
+ * 2. `state.writeChain = next.then(swallow, swallow)` —— 链尾用空函数吞掉 rejection，
+ *    下一个排队者不会被前一个失败污染；调用方拿到的是 `next` 本身（task 的真实结果）
+ * 3. 调用方收到的 Promise 与 chain 隔离：失败的真实错误会原样 reject 给当前调用方，
+ *    后续排队者从 fresh 的 chain 上恢复，不受污染
+ *
+ * 详见 src/shared/lock-data/fixes/concurrent-acquire-serialize.md
+ */
+function enqueueWrite<R>(state: ActionsInternalState, task: () => Promise<R>): Promise<R> {
+  const swallow = (): void => {
+    /* 吞掉 rejection 隔离链上后续任务，调用方仍从 next 拿到真实错误 */
+  };
+  const next = state.writeChain.then(task, task);
+  state.writeChain = next.then(swallow, swallow);
+  return next;
 }
 
 // ---------------------------------------------------------------------------
@@ -659,16 +693,24 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
     },
 
     async update(recipe, callOpts): Promise<void> {
+      // 入队前同步快速失败（disposed / 类型错误）：保持现有 fail-fast 契约，
+      // 不让无效调用占用串行链位置
       ensureAlive();
       if (!isFunction(recipe)) {
         throwError(ERROR_FN_NAME, 'update requires a recipe function', TypeError);
       }
-      const { alreadyHeld } = await ensureHolding(callOpts, 'update');
-      try {
-        await runTransaction(deps, state, 'update', recipe);
-      } finally {
-        maybeAutoRelease(alreadyHeld);
-      }
+      // 写操作串行化：通过 enqueueWrite 排队，保证 ensureHolding + runTransaction +
+      // maybeAutoRelease 的关键区同一时刻只有一个写操作执行。排队后再次 ensureAlive
+      // 兜底「排队期间被 dispose」场景，按 disposed 终态契约 reject LockDisposedError
+      return enqueueWrite(state, async () => {
+        ensureAlive();
+        const { alreadyHeld } = await ensureHolding(callOpts, 'update');
+        try {
+          await runTransaction(deps, state, 'update', recipe);
+        } finally {
+          maybeAutoRelease(alreadyHeld);
+        }
+      });
     },
 
     async replace(next, callOpts): Promise<void> {
@@ -676,16 +718,19 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
       if (!isObject(next)) {
         throwError(ERROR_FN_NAME, 'replace requires a non-null object', TypeError);
       }
-      const { alreadyHeld } = await ensureHolding(callOpts, 'replace');
-      try {
-        // Draft Proxy 的 set/delete 会把 applyInPlace 的 length=0 / push / deleteProperty /
-        // Reflect.set 全部捕获为 mutation，享受统一的回滚保护；错配时 applyInPlace 抛 TypeError
-        await runTransaction(deps, state, 'replace', (draft) => {
-          applyInPlace(draft, next as T);
-        });
-      } finally {
-        maybeAutoRelease(alreadyHeld);
-      }
+      return enqueueWrite(state, async () => {
+        ensureAlive();
+        const { alreadyHeld } = await ensureHolding(callOpts, 'replace');
+        try {
+          // Draft Proxy 的 set/delete 会把 applyInPlace 的 length=0 / push / deleteProperty /
+          // Reflect.set 全部捕获为 mutation，享受统一的回滚保护；错配时 applyInPlace 抛 TypeError
+          await runTransaction(deps, state, 'replace', (draft) => {
+            applyInPlace(draft, next as T);
+          });
+        } finally {
+          maybeAutoRelease(alreadyHeld);
+        }
+      });
     },
 
     read(): T {
@@ -695,7 +740,10 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
 
     async getLock(callOpts): Promise<void> {
       ensureAlive();
-      await ensureHolding(callOpts, 'getLock');
+      return enqueueWrite(state, async () => {
+        ensureAlive();
+        await ensureHolding(callOpts, 'getLock');
+      });
     },
 
     release(): void {

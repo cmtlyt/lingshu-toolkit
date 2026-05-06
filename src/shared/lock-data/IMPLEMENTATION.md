@@ -619,6 +619,49 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 196 文件 clean
   - **关联文件**：`core/actions.ts::performAcquire`（核心修复，仅追加 1 个 if 分支 + 6 行注释）/ `__test__/core/actions-dispose-race.node.test.ts`（新增）/ `fixes/dispose-race-acquire-catch.md`（方案文档归档）
 
+- [x] **`core/actions.ts` actions 实例对未 await 的并发写操作不安全**（2026/05/06 修复）
+  - **症状**：`ensureHolding` 仅在 `phase === 'holding' && aliveToken !== ''` 时复用既有锁，其他状态（包括 `acquiring` / `committing`）一律走 `performAcquire()`。当用户**未 await 第一次写操作就发起第二次写操作**（`update#1` 还在 `await driver.acquire`，调用方紧接着发出 `update#2` / `replace#1` / `getLock#1`）时，第二次会直接覆盖 `currentToken` / `aliveToken` / `currentHandle`，触发两类深层错乱：
+    1. **`acquiring` 期间重入 → 伪 `LockRevokedError`**：`update#1` 拿到 `handle#A` 时 `aliveToken` 已被 `update#2` 改写为 `B` → 走 revoke 分支抛 `LockRevokedError`，但实际并未被任何外部源 revoke —— 调用方误以为锁被驱动撤销
+    2. **`committing` 期间重入 → driver handle 泄漏**：`update#1` 在 `await recipe(draft)` 阶段，`update#2` 进入 `performAcquire` 拿到 `handle#B` 时 `state.currentHandle = handle#B` **直接覆写 `handle#A`**，`handle#A` 引用丢失，**永远不会被 release**（WebLocks driver 意味着锁永久持有直到页面关闭；自定义 driver 可能造成跨进程锁死）
+  - **影响范围**：
+    - 任何允许调用方未 await 写操作的场景（用户事件并发触发、StrictMode 双调用、并行流水线、组件快速 unmount/remount 等）
+    - WebLocks / 自定义 driver 的 handle 资源泄漏（不会自动恢复，需进程重启）
+    - 错误类型语义错乱：调用方收到的 `LockRevokedError` 与实际撤销源完全无关，无法基于错误类型做正确的恢复决策
+  - **修复方案权衡**：
+    - 候选 A（采纳）：在 `ActionsInternalState` 引入 `writeChain: Promise<void>` 串行链，所有写操作通过 `.then(task, task)` 严格 FIFO 排队
+    - 候选 B（放弃）：重入直接抛 `LockBusyError`，破坏现有调用方契约（用户合理预期 `update()` 排队），且引入新错误类型成本高
+    - 候选 C（放弃）：committing 期复用 pending 结果，会丢失第二次调用的 recipe 语义
+  - **修复**（`src/shared/lock-data/core/actions.ts`）：
+    1. `ActionsInternalState` 新增 `writeChain: Promise<void>` 字段（初始 `Promise.resolve()`），随同 `createInitialState` 同步初始化
+    2. 新增 `enqueueWrite<R>(state, task): Promise<R>` helper，三处关键设计：① `state.writeChain.then(task, task)` 保证无论前一个任务成功或失败下一个都继续；② 链尾 `next.then(swallow, swallow)` 吞掉 rejection 隔离链上后续任务；③ 调用方拿到 `next` 本身（task 真实结果），不被 chain 的吞错版本污染
+    3. 改造 `update` / `replace` / `getLock` 三个入口：把「`ensureHolding` + `runTransaction` + `maybeAutoRelease`」整体包到 `enqueueWrite` 中，task 内部再次 `ensureAlive()` 兜底「排队期间被 dispose」场景。`ensureAlive` 与参数校验仍在排队前同步执行（保持 fail-fast 契约不变）
+    ```ts
+    function enqueueWrite<R>(state: ActionsInternalState, task: () => Promise<R>): Promise<R> {
+      const swallow = (): void => {/* 隔离链上后续任务，调用方仍从 next 拿到真实错误 */};
+      const next = state.writeChain.then(task, task);
+      state.writeChain = next.then(swallow, swallow);
+      return next;
+    }
+    ```
+    - **关键设计点 1：写串行化而非拒绝重入**——符合用户对 `update()` 的合理预期（"未 await 重入应该排队，不应该报错"），零破坏性
+    - **关键设计点 2：调用方 Promise 与 chain 隔离**——`next = chain.then(task, task)` 是真实结果通道，`writeChain = next.then(swallow, swallow)` 是排队信号通道；前一个任务失败的真实错误原样 reject 给当前调用方，后续排队者从 fresh 的 chain 上恢复不被污染
+    - **关键设计点 3：dispose 协同无需额外改动**——`doDispose` 已通过 `disposedController.abort()` 中断 in-flight `driver.acquire`；排队中的任务轮到自己执行时调 `ensureAlive()` 命中 `state.disposed` 抛 `LockDisposedError`，与 dispose-race 修复的终态契约对齐
+    - **关键设计点 4：`performAcquire` / `runTransaction` / `release` 不需改**——它们的并发不安全是「上层不该让多个调用同时进入」，串行化后天然消失
+  - **测试补强**（`src/shared/lock-data/__test__/core/actions-concurrent-write.node.test.ts`，**新增 5 组用例**）：
+    1. `acquiring` 期间重入 `update`：暂停 driver.acquire → 同时发 update#1 + update#2（不 await #1）→ 断言 ① `entry.rev=2`、② `onCommit` 顺序严格 `[1, 2]`、③ `onRevoked` 未触发（无伪事件）、④ 各自走完整 acquire→release（`acquireCount=2 / releaseCount=2`）
+    2. `committing` 期间重入 `update`：第一个 update 的 recipe 是 async 阻塞 → 重入第二个 update → 断言 `entry.rev=2`，`acquireCount=2 / releaseCount=2`（修复前 handle#A 会被 handle#B 覆盖丢失，release 计数不平衡）
+    3. `update` + `replace` 交叉：data 最终值是 replace 写入的对象（`{v: 999, tag: 'replaced'}`），串行后两次操作各自 acquire→release
+    4. `update` + `getLock` 交叉：update 完成 release 后 getLock 重新 acquire，`acquireCount=2 / releaseCount=1`（getLock 后 `acquiredByGetLock=true` 保留锁），主动 `release()` 后 `releaseCount=2`
+    5. 排队期间 `dispose`：update#1 卡在 acquire（gate 不 resume）→ update#2 排队 → `dispose()` → 断言 update#2 抛 `LockDisposedError`（不是 abort/timeout，符合终态契约）
+    - **stub driver 增强**：在 `pauseNextAcquire` 模式下监听 `ctx.signal.addEventListener('abort')` → reject `AbortError`（与真实 driver 行为对齐，让 dispose 路径可观察）
+  - **方案归档**：`src/shared/lock-data/fixes/concurrent-acquire-serialize.md`（缺陷复现路径、错乱 1/2 时间线表、候选方向 A/B/C 权衡、关键设计点、边界场景、测试设计）
+  - **验证**（2026/05/06 13:47 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/actions-concurrent-write.node.test.ts` → **node#shared 5/5 全绿**（实测 1.69s / tests 33ms）
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/` 子目录回归 → **10 files / 159 tests 全绿**（含既有 actions.browser.test.ts 31 个 + actions-revoke-getlock 3 个 + actions-dispose-race 3 个 + 本次新增 5 个）
+    - `pnpm run check` → 全仓 197 文件 clean
+  - **关联文件**：`core/actions.ts`（核心修复：`ActionsInternalState` 新增 `writeChain` 字段、`createInitialState` 初始化、新增 `enqueueWrite` helper、改造 `update`/`replace`/`getLock` 三个入口）/ `__test__/core/actions-concurrent-write.node.test.ts`（新增）/ `fixes/concurrent-acquire-serialize.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）
