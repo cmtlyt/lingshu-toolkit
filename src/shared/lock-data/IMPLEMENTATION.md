@@ -662,6 +662,44 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 197 文件 clean
   - **关联文件**：`core/actions.ts`（核心修复：`ActionsInternalState` 新增 `writeChain` 字段、`createInitialState` 初始化、新增 `enqueueWrite` helper、改造 `update`/`replace`/`getLock` 三个入口）/ `__test__/core/actions-concurrent-write.node.test.ts`（新增）/ `fixes/concurrent-acquire-serialize.md`（方案文档归档）
 
+- [x] **`core/draft.ts` 集合内对象深层修改绕过 proxy 跟踪**（2026/05/06 修复）
+  - **症状**：`createDraftSession` 对 Set / Map 提供了 collection proxy 跟踪 mutation 方法（`add` / `set` / `delete` / `clear`），但「读出来的值」分支用 `value.bind(target)` 直接绑定到原始集合 → `draft.map.get('k')` 返回的就是真实存进去的对象引用。调用方对该引用做深层修改（`item.x = 2`）**完全绕过 proxy trap**，`mutations` 不记录、`snapshot` 不抓 prevValue、`rollback()` 还原不了，事务的 commit / rollback 语义被静默破坏。同样的口子在 `Map.values() / entries() / forEach / Symbol.iterator` 与 `Set` 的对应迭代 API 上都存在
+  - **影响范围**：
+    - 任何把可变对象塞进 Set / Map 的写法（`map.set('k', { x: 1 })` / `set.add({ id: 1 })`）：commit 阶段广播的 mutations 缺失深层修改、跨 Tab 同步不会传播 → **生产路径上本来就是错的，只是运行时没检测出来**
+    - 跨 Tab 序列化：authority 副本写入只发布显式记录的 mutations，集合内对象的深层修改完全丢失 → 跨 Tab 数据漂移
+    - rollback 失败：recipe 抛错时 lock-data 承诺整事务回滚，但绕过 proxy 的修改无法被恢复 → 状态不一致
+  - **修复方案权衡**：
+    - 候选 A（放弃）：把集合读取结果继续包成子 draft，路径用伪段 `@map(key)` / `@set(item)` 表达。代价是 mutation path 出现伪段后 commit 持久化层、跨 Tab 重放、authority 序列化、type 定义全部需要兼容，与 RFC 顶部「Set/Map 整体克隆 / 中小规模」的设计预期相悖；Set 元素无稳定键还需要 WeakMap 维护 item → id 映射
+    - 候选 B（放弃）：仅入口拦截「Set/Map 内不能放可变对象」，配合出口 `Object.freeze`。需要保留 collection proxy 全部代码（~80 行），且 `Object.freeze` 有副作用（用户存入的对象被强制冻结，影响 lock-data 之外的代码）
+    - 候选 C（采纳）：**移除对 Set / Map 的支持，仅允许 JSON 安全类型**。lock-data 的数据本身要参与跨 Tab 同步与持久化序列化，集合类型在 JSON 上下文里本来就是「需要自定义序列化」的类型，让它出现在 draft 里只会持续制造类似缺陷
+  - **修复**（采纳候选 C，`src/shared/lock-data/core/draft.ts`）：
+    1. **删除全部 collection proxy 代码**：`SET_MUTATION_METHODS` / `MAP_MUTATION_METHODS` / `CollectionInfo` / `detectCollection` / `CollectionAccess` / `resolveCollectionMember` / `buildCollectionMutation` / `captureCollectionSnapshotOnce` / `restoreCollection`，连带 `DraftSnapshotEntry` 的 `'collection'` 分支与 `applyRollback` 的 collection 分支
+    2. **新增 `assertJsonSafe(value, path, seen)` helper**：递归校验 JSON 安全契约 —— 允许 `string` / `number`（不含 NaN/Infinity）/ `boolean` / `null` / plain object（`Object.getPrototypeOf === Object.prototype || === null`）/ array；禁止 `undefined` / `bigint` / `symbol` / `function` / Set / Map / Date / RegExp / class 实例 / TypedArray / 循环引用 等。`seen: WeakSet` 仅跟踪当前路径上访问过的容器（递归回溯时 `delete`），保证「同一兄弟节点的相同引用」不被误判为环
+    3. **新增 `formatPath` / `describeNonJsonValue` helper**：错误消息携带 `'a.b[0].c'` 风格路径与具体类型描述（`Set` / `Map` / `Date` / `class instance (Foo)` / `NaN` / `function` 等）
+    4. **`createDraftSession` 入口校验**：进入函数体首行调用 `assertJsonSafe(target, [], new WeakSet())` —— fail-fast 拒绝非 JSON 数据，避免后续操作产生不可回滚的副作用
+    5. **`createDraftProxy::set` trap 写入校验**：在 `Reflect.set` 之前调用 `assertJsonSafe(value, [...parentPath, key], new WeakSet())` —— 入口已校验 target，但 recipe 内的赋值 value 可能是任意类型，必须重新校验。在写入前抛错可保证 target / mutations / snapshot 不被污染
+    6. **JSDoc tip**：`createDraftSession` 函数签名与 `DraftSession` 接口都补充 JSDoc，明确 JSON-only 契约 + 给出 `Set<T>` → `T[]` / `Map<K, V>` → `Record<string, V>` 的迁移建议
+    - **关键设计点 1：从设计上移除而非打补丁**——集合类型在 JSON 上下文里持续制造类似缺陷的根因是「Set / Map 不是 JSON 一等公民」。打补丁只能修单点，移除支持才能根治
+    - **关键设计点 2：入口 + 写入双重校验**——入口校验拒绝初始非法 target；写入校验拒绝 recipe 内赋非法值。两道防线协同保证「draft 上下文中永远不会出现非 JSON 值」
+    - **关键设计点 3：`undefined` / NaN / Infinity 一并拒绝**——保守对齐 `JSON.stringify` 行为：`undefined` 在 stringify 时被丢弃、NaN/Infinity 被静默转成 `null`；主动拦截优于运行时漂移
+    - **关键设计点 4：错误消息携带路径**——`'draft only supports JSON-safe values, got "Set" at "user.tags"'` 让用户秒级定位违规点
+    - **关键设计点 5：写入校验在 `Reflect.set` 之前抛错**——保证 target / mutations / snapshot 不被污染（fail-fast），与现有「ensureWritable 在 mutation log 之前」的对称
+  - **同步清理 types.ts**：`LockDataMutationOp` 从 8 个值缩减到 2 个（`'set' | 'delete'`），删除 `'map-set' | 'map-delete' | 'map-clear' | 'set-add' | 'set-delete' | 'set-clear'`。事先 grep 确认这 6 个 op 仅在 `draft.ts`（实现）+ `types.ts`（定义）+ `__test__/core/draft.node.test.ts`（测试）3 个文件出现，commit / persist / authority 路径均无依赖
+  - **测试改造**（`src/shared/lock-data/__test__/core/draft.node.test.ts`）：删除 `createDraftSession - Set / Map 追踪` 整个 describe block（9 个用例）；修正 1 个用例 `'rollback 被删除的属性恢复为"不存在"而非 undefined'` 改为 `Reflect.deleteProperty` 触发删除（原 `session.draft.a = undefined` 在新契约下会被拒绝），更名为 `'rollback 后被删除的属性恢复为原值'`
+  - **测试补强**（`src/shared/lock-data/__test__/core/draft-json-only.node.test.ts`，**新增 24 个用例 / 4 组 describe**）：
+    1. **入口拦截 - 非 JSON 值**（12 个）：Map / Set / 嵌套深处 Set / 数组内 Map（索引路径）/ Date / RegExp / class 实例（描述类名 `class instance (Foo)`）/ function / bigint / NaN / Infinity / undefined（提示用 null）+ 错误信息携带 lockData 前缀
+    2. **入口允许 - 纯 JSON 数据**（4 个）：plain object 嵌套 array 嵌套 primitive / `Object.create(null)` 视为 plain object / 顶层为数组 / 同一引用出现在两个兄弟节点不被误判为环
+    3. **写入拦截 - recipe 里赋非 JSON 值**（4 个）：赋值 new Set 抛 TypeError 且 target / mutations 不被污染、后续合法写入仍可工作 / 赋值 Date / 赋值含 NaN 的对象（路径深入到 `x.a.b`）/ rollback 后非 JSON 值的失败写入不影响最终状态
+    4. **环形引用拦截**（3 个）：对象自循环 / 深层环（路径 `root.child.child`）/ 数组自循环
+  - **方案归档**：`src/shared/lock-data/fixes/collection-deep-mutation-bypass.md`（缺陷复现路径、影响范围、候选方向 A/B/C 权衡、JSON 安全类型定义、实施清单、关键设计点、测试用例索引、边界场景、不做的事）
+  - **验证**（2026/05/06 14:48 本地实测）：
+    - `read_lints` 无错误（`isPlainObject` 返回类型用 type predicate `value is Record<string, unknown>` 收窄以匹配 biome `noMisleadingReturnType` 规则；测试中环形引用结构改用 `interface` 替代 `type` 以匹配 `useConsistentTypeDefinitions`）
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/draft-json-only.node.test.ts src/shared/lock-data/__test__/core/draft.node.test.ts` → **node#shared 39/39 全绿**（draft.node.test 15 个 + draft-json-only.node.test 24 个）
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/` 子目录回归 → **11 files / 174 tests 全绿**（含既有 actions.browser 31 个 + actions-revoke-getlock 3 个 + actions-dispose-race 3 个 + actions-concurrent-write 5 个 + 本次新增 24 个）
+    - `pnpm run test:ci src/shared/lock-data/__test__/authority/init-dispose-race.node.test.ts` → 6/6 全绿；`extract.node.test.ts` → 33/33 全绿；`src/shared/lock-data/index.test.ts` → 14/14 全绿（含 browser）
+    - `pnpm run check` → 全仓 198 文件 clean
+  - **关联文件**：`core/draft.ts`（核心修复：删除 ~80 行 collection proxy 代码、新增 `assertJsonSafe` / `formatPath` / `describeNonJsonValue` / `isPlainObject` 4 个 helper、`createDraftSession` 入口与 `createDraftProxy::set` trap 加校验、JSDoc tip）/ `types.ts`（`LockDataMutationOp` 缩减为 `'set' | 'delete'` + JSDoc 追加 JSON-only 契约说明）/ `__test__/core/draft.node.test.ts`（删除 Set/Map 追踪 describe block、修正 1 个用例）/ `__test__/core/draft-json-only.node.test.ts`（新增）/ `fixes/collection-deep-mutation-bypass.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）

@@ -76,11 +76,11 @@ describe('createDraftSession', () => {
     expect(target.count).toBe(1);
   });
 
-  test('rollback 被删除的属性恢复为"不存在"而非 undefined', () => {
+  test('rollback 后被删除的属性恢复为原值', () => {
     const target: { a?: number } = { a: 1 };
     const session = createDraftSession(target);
 
-    session.draft.a = undefined;
+    Reflect.deleteProperty(session.draft, 'a');
     session.rollback();
 
     expect(Object.hasOwn(target, 'a')).toBe(true);
@@ -172,119 +172,5 @@ describe('createDraftSession', () => {
     expect(() => {
       session.draft.a = 2;
     }).toThrow(/\[@cmtlyt\/lingshu-toolkit#lockData\]/u);
-  });
-});
-
-describe('createDraftSession - Set / Map 追踪', () => {
-  test('Set.add 会原地改 target 并记录 mutation', () => {
-    const target = { tags: new Set<string>(['a']) };
-    const session = createDraftSession(target);
-
-    session.draft.tags.add('b');
-
-    expect(target.tags.has('b')).toBe(true);
-    expect(session.mutations).toHaveLength(1);
-    expect(session.mutations[0]).toMatchObject({ path: ['tags'], op: 'set-add', value: 'b' });
-  });
-
-  test('Set.delete 与 Set.clear 记录对应 op', () => {
-    const target = { tags: new Set<string>(['a', 'b']) };
-    const session = createDraftSession(target);
-
-    session.draft.tags.delete('a');
-    session.draft.tags.clear();
-
-    expect(session.mutations[0]).toMatchObject({ path: ['tags'], op: 'set-delete', value: 'a' });
-    expect(session.mutations[1]).toMatchObject({ path: ['tags'], op: 'set-clear' });
-    expect(target.tags.size).toBe(0);
-  });
-
-  test('Map.set 记录 path + [key, value]', () => {
-    const target = { dict: new Map<string, number>([['a', 1]]) };
-    const session = createDraftSession(target);
-
-    session.draft.dict.set('b', 2);
-
-    expect(target.dict.get('b')).toBe(2);
-    expect(session.mutations[0]).toMatchObject({ path: ['dict'], op: 'map-set', value: ['b', 2] });
-  });
-
-  test('Map.delete / Map.clear 记录对应 op', () => {
-    const target = {
-      dict: new Map<string, number>([
-        ['a', 1],
-        ['b', 2],
-      ]),
-    };
-    const session = createDraftSession(target);
-
-    session.draft.dict.delete('a');
-    session.draft.dict.clear();
-
-    expect(session.mutations[0]).toMatchObject({ path: ['dict'], op: 'map-delete', value: 'a' });
-    expect(session.mutations[1]).toMatchObject({ path: ['dict'], op: 'map-clear' });
-    expect(target.dict.size).toBe(0);
-  });
-
-  test('Set 的 rollback 整体恢复到初始元素', () => {
-    const target = { tags: new Set<string>(['a', 'b']) };
-    const session = createDraftSession(target);
-
-    session.draft.tags.add('c');
-    session.draft.tags.delete('a');
-    session.draft.tags.clear();
-
-    session.rollback();
-
-    expect(Array.from(target.tags).sort()).toEqual(['a', 'b']);
-  });
-
-  test('Map 的 rollback 整体恢复 key/value 对', () => {
-    const target = {
-      dict: new Map<string, number>([
-        ['a', 1],
-        ['b', 2],
-      ]),
-    };
-    const session = createDraftSession(target);
-
-    session.draft.dict.set('a', 100);
-    session.draft.dict.delete('b');
-    session.draft.dict.set('c', 3);
-
-    session.rollback();
-
-    expect(target.dict.get('a')).toBe(1);
-    expect(target.dict.get('b')).toBe(2);
-    expect(target.dict.has('c')).toBe(false);
-    expect(target.dict.size).toBe(2);
-  });
-
-  test('dispose 后 Set mutation 抛 LockRevokedError', () => {
-    const target = { tags: new Set<string>() };
-    const session = createDraftSession(target);
-    session.dispose();
-
-    expect(() => session.draft.tags.add('x')).toThrow(LockRevokedError);
-  });
-
-  test('commit 后 Map mutation 抛 LockRevokedError', () => {
-    const target = { dict: new Map<string, number>() };
-    const session = createDraftSession(target);
-    session.draft.dict.set('a', 1);
-    session.commit();
-
-    expect(() => session.draft.dict.set('b', 2)).toThrow(LockRevokedError);
-  });
-
-  test('Set 非 mutation 方法（has / size / iterator）不触发 mutation log', () => {
-    const target = { tags: new Set<string>(['a']) };
-    const session = createDraftSession(target);
-
-    const _hasA = session.draft.tags.has('a');
-    const _size = session.draft.tags.size;
-    const _items = Array.from(session.draft.tags);
-
-    expect(session.mutations).toHaveLength(0);
   });
 });

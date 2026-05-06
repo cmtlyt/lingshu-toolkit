@@ -4,8 +4,21 @@
  * 实现要点（对应 RFC.md「事务式 Draft」「Draft Proxy 行为」）：
  * - set / deleteProperty 同时：① push 到 mutation log ② 原地写入 target ③ 在 snapshot 中首次记录 prevValue
  * - validity 置否（revoke / abort / recipe 结束）后任何写入立即抛 LockRevokedError
- * - 惰性子代理：get 到对象时递归构造子 draft，共享同一 ctx，路径前缀累加
- * - rollback 按 mutation log 逆序 + snapshot prevValue 恢复 target，避免整树深拷贝
+ * - 惰性子代理：get 到对象 / 数组时递归构造子 draft，共享同一 ctx，路径前缀累加
+ * - rollback 按 snapshot 逆序 + prevValue 恢复 target，避免整树深拷贝
+ *
+ * ----------------------------------------------------------------
+ * **JSON-only 契约**（重要）
+ *
+ * Draft 仅支持 JSON 安全类型：plain object / array / string / number（不含 NaN/Infinity）/
+ * boolean / null。**禁止** Set / Map / Date / RegExp / class 实例 / function / symbol /
+ * bigint / undefined / 循环引用 等。
+ *
+ * 历史版本曾对 Set / Map 提供 collection proxy 跟踪，但「`map.get(key)` 取出的对象引用
+ * 直接深改」会绕过 proxy trap，事务的 commit / rollback 语义会被静默破坏。lock-data 的
+ * 数据本身要参与跨 Tab 同步与持久化序列化，集合类型在 JSON 上下文里只会持续制造类似缺陷，
+ * 因此从设计上移除支持，并在入口与每次写入处显式校验。
+ * ----------------------------------------------------------------
  *
  * ----------------------------------------------------------------
  * MIGRATION NOTE（对应 RFC.md 决策 #32 「外部化前瞻」）：
@@ -16,7 +29,6 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { getType } from '@/shared/utils/base';
 import { ERROR_FN_NAME } from '../constants';
 import { LockRevokedError } from '../errors';
 import type { LockDataMutation } from '../types';
@@ -27,14 +39,15 @@ interface DraftValidity {
 }
 
 /**
- * snapshot 条目：
- * - `kind: 'property'`：普通属性的首次写入记录 prevValue，用于 `Reflect.set` / `deleteProperty` 逆向恢复
- * - `kind: 'collection'`：Set / Map 首次 mutate 时对整个容器做**浅克隆**；rollback 时整体清空再灌回来
- *   （对 Set/Map 做"最小路径 diff"成本远高于整体克隆，且 Set 无法稳定寻址被 add 的 item）
+ * snapshot 条目：仅记录普通属性的首次写入 prevValue，用于 `Reflect.set` /
+ * `deleteProperty` 逆向恢复
  */
-type DraftSnapshotEntry =
-  | { kind: 'property'; target: object; key: PropertyKey; existed: boolean; prevValue: unknown }
-  | { kind: 'collection'; target: Set<unknown> | Map<unknown, unknown>; clone: Set<unknown> | Map<unknown, unknown> };
+interface DraftSnapshotEntry {
+  target: object;
+  key: PropertyKey;
+  existed: boolean;
+  prevValue: unknown;
+}
 
 type DraftSnapshot = Map<string, DraftSnapshotEntry>;
 
@@ -44,6 +57,13 @@ interface DraftContext {
   readonly snapshot: DraftSnapshot;
 }
 
+/**
+ * 事务式 Draft 会话句柄
+ *
+ * **JSON-only 契约**：仅支持 plain object / array / string / number（不含 NaN/Infinity）/
+ * boolean / null。传入或后续写入 Set / Map / Date / RegExp / class 实例 / function /
+ * symbol / bigint / undefined / 循环引用 会抛 `TypeError`。
+ */
 interface DraftSession<T extends object> {
   readonly draft: T;
   readonly mutations: readonly LockDataMutation[];
@@ -56,9 +76,158 @@ function isPlainAccessible(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
 
-/** Set / Map 共同的 mutation 方法名集合 */
-const SET_MUTATION_METHODS = new Set<PropertyKey>(['add', 'delete', 'clear']);
-const MAP_MUTATION_METHODS = new Set<PropertyKey>(['set', 'delete', 'clear']);
+/**
+ * 判定某个对象是否为「plain object」：
+ * - prototype 是 `Object.prototype`（普通字面量 / `new Object()`）
+ * - prototype 是 `null`（`Object.create(null)`）
+ *
+ * 不使用 `instanceof Object`：跨 realm（iframe / worker）会失败
+ *
+ * 用 type predicate 收窄返回类型，匹配 biome `noMisleadingReturnType` 规则
+ */
+function isPlainObject(value: object): value is Record<string, unknown> {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+/**
+ * 把路径片段格式化为 `'a.b[0].c'` 风格的字符串，用于错误信息
+ *
+ * 顶层时返回 `'<root>'` 以避免空字符串歧义
+ */
+function formatPath(path: readonly PropertyKey[]): string {
+  if (path.length === 0) {
+    return '<root>';
+  }
+  let formatted = '';
+  for (let i = 0; i < path.length; i++) {
+    const segment = path[i];
+    if (typeof segment === 'number' || (typeof segment === 'string' && /^\d+$/u.test(segment))) {
+      formatted += `[${String(segment)}]`;
+      continue;
+    }
+    formatted += i === 0 ? String(segment) : `.${String(segment)}`;
+  }
+  return formatted;
+}
+
+/**
+ * 描述非 JSON 值的具体类型，用于错误信息
+ *
+ * 例：`Set` / `Map` / `Date` / `class instance (Foo)` / `function` / `bigint` / `NaN`
+ */
+function describeNonJsonValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) {
+      return 'NaN';
+    }
+    if (!Number.isFinite(value)) {
+      return value > 0 ? 'Infinity' : '-Infinity';
+    }
+  }
+  const primitiveType = typeof value;
+  if (primitiveType !== 'object') {
+    // bigint / symbol / function
+    return primitiveType;
+  }
+  if (value === null) {
+    return 'null';
+  }
+  // toString tag 形如 `[object Map]` → `Map`
+  const tag = Object.prototype.toString.call(value).slice(8, -1);
+  if (tag !== 'Object') {
+    return tag;
+  }
+  const ctor = (value as object).constructor;
+  if (ctor && ctor !== Object && typeof ctor.name === 'string' && ctor.name.length > 0) {
+    return `class instance (${ctor.name})`;
+  }
+  return 'non-plain object';
+}
+
+/**
+ * 校验值是否为 JSON 安全类型；遇到非法值 / 循环引用立即抛 `TypeError`
+ *
+ * 允许：string / number（不含 NaN/Infinity）/ boolean / null / plain object / array
+ * 禁止：undefined / bigint / symbol / function / Set / Map / Date / RegExp / class 实例 /
+ *       TypedArray / WeakMap / WeakSet / 循环引用 等
+ *
+ * `seen` 仅跟踪当前路径上访问过的容器（递归回溯时 `delete`），保证「同一兄弟节点的相同
+ * 引用」不会被误判为环。
+ */
+function assertJsonSafe(value: unknown, path: readonly PropertyKey[], seen: WeakSet<object>): void {
+  if (value === null) {
+    return;
+  }
+  if (value === undefined) {
+    throwError(
+      ERROR_FN_NAME,
+      `draft only supports JSON-safe values, got "undefined" at "${formatPath(path)}" (use "null" instead)`,
+      TypeError,
+    );
+  }
+  const valueType = typeof value;
+  if (valueType === 'string' || valueType === 'boolean') {
+    return;
+  }
+  if (valueType === 'number') {
+    if (!Number.isFinite(value as number)) {
+      throwError(
+        ERROR_FN_NAME,
+        `draft only supports JSON-safe values, got "${describeNonJsonValue(value)}" at "${formatPath(path)}"`,
+        TypeError,
+      );
+    }
+    return;
+  }
+  if (valueType !== 'object') {
+    // bigint / symbol / function
+    throwError(
+      ERROR_FN_NAME,
+      `draft only supports JSON-safe values, got "${describeNonJsonValue(value)}" at "${formatPath(path)}"`,
+      TypeError,
+    );
+  }
+  // 此处 value 必为非 null object
+  const obj = value as object;
+  if (seen.has(obj)) {
+    throwError(ERROR_FN_NAME, `draft detected cyclic reference at "${formatPath(path)}"`, TypeError);
+  }
+  if (Array.isArray(obj)) {
+    seen.add(obj);
+    for (let i = 0; i < obj.length; i++) {
+      assertJsonSafe((obj as unknown[])[i], [...path, i], seen);
+    }
+    seen.delete(obj);
+    return;
+  }
+  if (!isPlainObject(obj)) {
+    throwError(
+      ERROR_FN_NAME,
+      `draft only supports JSON-safe values (plain object / array / string / number / boolean / null), got "${describeNonJsonValue(obj)}" at "${formatPath(path)}"`,
+      TypeError,
+    );
+  }
+  seen.add(obj);
+  // 仅校验自身可枚举字符串键（与 JSON.stringify 行为一致；symbol 键被 JSON 忽略此处直接拒绝）
+  const symbolKeys = Object.getOwnPropertySymbols(obj);
+  if (symbolKeys.length > 0) {
+    throwError(
+      ERROR_FN_NAME,
+      `draft only supports JSON-safe values, got symbol-keyed property at "${formatPath(path)}"`,
+      TypeError,
+    );
+  }
+  const keys = Object.keys(obj);
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    assertJsonSafe((obj as Record<string, unknown>)[key], [...path, key], seen);
+  }
+  seen.delete(obj);
+}
 
 /**
  * 为"首次属性写入"的路径记录 prevValue
@@ -78,28 +247,7 @@ function capturePropertySnapshotOnce(
   }
   const existed = Object.hasOwn(target, key);
   const prevValue = existed ? Reflect.get(target, key) : undefined;
-  snapshot.set(snapshotKey, { kind: 'property', target, key, existed, prevValue });
-}
-
-/**
- * 为"首次 Set/Map mutation"整体克隆容器
- *
- * 为什么整体克隆而非最小 diff：
- * - Set 的 add(item) 无法稳定寻址（item 可能是对象引用），diff 后 rollback 难以去重
- * - Map 的 set 覆盖旧值时需要记录 prevValue，delete 需要记录被删除的 key，累积成本不低于整体克隆
- * - 实际使用场景里 Set/Map 多为中小规模（tags / ids / 字段映射），浅克隆成本可接受
- */
-function captureCollectionSnapshotOnce(
-  snapshot: DraftSnapshot,
-  target: Set<unknown> | Map<unknown, unknown>,
-  targetId: string,
-): void {
-  const snapshotKey = `${targetId}::@@collection`;
-  if (snapshot.has(snapshotKey)) {
-    return;
-  }
-  const clone = target instanceof Set ? new Set(target) : new Map(target);
-  snapshot.set(snapshotKey, { kind: 'collection', target, clone });
+  snapshot.set(snapshotKey, { target, key, existed, prevValue });
 }
 
 function ensureWritable(validity: DraftValidity): void {
@@ -114,86 +262,6 @@ function ensureWritable(validity: DraftValidity): void {
   }
 }
 
-/** 把 Set / Map 判定与对应 mutation 方法集合抽成一个原子结果 */
-interface CollectionInfo {
-  readonly isSet: boolean;
-  readonly mutationKeys: Set<PropertyKey>;
-}
-
-function detectCollection(target: object): CollectionInfo | null {
-  // 用 `Object.prototype.toString` 判定而非 `instanceof`：
-  // 后者在跨 realm（iframe / worker）或原型链被污染时不可靠
-  const type = getType(target);
-  if (type === 'set') {
-    return { isSet: true, mutationKeys: SET_MUTATION_METHODS };
-  }
-  if (type === 'map') {
-    return { isSet: false, mutationKeys: MAP_MUTATION_METHODS };
-  }
-  return null;
-}
-
-/**
- * 为 Set / Map 的方法读取做特殊处理：
- * - mutation 方法：返回一个包装函数，验证 validity → 抓 snapshot → push mutation → 调用原方法
- * - 非 mutation 方法：bind 到原始 target，避免 Proxy 导致的 "Illegal invocation"
- * - 非函数成员（如 `size`）：直接返回原值
- *
- * 返回 `null` 表示"target 不是 Set/Map"，上层继续按对象语义处理
- *
- * 参数聚合为 `access` 是为了避免函数签名超过 biome `max-params` 限制（5 个）
- */
-interface CollectionAccess {
-  readonly target: object;
-  readonly key: PropertyKey;
-  readonly value: unknown;
-  readonly ctx: DraftContext;
-  readonly parentPath: readonly PropertyKey[];
-  readonly targetId: string;
-}
-
-function resolveCollectionMember(access: CollectionAccess): unknown {
-  const { target, key, value, ctx, parentPath, targetId } = access;
-  const info = detectCollection(target);
-  if (info === null) {
-    return null;
-  }
-  if (!info.mutationKeys.has(key)) {
-    return typeof value === 'function' ? value.bind(target) : value;
-  }
-  // 为每种 mutation 方法返回对应的包装函数
-  return (...args: unknown[]): unknown => {
-    ensureWritable(ctx.validity);
-    captureCollectionSnapshotOnce(ctx.snapshot, target as Set<unknown> | Map<unknown, unknown>, targetId);
-    const mutation = buildCollectionMutation(info.isSet, key, args, parentPath);
-    ctx.mutations.push(mutation);
-    return (value as (...inner: unknown[]) => unknown).apply(target, args);
-  };
-}
-
-/** 把一次 Set/Map 方法调用翻译成对应的 `LockDataMutation` */
-function buildCollectionMutation(
-  isSet: boolean,
-  methodKey: PropertyKey,
-  args: readonly unknown[],
-  parentPath: readonly PropertyKey[],
-): LockDataMutation {
-  const path: readonly PropertyKey[] = [...parentPath];
-  if (methodKey === 'clear') {
-    return { path, op: isSet ? 'set-clear' : 'map-clear' };
-  }
-  if (isSet) {
-    // Set.add(item) / Set.delete(item)
-    return { path, op: methodKey === 'add' ? 'set-add' : 'set-delete', value: args[0] };
-  }
-  // Map.set(key, value) / Map.delete(key)
-  return {
-    path,
-    op: methodKey === 'set' ? 'map-set' : 'map-delete',
-    value: methodKey === 'set' ? [args[0], args[1]] : args[0],
-  };
-}
-
 function createDraftProxy<T extends object>(
   target: T,
   ctx: DraftContext,
@@ -202,14 +270,6 @@ function createDraftProxy<T extends object>(
 ): T {
   return new Proxy(target, {
     get(obj, key, receiver) {
-      // Set / Map 的访问器属性（如 `size`）必须以原始容器作为 getter 的 this，
-      // 否则触发 `incompatible receiver`；故容器类型优先取值 + 不传 receiver
-      const objType = getType(obj);
-      const isCollection = objType === 'set' || objType === 'map';
-      if (isCollection) {
-        const collectionValue = Reflect.get(obj, key);
-        return resolveCollectionMember({ target: obj, key, value: collectionValue, ctx, parentPath, targetId });
-      }
       const value = Reflect.get(obj, key, receiver);
       if (!isPlainAccessible(value)) {
         return value;
@@ -220,6 +280,9 @@ function createDraftProxy<T extends object>(
     },
     set(obj, key, value) {
       ensureWritable(ctx.validity);
+      // 入口已校验过 target，但 recipe 内的赋值 value 可能是任意类型，必须重新校验。
+      // 在写入前抛错可保证 target / mutations / snapshot 不被污染（fail-fast）
+      assertJsonSafe(value, [...parentPath, key], new WeakSet());
       capturePropertySnapshotOnce(ctx.snapshot, obj, key, targetId);
       ctx.mutations.push({ path: [...parentPath, key], op: 'set', value });
       return Reflect.set(obj, key, value);
@@ -237,45 +300,18 @@ function createDraftProxy<T extends object>(
  * 按 snapshot 逆序恢复 target
  *
  * 逆序的意义：晚写入的路径可能依赖早写入的父节点存在；逆序能保证恢复顺序正确。
- * - `'property'`：按记录的 existed / prevValue 逐条写回或删除
- * - `'collection'`：对 Set / Map 整体清空后灌回 clone 的全部元素
+ * 按记录的 existed / prevValue 逐条写回或删除即可。
  */
 function applyRollback(snapshot: DraftSnapshot): void {
   const entries = Array.from(snapshot.values()).reverse();
   // 数组遍历优先使用索引 for 循环（见 IMPLEMENTATION.md 开发守则「代码风格 - 循环形式」）
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    if (entry.kind === 'property') {
-      if (entry.existed) {
-        Reflect.set(entry.target, entry.key, entry.prevValue);
-      } else {
-        Reflect.deleteProperty(entry.target, entry.key);
-      }
+    if (entry.existed) {
+      Reflect.set(entry.target, entry.key, entry.prevValue);
       continue;
     }
-    restoreCollection(entry.target, entry.clone);
-  }
-}
-
-function restoreCollection(
-  target: Set<unknown> | Map<unknown, unknown>,
-  clone: Set<unknown> | Map<unknown, unknown>,
-): void {
-  target.clear();
-  // 用 `Object.prototype.toString` 判定而非 `instanceof`：
-  // 后者在跨 realm（iframe / worker）或原型链被污染时不可靠
-  const targetType = getType(target);
-  // Set / Map 没有索引访问，只能使用 for...of（语言特性必需，见开发守则「代码风格 - 循环形式」例外）
-  if (targetType === 'set' && getType(clone) === 'set') {
-    for (const item of clone as Set<unknown>) {
-      (target as Set<unknown>).add(item);
-    }
-    return;
-  }
-  if (targetType === 'map' && getType(clone) === 'map') {
-    for (const [key, value] of clone as Map<unknown, unknown>) {
-      (target as Map<unknown, unknown>).set(key, value);
-    }
+    Reflect.deleteProperty(entry.target, entry.key);
   }
 }
 
@@ -284,7 +320,26 @@ function freezeMutations(mutations: LockDataMutation[]): readonly LockDataMutati
   return Object.freeze(frozen);
 }
 
+/**
+ * 创建一个事务式 Draft 会话
+ *
+ * **JSON-only 契约**：`target` 及后续所有写入值必须是 JSON 安全类型 ——
+ * plain object / array / string / number（不含 NaN/Infinity）/ boolean / null。
+ * 传入 Set / Map / Date / RegExp / class 实例 / function / symbol / bigint /
+ * undefined / 循环引用 等会立即抛 `TypeError`。
+ *
+ * 集合类容器（Set / Map）虽常用，但其内部对象引用读取会绕过 proxy trap 导致
+ * 事务的 commit / rollback 语义被静默破坏；lock-data 的数据本身要参与跨 Tab
+ * 同步与持久化序列化，故从设计上仅允许 JSON 安全类型。如果业务层确有 Set / Map
+ * 语义需求，建议改用：`Set<T>` → `T[]`（去重逻辑放在 recipe 内）；
+ * `Map<K, V>` → `Record<string, V>` 或 `{ key: K; value: V }[]`。
+ *
+ * @param target - 待包装的可变对象，必须是 JSON 安全的 plain object 或 array
+ * @throws {TypeError} target 包含非 JSON 安全类型 / 循环引用 时抛出
+ */
 function createDraftSession<T extends object>(target: T): DraftSession<T> {
+  // 入口校验：fail-fast 拒绝非 JSON 数据，避免后续操作产生不可回滚的副作用
+  assertJsonSafe(target, [], new WeakSet());
   const ctx: DraftContext = {
     validity: { isValid: true },
     mutations: [],

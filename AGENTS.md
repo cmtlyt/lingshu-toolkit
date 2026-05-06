@@ -22,7 +22,7 @@ You are an expert in JavaScript, Rspack, Rsbuild, Rslib, and library development
 
 ### Biome
 
-- Run `pnpm run lint` to lint your code
+- Run `pnpm run check` to lint your code
 - Run `pnpm run format` to format your code
 
 ## 代码规范

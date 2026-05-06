@@ -53,22 +53,17 @@ type CommitSource = 'update' | 'replace';
  *
  * 同时服务审计（listeners.onCommit）与回滚（revoke / abort 时反向应用）
  *
+ * **JSON-only 契约**：lock-data 的 draft 仅支持 JSON 安全类型（plain object / array /
+ * string / number（不含 NaN/Infinity）/ boolean / null），故 mutation op 仅有
+ * 普通对象属性的 `set` / `delete` 两种。Set / Map / Date / class 实例 等非 JSON
+ * 类型在 `createDraftSession` 入口与每次写入处会被显式拒绝（抛 `TypeError`），
+ * 详见 `core/draft.ts` 文件顶部「JSON-only 契约」说明。
+ *
  * op 语义：
- * - `'set'` / `'delete'`：普通对象的属性写入 / 删除，`path` 指向被修改的属性
- * - `'map-set'` / `'map-delete'` / `'map-clear'`：Map 的 mutation；`path` 指向 Map 所在路径
- *   - `map-set` 的 `value = [key, newValue]`；`map-delete` 的 `value = key`；`map-clear` 无 value
- * - `'set-add'` / `'set-delete'` / `'set-clear'`：Set 的 mutation；`path` 指向 Set 所在路径
- *   - `set-add` / `set-delete` 的 `value = item`；`set-clear` 无 value
+ * - `'set'`：属性写入 / 新增，`path` 指向被修改的属性，`value` 为新值
+ * - `'delete'`：属性删除，`path` 指向被删除的属性，`value` 不携带
  */
-type LockDataMutationOp =
-  | 'set'
-  | 'delete'
-  | 'map-set'
-  | 'map-delete'
-  | 'map-clear'
-  | 'set-add'
-  | 'set-delete'
-  | 'set-clear';
+type LockDataMutationOp = 'set' | 'delete';
 
 interface LockDataMutation {
   readonly path: readonly PropertyKey[];
