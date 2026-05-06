@@ -584,6 +584,41 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 195 文件 clean（biome 自动规整了新增注释格式）
   - **关联文件**：`core/actions.ts::handleRevoke`（核心修复，新增 1 行赋值 + 4 行行内注释）/ `__test__/core/actions-revoke-getlock.node.test.ts`（新增）/ `fixes/revoke-clear-acquired-by-get-lock.md`（方案文档归档）
 
+- [x] **`core/actions.ts::performAcquire` catch 路径在 dispose-race 下违反终态契约**（2026/05/06 修复）
+  - **症状**：`dispose()` 与 in-flight `driver.acquire()` 竞争时，`doDispose` 触发 `disposedController.abort(...)` → driver 监听 `ctx.signal` 立即 reject（`AbortError`）→ `performAcquire` 进入 catch 分支。旧实现不区分 dispose 引发的 abort 和正常 acquire 失败，盲目执行 `state.aliveToken = '' / transitionTo(idle, token) / throw translateAcquireError(...)`，造成两处违例：
+    1. 已经流转到 `disposed` 终态的实例又广播一次 `idle` 状态变更，**违反「disposed 是终态」契约**——`onLockStateChange` 监听器先收到 `disposed` 再收到 `idle`
+    2. 调用方拿到 `LockAbortedError` / `LockTimeoutError` 而非 `LockDisposedError`，**与「disposed 后任何方法都 reject LockDisposedError」契约不一致**——上层无法区分「外部 signal abort」与「实例 disposed」
+  - **影响范围**：
+    - 任何先发起 `update()` / `getLock()` 后立刻 `dispose()` 的取消场景（组件 unmount 极快、StrictMode 双调用、AbortController 控制流）：监听器收到错乱的 phase 序列、调用方收到错误的 error 类型
+    - 与成功路径的对称性缺失：`performAcquire` 在 acquire 成功后已经检查 `state.disposed` 并走 `throwDisposed`（L411-415），但失败路径漏齐了同样的检查
+  - **修复**（`src/shared/lock-data/core/actions.ts::performAcquire`）：在 catch 分支起始处优先检查 `state.disposed`，是则直接 `throwDisposed(error)` 保留 disposed 终态，把原 abort/timeout 错误作为 cause 透传便于排障
+    ```ts
+    } catch (error) {
+      if (state.disposed) {
+        throwDisposed(error);  // ← 修复点：保留 disposed 终态 + 抛 LockDisposedError
+      }
+      state.aliveToken = '';
+      transitionTo(deps, state, 'idle', token);
+      throw translateAcquireError(error, signalBundle.timeoutController);
+    }
+    ```
+    - **关键设计点 1：修复点选在 catch 起始处**——这是 dispose-race 唯一可观察的状态机违例点，与成功路径 L411-415 的 `if (state.disposed) throwDisposed()` 形成对称
+    - **关键设计点 2：用 `throwDisposed(error)` 把原错误作为 cause**——`throwDisposed` 已支持 cause 参数（L295-297），与 `ensureDataReady` 中 `if (state.disposed) throwDisposed()` 的写法保持一致；保留原 abort/timeout 错误便于排障定位是哪条路径触发了 dispose
+    - **关键设计点 3：finally 仍然执行 `signalBundle.dispose()`**——try/catch/finally 的 finally 块在 catch 路径 throw 之后仍会执行，signal 资源不会泄漏
+    - **关键设计点 4：不影响正常失败路径**——非 disposed 场景下 catch 仍走原有 `transitionTo(idle) + translateAcquireError` 逻辑（abort / timeout / driver 内部故障）
+  - **测试补强**（`src/shared/lock-data/__test__/core/actions-dispose-race.node.test.ts`，**新增 3 组用例**）：
+    1. `update()` 启动 → `dispose()` → 断言 `update` 拒绝时是 `LockDisposedError` 而非 `LockAbortedError`
+    2. 同上场景 → 断言 `onLockStateChange` 序列为 `['acquiring', 'disposed']`，**`'disposed'` 之后不再有 `'idle'`**（终态契约保留）
+    3. 反向校验：`callOpts.signal` abort（不触发实例 dispose）→ 断言仍走原失败路径，phase 为 `['acquiring', 'idle']`、错误类型是 `LockAbortedError`、`actions.isHolding === false`（实例可继续使用）
+    - **stub driver 增强**：在 `pauseNextAcquire` 模式下监听 `ctx.signal.addEventListener('abort')`，abort 时 reject `AbortError` —— 这是缺陷复现的前提条件（旧 stub 仅按 pause/resume 时序，无 signal 响应能力）
+  - **方案归档**：`src/shared/lock-data/fixes/dispose-race-acquire-catch.md`（缺陷复现路径、与成功路径的对称性缺失、为何用 `throwDisposed(error)` 透传 cause、为何 finally 仍执行 `signalBundle.dispose()`、测试设计依据）
+  - **验证**（2026/05/06 13:26 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/actions-dispose-race.node.test.ts` → **node#shared 3/3 全绿**（实测 928ms / tests 13ms）
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/` 子目录回归 → **9 files / 154 tests 全绿**（含既有 actions.browser.test.ts 31 个 + actions-revoke-getlock.node.test.ts 3 个 + 本次新增 3 个）
+    - `pnpm run check` → 全仓 196 文件 clean
+  - **关联文件**：`core/actions.ts::performAcquire`（核心修复，仅追加 1 个 if 分支 + 6 行注释）/ `__test__/core/actions-dispose-race.node.test.ts`（新增）/ `fixes/dispose-race-acquire-catch.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）

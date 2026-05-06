@@ -396,6 +396,15 @@ async function performAcquire<T extends object>(
       signal: signalBundle.signal,
     });
   } catch (error) {
+    // dispose 与 in-flight acquire 竞争：disposed 是终态，不能再回退到 idle
+    // （否则 onLockStateChange 会在 'disposed' 之后又收到一次 'idle'），且调用方应
+    // 拿到 LockDisposedError 而非 abort/timeout 错误（语义对齐成功路径 L411-415 +
+    // ensureDataReady 中「disposed 后任何方法都 reject LockDisposedError」契约）。
+    // 把原始错误作为 cause 透传，便于排障定位是哪条路径触发了 dispose。
+    // 详见 src/shared/lock-data/fixes/dispose-race-acquire-catch.md
+    if (state.disposed) {
+      throwDisposed(error);
+    }
     // acquire 失败：phase 回到 idle；aliveToken 保持置空；抛翻译后的错误
     state.aliveToken = '';
     transitionTo(deps, state, 'idle', token);
