@@ -323,7 +323,7 @@
             "allowedNames": []
           }
         },
-        "noMisleadingReturnType": "off",
+        "noMisleadingReturnType": "error",
         "useDisposables": "error",
         "noAmbiguousAnchorText": {
           "level": "error",

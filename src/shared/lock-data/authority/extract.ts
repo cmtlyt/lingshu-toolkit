@@ -169,6 +169,10 @@ function readIfNewerFallback(ctx: ReadIfNewerContext, raw: string): ReadIfNewerR
  * - 结构不符（缺 rev / epoch / snapshot 字段 / rev 非数字 / epoch 非字符串）
  *
  * 刻意不抛错：调用方（`storage` 事件 / 定时 pull）不应因单条脏数据中断
+ *
+ * `snapshot` 字段用键存在性（`Reflect.has`）判定而非真值判定 —— 因为 `null`、`false`、
+ * `0`、`''` 都是合法的 snapshot 值；只要 key 缺失就视为非法结构，与"缺 rev / epoch
+ * 返回 null"保持一致的契约
  */
 function parseAuthorityRaw(raw: string): AuthorityFullShape | null {
   let parsed: unknown;
@@ -185,6 +189,11 @@ function parseAuthorityRaw(raw: string): AuthorityFullShape | null {
     return null;
   }
   if (!isString(obj.epoch)) {
+    return null;
+  }
+  // snapshot 必须以"键存在"的形式出现：合法 snapshot 可以是 null / false / 0 / ''，
+  // 但 key 完全缺失即视为脏数据；用 Reflect.has 显式表达"键存在性检查"语义
+  if (!Reflect.has(obj, 'snapshot')) {
     return null;
   }
   // ts / snapshot 允许任意类型（snapshot 可能是 null / 数组 / 原始类型）；

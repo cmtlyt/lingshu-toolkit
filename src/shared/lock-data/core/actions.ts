@@ -291,7 +291,7 @@ function throwDisposed(cause?: unknown): never {
   throwError(ERROR_FN_NAME, 'actions disposed', LockDisposedError as unknown as ErrorConstructor, { cause });
 }
 
-function isAbortLike(error: unknown): boolean {
+function isAbortLike(error: unknown): false | true {
   if (!isObject(error)) {
     return false;
   }

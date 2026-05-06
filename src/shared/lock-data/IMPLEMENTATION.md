@@ -513,6 +513,28 @@ Phase 7 文档与测试收口
   - **验证结果**：独立跑 `epoch.browser.test.ts` **21/21 通过**（实测 964ms），`node#shared` 全量 lock-data **56 files / 663 tests 全绿**（实测 30.15s）
   - **遗留项**：本次修复后再跑一次 `pnpm run test:ci` 全量，`src/react/use-mount/index.test.tsx` 出现 `[vitest] Browser connection was closed while running tests` 的 WebSocket 断连 —— 与 lock-data 改动**完全无关**，属 vitest-browser 基础设施在高并发下的已知稳定性问题；该问题需由用户本地复跑多次确认或后续专项治理，**不应阻塞 Phase 7 收口**
 
+### 7.5 契约缺陷修复（Phase 7 收口后用户 review 反馈）
+
+> 本节记录 Phase 7 文档与集成测试收口完成后，由用户 review 暴露并修复的源码契约缺陷。**不属于** Phase 7 范围内的任务，但因发现于 Phase 7 收口期间，归档于此便于追溯。
+
+- [x] **`authority/extract.ts::parseAuthorityRaw` 缺 `snapshot` 字段存在性校验**（2026/05/06 修复）
+  - **症状**：`{"rev":1,"epoch":"x"}` 这类残缺值（rev / epoch 都合法但 `snapshot` key 完全缺失）通过校验，返回 `{ rev: 1, ts: 0, epoch: 'x', snapshot: undefined }` 被当成合法记录传递到应用层，与该函数 JSDoc 上声明的"缺 rev / epoch / snapshot 字段返回 null"契约**自相矛盾**
+  - **影响范围**：
+    - `readIfNewerFallback` 路径（旧格式 / 手动写入 / 自定义 adapter 产物）会把脏数据当作合法值返回 `{ rev, snapshot: undefined }` 给 `applyAuthorityIfNewer`
+    - 应用层虽有 `isObject(result.snapshot)` 兜底（让 `undefined` 走 `logger.warn` 分支），但日志文案为"snapshot is not an object"而非"非法结构"，**误导排障**
+  - **修复**（`src/shared/lock-data/authority/extract.ts`）：在 `isNumber(obj.rev)` / `isString(obj.epoch)` 校验之后追加 `if (!Reflect.has(obj, 'snapshot')) return null;`
+    - **采用 `Reflect.has` 而非真值判定**的关键考量：合法 snapshot 允许是 `null` / `false` / `0` / `''` / `[]`（注释中明确"snapshot 可能是 null / 数组 / 原始类型"），所以**不能**用 `obj.snapshot != null` 这类真值检查，必须用键存在性
+    - **`Reflect.has` 与 `'snapshot' in obj` 语义等价**（都查原型链），但 `Reflect.has` 作为函数式 API 语义更显式；对 `JSON.parse` 产物（plain object，无 Object.prototype 上的 `snapshot` 属性污染）两者结果一致
+  - **测试补强**（`src/shared/lock-data/__test__/authority/extract.node.test.ts`）：追加 3 组用例
+    1. `readIfNewer` 兜底路径缺 snapshot → 返回 null（覆盖原始反馈场景 `{"ts":100,"rev":1,"epoch":"persistent"}`）
+    2. `parseAuthorityRaw` 直接路径缺 snapshot → 返回 null（含 / 不含 ts 两种残缺形态）
+    3. `parseAuthorityRaw` 处理合法 falsy snapshot（`null` / `false` / `0` / `''`）→ 全部正常通过校验（防止修复用错了真值判定）
+  - **验证**（2026/05/06 11:39 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/authority/extract.node.test.ts` → **node#shared 33/33 全绿**（实测 600ms / tests 20ms / transform 102ms）
+    - 同时跑通的工作流：`source ~/.nvm/nvm.sh && cd ... && nvm use && pnpm run test:ci <filepath>`（已总结到根目录 `AGENTS.md` 的「Agent 运行环境」段）
+  - **关联文件**：`authority/extract.ts`（核心修复）/ `__test__/authority/extract.node.test.ts`（测试补强）；调用方 `authority/index.ts::applyAuthorityIfNewer` 无需改动 —— 应用层兜底保留作为深度防御
+
 ---
 
 ## 目录结构（最终落地形态）

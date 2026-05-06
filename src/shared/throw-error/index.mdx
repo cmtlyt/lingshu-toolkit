@@ -112,11 +112,13 @@ try {
   throwError('loadConfig', 'Failed to load config', { cause: originalError });
 }
 
+const originalError = new Error('upstream failure');
 // 自定义错误类型 + cause
 throwError('validate', 'Invalid input', RangeError, { cause: originalError });
 
+const parseError = new SyntaxError('Unexpected token');
 // throwType + cause
-throwType('parse', 'Expected JSON string', { cause: originalError });
+throwType('parse', 'Expected JSON string', { cause: parseError });
 
 // createError + cause
 const error = createError('task', 'Task failed', { cause: originalError });

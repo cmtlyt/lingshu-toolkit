@@ -574,7 +574,7 @@ function startPolling(state: StorageDriverState): ReturnType<typeof setInterval>
  *
  * 条件：本 Tab idle + 无其他本地 waiter + (storage 无 holder 或 holder 已崩溃) + 队列空
  */
-function canFastAcquire(state: StorageDriverState): boolean {
+function canFastAcquire(state: StorageDriverState): false | true {
   if (state.status.kind !== 'idle' || state.waiters.length > 0) {
     return false;
   }

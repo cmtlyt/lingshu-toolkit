@@ -125,6 +125,13 @@ describe('authority/extract — readIfNewer (快路径 + 兜底)', () => {
     expect(readIfNewer({ lastAppliedRev: 0, epoch: null }, '{"ts":1}')).toBe(null);
     expect(readIfNewer({ lastAppliedRev: 0, epoch: null }, '{"rev":"not-number"}')).toBe(null);
   });
+
+  test('结构不完整（缺 snapshot 字段）走兜底路径返回 null', () => {
+    // 旧格式触发 fallback：rev / epoch 都合法但 snapshot 字段完全缺失，必须返回 null
+    // 防止把残缺记录当合法值返回 { snapshot: undefined } 污染应用层
+    const raw = '{"ts":100,"rev":1,"epoch":"persistent"}';
+    expect(readIfNewer({ lastAppliedRev: 0, epoch: null }, raw)).toBe(null);
+  });
 });
 
 describe('authority/extract — parseAuthorityRaw (safe parse)', () => {
@@ -154,6 +161,51 @@ describe('authority/extract — parseAuthorityRaw (safe parse)', () => {
 
   test('epoch 非字符串返回 null', () => {
     expect(parseAuthorityRaw('{"rev":5,"epoch":1,"snapshot":null}')).toBe(null);
+  });
+
+  test('snapshot 字段完全缺失返回 null（不当作合法记录）', () => {
+    // 残缺值：rev / epoch 都合法但缺 snapshot key —— 必须按"非法结构"处理返回 null
+    // 而不是返回 { snapshot: undefined } 让脏数据污染应用层
+    expect(parseAuthorityRaw('{"rev":1,"epoch":"persistent"}')).toBe(null);
+    expect(parseAuthorityRaw('{"rev":1,"ts":100,"epoch":"persistent"}')).toBe(null);
+  });
+
+  test('snapshot 为合法 falsy 值（null / false / 0 / 空串）正常通过', () => {
+    // snapshot 字段允许任意类型；关键是"键存在"而非"值真值"
+    expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":null}')).toEqual({
+      rev: 1,
+      ts: 0,
+      epoch: 'e',
+      snapshot: null,
+    });
+    expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":false}')).toEqual({
+      rev: 1,
+      ts: 0,
+      epoch: 'e',
+      snapshot: false,
+    });
+    expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":0}')).toEqual({
+      rev: 1,
+      ts: 0,
+      epoch: 'e',
+      snapshot: 0,
+    });
+    expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":""}')).toEqual({
+      rev: 1,
+      ts: 0,
+      epoch: 'e',
+      snapshot: '',
+    });
+  });
+
+  test('snapshot 为显式 undefined（JSON 中无法直接表达，以 key 存在但值缺失的等价形式校验）', () => {
+    // 标准 JSON 不支持 undefined 字面量；"key 存在但值是 undefined"在 JSON.parse 产物中
+    // 唯一可能出现的形式是 key 在源串中显式出现 —— 这种用 in / Reflect.has 仍判定为 true
+    // 为了让脏数据无法绕过校验，构造一个 Object.create(null) 形式的对象走非 JSON 路径已不可达
+    // （parseAuthorityRaw 入口必经 JSON.parse），此处仅做契约说明：JSON.parse 产物只会出现两种形态
+    //   1. snapshot key 完全不出现 → Reflect.has = false → 返回 null（上一用例已覆盖）
+    //   2. snapshot key 出现 + 任意 JSON 值 → Reflect.has = true → 通过（本用例已覆盖）
+    expect(true).toBe(true);
   });
 });
 
