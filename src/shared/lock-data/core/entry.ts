@@ -275,7 +275,7 @@ function mergeReadyPromises(
  * 不会调用 factory，initial 被忽略；首次创建才会应用
  */
 function createEntryFactory<T extends object>(initial: T | undefined): EntryFactory<T> {
-  return (id, options, ctx: EntryFactoryContext): Entry<T> => {
+  return (id, lockId, options, ctx: EntryFactoryContext): Entry<T> => {
     const adapters = pickDefaultAdapters<T>(options.adapters);
 
     // Entry 引用通过 closure 变量向前传递给 onStateChange；初始为 null，构造完立即赋值
@@ -291,7 +291,10 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
     };
 
     const initialPatch = resolveInitialData(options, initial, adapters.logger, onStateChange);
-    const driver = pickDriver<T>({ adapters, options, id });
+    // 用 lockId 而非 id 喂 pickDriver：standalone 路径 lockId === undefined，
+    // pickDriver 内部 `!isString(id) || id.length === 0` 短路命中 LocalLockDriver；
+    // 不会被 mode='web-locks' 等强制起跨 Tab driver
+    const driver = pickDriver<T>({ adapters, options, id: lockId });
     const listenersSet = new Set<LockDataListeners<T>>();
     if (isObject(options.listeners)) {
       listenersSet.add(options.listeners);
@@ -299,6 +302,7 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
 
     const mutableEntry: MutableEntry<T> = {
       id,
+      lockId,
       data: initialPatch.data,
       driver,
       adapters,
@@ -322,10 +326,15 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
     };
     entryRef = mutableEntry;
 
-    // syncMode 分派：'storage-authority' 且 id 存在才启用
+    // syncMode 分派：'storage-authority' 且 **真实 id 存在**（lockId !== undefined）才启用
+    // 注意必须用 lockId 判断 —— Entry.id 在 standalone 路径是占位 '__local__'（非空字符串），
+    // 用它判断会让 standalone + storage-authority 错误地启用 authority、所有无 id 实例
+    // 落到同一个 '__local__' 命名空间下互相覆盖。详见 fixes/standalone-id-leak.md
     const syncMode = normalizeSyncMode(options.syncMode);
     const authorityReady =
-      syncMode === 'storage-authority' ? attachAuthority(mutableEntry, options, adapters, id) : null;
+      syncMode === 'storage-authority' && lockId !== undefined
+        ? attachAuthority(mutableEntry, options, adapters, lockId)
+        : null;
 
     // 合成最终的 dataReadyPromise（构造期允许覆盖 readonly 字段）
     mutableEntry.dataReadyPromise = mergeReadyPromises(initialPatch.dataReadyPromise, authorityReady);
@@ -395,8 +404,15 @@ function acquireFromRegistry<T extends object>(
 /**
  * 无 id 路径：直接执行 factory；teardowns 在 dispose 时运行（Registry 不介入）
  *
- * 用占位 id `__local__` 满足 Entry.id 非空约束（纯本地锁不会和 Registry 冲突）；
- * driver 层已通过 `id === undefined` 识别本地场景并走 LocalLockDriver
+ * 入参拆分：
+ * - 第一个参数 `'__local__'` 写入 `Entry.id`（展示用占位），用于日志、错误消息等稳定文本输出
+ * - 第二个参数 `undefined` 写入 `Entry.lockId`（语义判定用真实 id）；
+ *   下游 `pickDriver` / `attachAuthority` / driver acquire `name` 都以此识别"无真实 id"分支：
+ *     - pickDriver 看到 undefined → LocalLockDriver（mode 字段被忽略）
+ *     - syncMode='storage-authority' 不会启用 authority
+ *     - driver acquire 的 `name` 走 `${LOCK_PREFIX}:__local__` 占位
+ *
+ * 详见 `src/shared/lock-data/fixes/standalone-id-leak.md`
  */
 function acquireStandalone<T extends object>(
   options: LockDataOptions<T>,
@@ -411,7 +427,7 @@ function acquireStandalone<T extends object>(
     teardowns.push(teardown);
   };
 
-  const entry = factory('__local__', options, { registerTeardown });
+  const entry = factory('__local__', undefined, options, { registerTeardown });
 
   const release = (): void => {
     if (!alive.value) {

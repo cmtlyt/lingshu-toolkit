@@ -700,6 +700,54 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 198 文件 clean
   - **关联文件**：`core/draft.ts`（核心修复：删除 ~80 行 collection proxy 代码、新增 `assertJsonSafe` / `formatPath` / `describeNonJsonValue` / `isPlainObject` 4 个 helper、`createDraftSession` 入口与 `createDraftProxy::set` trap 加校验、JSDoc tip）/ `types.ts`（`LockDataMutationOp` 缩减为 `'set' | 'delete'` + JSDoc 追加 JSON-only 契约说明）/ `__test__/core/draft.node.test.ts`（删除 Set/Map 追踪 describe block、修正 1 个用例）/ `__test__/core/draft-json-only.node.test.ts`（新增）/ `fixes/collection-deep-mutation-bypass.md`（方案文档归档）
 
+- [x] **`core/entry.ts` standalone 实例 `__local__` 占位 id 泄漏到 driver / authority**（2026/05/06 修复）
+  - **症状**：`acquireStandalone()` 内部以 `factory('__local__', ...)` 调用 `createEntryFactory`，把展示用占位 id 当成「真实 id」喂给下游所有判定。结果：① `pickDriver({ id: '__local__', ... })` 不再走「无 id 短路 → LocalLockDriver」分支，落到 BroadcastDriver / WebLocksDriver 等跨 Tab driver；② `attachAuthority` 在 `syncMode === 'storage-authority'` 时 `lockId !== undefined` 判定通过，意外启用 StorageAuthority；③ 所有未命名实例都落到同一个 `'__local__'` 命名空间，driver acquire name `${LOCK_PREFIX}:__local__` / authority storage key 全部撞车 → 「无 id 仅限本地 + 实例隔离」语义被静默破坏，本应隔离的实例被串到跨 Tab 通道
+  - **影响范围**：
+    - 用户 `lockData(initial, options)`（不传 id）+ `mode: 'web-locks'` / `mode: 'broadcast'` / `mode: 'storage'` 任一显式跨 Tab driver → 实际启用对应跨 Tab driver，acquire name 是 `lock-data:__local__`，多个无 id 实例互相串扰
+    - 用户 `lockData(initial, { syncMode: 'storage-authority' })`（不传 id）→ StorageAuthority 启用，向 localStorage 写 `__local__` 命名空间的 key，跨 Tab 复活伪造数据
+    - 用户在同一 Tab 内创建 2+ 个无 id 实例 → 共享 `__local__` driver acquire name，acquire 串行化（应当并行）
+  - **修复方案权衡**：
+    - 候选 A（放弃）：在 `pickDriver` / `attachAuthority` 内部识别 `id === '__local__'` 当成无 id。把魔法值知识扩散到下游模块，且 `'__local__'` 字符串作为合法用户 id 也不可区分（虽然概率低，但不应靠概率保证语义）
+    - 候选 B（放弃）：standalone 路径不调 `factory`，单独搭一条「无 id 实例构建链」。代价是双份代码路径，driver / authority / dispose / teardown 全部要复制一遍，与 Registry 路径维护两套等价逻辑
+    - 候选 C（采纳）：**拆分 `Entry.id`（展示用，恒非空字符串）与 `Entry.lockId`（语义判定用，standalone = `undefined`）**。Registry 路径 `lockId === id`，standalone 路径 `lockId === undefined` + `id === '__local__'`。下游所有「我是不是 standalone」的判定改用 `lockId`，错误消息 / 日志 / dispose teardown key 用 `id`，职责分离
+  - **修复**（采纳候选 C）：
+    1. **`core/registry.ts`**：
+       - `Entry<T>` interface 新增 `lockId: string | undefined` 字段（语义判定用，与 `id` 拆开）+ JSDoc 标注「`id` 用于展示 / 错误消息 / teardown key；`lockId` 用于 driver / authority 语义判定」
+       - `EntryFactory` 签名从 `(id, options, ctx) => Entry<T>` 扩展为 `(id, lockId, options, ctx) => Entry<T>`
+       - `getOrCreateEntry` 调 `factory(id, id, options, { registerTeardown })` —— Registry 路径 `lockId === id`
+    2. **`core/entry.ts`**：
+       - `createEntryFactory` 闭包参数从 `(id, options, ctx)` 改为 `(id, lockId, options, ctx)`，下游 `pickDriver({ id: lockId, mode })` 与 `attachAuthority({ lockId, ... })` 全部用 `lockId` —— `lockId === undefined` 时 `pickDriver` 命中无 id 短路返回 LocalLockDriver，`attachAuthority` 命中 `lockId === undefined` 跳过（无 id 不启用 authority）
+       - 返回的 Entry 对象 `lockId` 字段透传 factory 收到的 `lockId`
+       - `acquireStandalone` 调 `factory('__local__', undefined, options, { registerTeardown })` —— `id` 用占位字符串保证非空，`lockId` 显式传 `undefined` 表达「无 id」
+    3. **`core/actions.ts`**：
+       - 新增 `buildAcquireName<T extends object>(entry: Entry<T>): string` helper：返回 `${LOCK_PREFIX}:${entry.lockId ?? '__local__'}`（standalone 退化到占位字符串只用于本地 driver name，不影响隔离 —— LocalLockDriver 内部按 entry 实例隔离 acquire 状态）
+       - `performAcquire` 中 driver acquire name 从 `${LOCK_PREFIX}:${entry.id}` 改为 `buildAcquireName(entry)` —— Registry 路径仍是 `${LOCK_PREFIX}:${id}`（行为不变），standalone 路径变成 `${LOCK_PREFIX}:__local__` 但只透到 LocalLockDriver（已被 pickDriver 选中），跨 Tab driver 不再收到该 name
+    - **关键设计点 1：双字段拆分而非魔法值识别**——`lockId === undefined` 是显式语义信号，下游判定不依赖字符串比较；`id` 在错误消息 / teardown key 中保留人类可读的 `'__local__'` 占位
+    - **关键设计点 2：Registry 路径零行为变化**——`lockId === id` 让既有用户态代码（pickDriver、attachAuthority、performAcquire）的实际入参保持一致，回归测试无破坏
+    - **关键设计点 3：标准 driver name 不暴露 standalone 给跨 Tab 通道**——standalone 路径 driver acquire name 只透到 LocalLockDriver，pickDriver 短路保证跨 Tab driver 永远收不到 `__local__` name
+    - **关键设计点 4：authority 启用条件由 lockId 主导**——`syncMode === 'storage-authority' && lockId !== undefined` 双条件，standalone 即使配错 syncMode 也不会意外启用 StorageAuthority
+  - **测试改造**（既有用例适配）：
+    - `__test__/core/registry.node.test.ts`：7 处 stub factory 签名改为 `(id, lockId, options, ctx)`；buildFactory 加 `if (lockId !== id) throw new Error(...)` 断言（用 throw 替代 expect 避免 biome `useExpectAssertions` 在 helper 中误报）
+    - `__test__/core/actions.browser.test.ts`：`createStubEntry` 添加 `lockId: id` 字段（模拟 Registry 路径）以匹配新 Entry 接口
+  - **测试补强**（**新增 6 个用例**）：
+    - `__test__/core/entry-standalone-driver-isolation.node.test.ts`（5 个 / Node 环境用 stub driver 验证语义）：
+      1. `mode='web-locks'` + 无 id → 不抛错且实际走 LocalLockDriver（pickDriver 命中无 id 短路）
+      2. `syncMode='storage-authority'` + 无 id → StorageAuthority 不启用（authorityHandle === null，无 localStorage 写入）
+      3. CustomDriver 收到的 acquire name id 段为 `'__local__'`（验证 buildAcquireName 输出契约）
+      4. 两个无 id 实例并发 update → 各自独立 acquire / release（counter 各加 1，无串扰）
+      5. dispose 后 teardown key 是 `'__local__'`（错误消息 / 日志可读性）
+    - `__test__/core/entry-standalone-driver-isolation.browser.test.ts`（1 个 / Browser 环境）：
+      1. 有真实 id + `mode='web-locks'` → 仍走 WebLocksDriver（验证 `lockId !== undefined` 时 pickDriver 不退化）
+  - **方案归档**：`src/shared/lock-data/fixes/standalone-id-leak.md`（缺陷复现路径、影响范围矩阵、候选方向 A/B/C 权衡、双字段拆分契约、实施清单、关键设计点、测试用例索引）
+  - **验证**（2026/05/06 15:30 本地实测）：
+    - `read_lints` 无错误
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/entry-standalone-driver-isolation.node.test.ts` → **node#shared 5/5 全绿**
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/entry-standalone-driver-isolation.browser.test.ts` → **browser#shared 1/1 全绿**
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/registry.node.test.ts` → 既有 stub 签名适配后全绿
+    - `pnpm run test:ci src/shared/lock-data/__test__/core/` → 子目录全量回归全绿（含 actions.browser / actions-revoke-getlock / actions-dispose-race / actions-concurrent-write / draft / draft-json-only / registry / entry-standalone-driver-isolation）
+    - `pnpm run check` → 全仓 clean
+  - **关联文件**：`core/registry.ts`（Entry 接口 + EntryFactory 签名 + getOrCreateEntry 调用点）/ `core/entry.ts`（createEntryFactory 用 lockId、acquireStandalone 传 undefined）/ `core/actions.ts`（buildAcquireName helper、performAcquire 改 driver acquire name）/ `__test__/core/registry.node.test.ts`（stub factory 签名适配）/ `__test__/core/actions.browser.test.ts`（createStubEntry 加 lockId）/ `__test__/core/entry-standalone-driver-isolation.node.test.ts`（新增）/ `__test__/core/entry-standalone-driver-isolation.browser.test.ts`（新增）/ `fixes/standalone-id-leak.md`（方案文档归档）
+
 ---
 
 ## 目录结构（最终落地形态）

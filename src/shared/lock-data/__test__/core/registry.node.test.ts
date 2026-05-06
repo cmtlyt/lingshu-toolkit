@@ -82,10 +82,17 @@ interface BuildFactoryArgs<T extends object> {
 }
 
 function buildFactory<T extends object>(args: BuildFactoryArgs<T>): EntryFactory<T> {
-  return (id, options, ctx) => {
+  return (id, lockId, options, ctx) => {
+    // Registry 路径下永远 lockId === id；防回归校验（本测试文件仅覆盖 InstanceRegistry，
+    // 不涉及 standalone 调用）。用 throw 而非 expect —— biome `useExpectAssertions`
+    // 不允许 expect 出现在 test() 外部的工厂函数里
+    if (lockId !== id) {
+      throw new Error(`buildFactory: lockId (${String(lockId)}) must equal id (${id}) on Registry path`);
+    }
     const adapters = args.adapters || createMockAdapters<T>();
     const entry: Entry<T> = {
       id,
+      lockId,
       data: args.data,
       driver: args.driver || createMockDriver(),
       adapters,
@@ -241,10 +248,10 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const driver = createMockDriver({ destroy: () => order.push('driver.destroy') });
     const t1 = vi.fn(() => order.push('teardown-1'));
     const t2 = vi.fn(() => order.push('teardown-2'));
-    const factory: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       ctx.registerTeardown(t1);
       ctx.registerTeardown(t2);
-      return buildFactory({ data: { a: 1 }, driver })(id, options, ctx);
+      return buildFactory({ data: { a: 1 }, driver })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory);
@@ -259,9 +266,9 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const registry = createInstanceRegistry();
     const driver = createMockDriver();
     const teardown = vi.fn();
-    const factory: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       ctx.registerTeardown(teardown);
-      return buildFactory({ data: { a: 1 }, driver })(id, options, ctx);
+      return buildFactory({ data: { a: 1 }, driver })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory);
@@ -319,10 +326,10 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const okTeardown = (): void => {
       order.push('teardown-ok');
     };
-    const factory: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       ctx.registerTeardown(okTeardown);
       ctx.registerTeardown(boom);
-      return buildFactory({ data: { a: 1 }, driver, adapters })(id, options, ctx);
+      return buildFactory({ data: { a: 1 }, driver, adapters })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory);
@@ -360,9 +367,9 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
   test('Entry 销毁后再调用 registerTeardown 被 alive 守卫吞掉', () => {
     const registry = createInstanceRegistry();
     let capturedRegister: ((teardown: () => void) => void) | undefined;
-    const factory: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       capturedRegister = ctx.registerTeardown;
-      return buildFactory({ data: { a: 1 } })(id, options, ctx);
+      return buildFactory({ data: { a: 1 } })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory);
@@ -377,9 +384,9 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
   test('registerTeardown 对非 function 入参静默忽略', () => {
     const registry = createInstanceRegistry();
     let capturedRegister: ((teardown: () => void) => void) | undefined;
-    const factory: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       capturedRegister = ctx.registerTeardown;
-      return buildFactory({ data: { a: 1 } })(id, options, ctx);
+      return buildFactory({ data: { a: 1 } })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory);
@@ -395,13 +402,13 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const driver2 = createMockDriver();
     const teardown1 = vi.fn();
     const teardown2 = vi.fn();
-    const factory1: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory1: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       ctx.registerTeardown(teardown1);
-      return buildFactory({ data: { a: 1 }, driver: driver1 })(id, options, ctx);
+      return buildFactory({ data: { a: 1 }, driver: driver1 })(id, lockId, options, ctx);
     };
-    const factory2: EntryFactory<{ a: number }> = (id, options, ctx) => {
+    const factory2: EntryFactory<{ a: number }> = (id, lockId, options, ctx) => {
       ctx.registerTeardown(teardown2);
-      return buildFactory({ data: { a: 2 }, driver: driver2 })(id, options, ctx);
+      return buildFactory({ data: { a: 2 }, driver: driver2 })(id, lockId, options, ctx);
     };
 
     registry.getOrCreateEntry('id-1', {}, factory1);

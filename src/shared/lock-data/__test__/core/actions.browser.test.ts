@@ -192,8 +192,12 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
   if (opts.listeners) {
     listenersSet.add(opts.listeners);
   }
+  const id = opts.id || 'test-id';
   return {
-    id: opts.id || 'test-id',
+    id,
+    // stub Entry 模拟 Registry 路径下的真实 Entry：lockId 与 id 同值（非空字符串）
+    // standalone 路径的 lockId === undefined 不在 actions 单元测试关注范围内
+    lockId: id,
     data: opts.data,
     driver: opts.driver,
     adapters: createStubAdapters<T>(),

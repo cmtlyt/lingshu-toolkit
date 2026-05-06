@@ -40,6 +40,21 @@ import { applyInPlace, createFailedInitError, type Entry } from './registry';
 import { anySignal, type SignalLike } from './signal';
 
 /**
+ * 构造 driver `acquire` 入参的 `name`
+ *
+ * 必须基于 `entry.lockId`（语义判定用真实 id），而不是 `entry.id`（展示用占位）：
+ * - Registry 路径：lockId === id，行为与历史一致（`${LOCK_PREFIX}:<真实 id>`）
+ * - Standalone（无 id）路径：lockId === undefined，fallback 到 `${LOCK_PREFIX}:__local__`，
+ *   与 `drivers/index.ts::buildDriverDeps` 的占位 name 保持一致；CustomDriver 透传给
+ *   用户的 `getLock` 时也会拿到这个 fallback，而非伪 `__local__` 真实 id
+ *
+ * 详见 `src/shared/lock-data/fixes/standalone-id-leak.md` §3.5
+ */
+function buildAcquireName<T extends object>(entry: Entry<T>): string {
+  return entry.lockId === undefined ? `${LOCK_PREFIX}:__local__` : `${LOCK_PREFIX}:${entry.lockId}`;
+}
+
+/**
  * Actions 构造依赖
  *
  * 使用依赖注入而非直接 import registry：便于测试用 stub registry 隔离，
@@ -422,7 +437,7 @@ async function performAcquire<T extends object>(
   let handle: LockDriverHandle;
   try {
     handle = await entry.driver.acquire({
-      name: `${LOCK_PREFIX}:${entry.id}`,
+      name: buildAcquireName(entry),
       token,
       force,
       acquireTimeout: acquireTimeoutValue,

@@ -43,8 +43,26 @@ type DataReadyState = 'pending' | 'ready' | 'failed';
  * 保证基于此引用构造的 readonly view 无需重建
  */
 interface Entry<T extends object> {
-  /** 锁 id；无 id 场景不进入 Registry，此字段必为非空字符串 */
+  /**
+   * 锁的展示用 id；用于日志、错误消息、Registry slot key 等"对外稳定文本"输出
+   *
+   * - Registry 路径：等于真实 id（非空字符串）
+   * - Standalone（无 id）路径：占位字符串 `'__local__'`
+   *
+   * **重要**：永远不要拿这个字段去做"是否有真实 id"的语义判定 —— standalone 路径
+   * 它只是占位。语义判定请使用 `lockId` 字段（详见下方）
+   */
   readonly id: string;
+  /**
+   * 真实锁 id；用于"是否启用跨 Tab 能力"的语义判定
+   *
+   * - Registry 路径：与 `id` 同值（必为非空字符串）
+   * - Standalone（无 id）路径：`undefined`，由此驱动 `pickDriver` 走 LocalLockDriver、
+   *   `syncMode='storage-authority'` 不启用 authority、driver acquire `name` 走本地占位
+   *
+   * 详见 `src/shared/lock-data/fixes/standalone-id-leak.md`
+   */
+  readonly lockId: string | undefined;
   /** 共享底层对象引用；in-place 修改语义，引用不变 */
   readonly data: T;
   /** 共享锁驱动实例；由首次 pickDriver 产出，Entry 销毁时 destroy */
@@ -121,12 +139,25 @@ interface EntryFactoryContext {
  * 2. 按 `resolveInitialData` 准备初始 data / dataReadyPromise / dataReadyState
  * 3. 把 `ctx.registerTeardown` 写入返回 Entry 的 `registerTeardown` 字段
  * 4. refCount 初始 1，listenersSet 含当次 options.listeners（若提供）
+ * 5. 把入参 `id` 写入 `Entry.id`、`lockId` 写入 `Entry.lockId`
  *
  * 工厂抛错时 Registry 不会把条目放入 Map —— **partial 资源的清理由 factory 自己负责**
  * （factory 应当在内部用 try/catch 处理中途失败；例如已构造的 driver、已注册的订阅等）。
  * Registry 不介入 partial 构造链，避免在无 logger 可用的场景被迫使用 console 兜底
+ *
+ * 参数语义：
+ * - `id`：展示用 id（必为非空字符串）；Registry 路径下 = 真实 id，
+ *   standalone 路径下 = 占位 `'__local__'`
+ * - `lockId`：真实 id；Registry 路径下与 `id` 同值，standalone 路径下为 `undefined`
+ *   下游（pickDriver / attachAuthority / driver acquire name）必须基于此参数
+ *   做"是否有真实 id"的语义判定，详见 `fixes/standalone-id-leak.md`
  */
-type EntryFactory<T extends object> = (id: string, options: LockDataOptions<T>, ctx: EntryFactoryContext) => Entry<T>;
+type EntryFactory<T extends object> = (
+  id: string,
+  lockId: string | undefined,
+  options: LockDataOptions<T>,
+  ctx: EntryFactoryContext,
+) => Entry<T>;
 
 /** Registry 对外 API */
 interface InstanceRegistry {
@@ -274,7 +305,8 @@ function createInstanceRegistry(): InstanceRegistry {
     const alive = { value: true };
     const registerTeardown = buildRegisterTeardown(teardowns, alive);
 
-    const entry = factory(id, options, { registerTeardown });
+    // Registry 路径下 lockId 与 id 同值（id 已通过上方 length === 0 校验保证非空）
+    const entry = factory(id, id, options, { registerTeardown });
 
     registry.set(id, { entry, teardowns, alive } as unknown as RegistrySlot<object>);
     return entry;
