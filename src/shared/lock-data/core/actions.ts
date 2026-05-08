@@ -21,8 +21,8 @@
 
 import { createError, throwError } from '@/shared/throw-error';
 import { isFunction, isObject } from '@/shared/utils/verify';
-import { DEFAULT_TIMEOUT, ERROR_FN_NAME, LOCK_PREFIX, NEVER_TIMEOUT } from '../constants';
-import { LockAbortedError, LockDisposedError, LockRevokedError, LockTimeoutError } from '../errors';
+import { ERROR_FN_NAME } from '../constants';
+import { LockAbortedError, LockRevokedError } from '../errors';
 import type {
   ActionCallOptions,
   CommitSource,
@@ -34,25 +34,29 @@ import type {
   RevokeReason,
   TimeoutValue,
 } from '../types';
+import { assertJsonSafeInput, cloneByJson } from '../utils/json-safe';
+import {
+  type ActionsInternalState,
+  applyInPlace,
+  attachSignalAutoDispose,
+  buildAcquireName,
+  buildAcquireSignal,
+  clearHoldTimer,
+  createInitialState,
+  enqueueWrite,
+  issueToken,
+  noop,
+  releaseDriverHandle,
+  resolveAcquireTimeout,
+  resolveHoldTimeout,
+  safeReleaseHandle,
+  throwDisposed,
+  toMilliseconds,
+  translateAcquireError,
+} from './actions-helpers';
 import { createDraftSession } from './draft';
 import { fanoutCommit, fanoutLockStateChange, fanoutRevoked } from './fanout';
-import { applyInPlace, createFailedInitError, type Entry } from './registry';
-import { anySignal, type SignalLike } from './signal';
-
-/**
- * 构造 driver `acquire` 入参的 `name`
- *
- * 必须基于 `entry.lockId`（语义判定用真实 id），而不是 `entry.id`（展示用占位）：
- * - Registry 路径：lockId === id，行为与历史一致（`${LOCK_PREFIX}:<真实 id>`）
- * - Standalone（无 id）路径：lockId === undefined，fallback 到 `${LOCK_PREFIX}:__local__`，
- *   与 `drivers/index.ts::buildDriverDeps` 的占位 name 保持一致；CustomDriver 透传给
- *   用户的 `getLock` 时也会拿到这个 fallback，而非伪 `__local__` 真实 id
- *
- * 详见 `src/shared/lock-data/fixes/standalone-id-leak.md` §3.5
- */
-function buildAcquireName<T extends object>(entry: Entry<T>): string {
-  return entry.lockId === undefined ? `${LOCK_PREFIX}:__local__` : `${LOCK_PREFIX}:${entry.lockId}`;
-}
+import type { Entry } from './registry';
 
 /**
  * Actions 构造依赖
@@ -71,173 +75,6 @@ interface ActionsDeps<T extends object> {
    * 无 id 场景传入 `() => void` no-op（Entry 独占，无 Registry 跟踪）
    */
   readonly releaseFromRegistry: () => void;
-}
-
-// ---------------------------------------------------------------------------
-// 内部状态
-// ---------------------------------------------------------------------------
-
-/**
- * Actions 的内部可变状态；所有字段集中在此避免散落的闭包变量
- *
- * token 语义：
- * - `currentToken`：当前 acquire 发放的 token；release / revoke / dispose 后仍保留
- *   用于还锁 / 撤销事件的 token 字段；下次 acquire 会被覆盖
- * - `aliveToken`：当前持有的"有效"token；revoke 后置空 —— 区分"这个 token 是否仍能
- *   commit"，解决 acquiring 期被 revoke 后 await 仍回来的 race（见 performAcquire）
- */
-interface ActionsInternalState {
-  phase: LockPhase;
-  /** 当前持有的 driver handle；非 holding 状态下必为 null */
-  currentHandle: LockDriverHandle | null;
-  /** 最近一次 acquire 发放的 token；每次 acquire 覆盖一次 */
-  currentToken: string;
-  /**
-   * 当前 "仍然有效" 的 token；acquire 成功后 = currentToken；
-   * release / revoke / dispose 后置空字符串 —— performAcquire 返回后若 aliveToken
-   * 与自己发的 token 不一致说明期间已被 revoke / dispose，立即归还 handle 并抛错
-   */
-  aliveToken: string;
-  /** token 单调序号；用于 issueToken */
-  tokenSeq: number;
-  /** holdTimeout 定时器句柄 */
-  holdTimer: ReturnType<typeof setTimeout> | null;
-  /**
-   * 当前持锁是否由 getLock 发起（影响 update 完成后是否自动 release）
-   *
-   * - `true`：getLock 抢的锁，update 完成后保留
-   * - `false`：update / replace 自己抢的锁，完成后立即 release
-   */
-  acquiredByGetLock: boolean;
-  /** dispose 终态标记；之后所有调用 reject LockDisposedError */
-  disposed: boolean;
-  /**
-   * 写操作串行链：update / replace / getLock 通过此 Promise 链严格 FIFO 排队
-   *
-   * 解决「未 await 的并发写操作」不安全问题：当 phase 处于 acquiring / committing
-   * 时，原 ensureHolding 仅在 holding 状态复用既有锁，其他状态会再次进入
-   * performAcquire 覆盖 currentToken / currentHandle，造成前一个事务被误判 revoked
-   * 或 driver handle 泄漏。引入串行链后，同一时刻只有一个写操作处于关键区
-   *
-   * 详见 src/shared/lock-data/fixes/concurrent-acquire-serialize.md
-   */
-  writeChain: Promise<void>;
-}
-
-function createInitialState(): ActionsInternalState {
-  return {
-    phase: 'idle',
-    currentHandle: null,
-    currentToken: '',
-    aliveToken: '',
-    tokenSeq: 0,
-    holdTimer: null,
-    acquiredByGetLock: false,
-    disposed: false,
-    writeChain: Promise.resolve(),
-  };
-}
-
-/**
- * 发放新 token；格式：`${LOCK_PREFIX}:${id}:token:${seq}`
- *
- * 仅用于事件 token 字段追踪，无需全局唯一；进程重启从 0 开始不会造成混淆
- */
-function issueToken(state: ActionsInternalState, id: string): string {
-  state.tokenSeq++;
-  return `${LOCK_PREFIX}:${id}:token:${state.tokenSeq}`;
-}
-
-/**
- * 写操作串行化排队 helper
- *
- * 关键设计点：
- * 1. `state.writeChain.then(task, task)` —— 无论前一个任务成功或失败，下一个任务都会
- *    继续执行；保证 FIFO 严格串行（事务语义对齐）
- * 2. `state.writeChain = next.then(swallow, swallow)` —— 链尾用空函数吞掉 rejection，
- *    下一个排队者不会被前一个失败污染；调用方拿到的是 `next` 本身（task 的真实结果）
- * 3. 调用方收到的 Promise 与 chain 隔离：失败的真实错误会原样 reject 给当前调用方，
- *    后续排队者从 fresh 的 chain 上恢复，不受污染
- *
- * 详见 src/shared/lock-data/fixes/concurrent-acquire-serialize.md
- */
-function enqueueWrite<R>(state: ActionsInternalState, task: () => Promise<R>): Promise<R> {
-  const swallow = (): void => {
-    /* 吞掉 rejection 隔离链上后续任务，调用方仍从 next 拿到真实错误 */
-  };
-  const next = state.writeChain.then(task, task);
-  state.writeChain = next.then(swallow, swallow);
-  return next;
-}
-
-// ---------------------------------------------------------------------------
-// timeout 归一化
-// ---------------------------------------------------------------------------
-
-/**
- * 从 options / callOpts 决议本次调用的抢锁超时
- *
- * 优先级：`callOpts.acquireTimeout` > `options.timeout` > `DEFAULT_TIMEOUT`
- */
-function resolveAcquireTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
-  if (callOpts && callOpts.acquireTimeout !== undefined) {
-    return callOpts.acquireTimeout;
-  }
-  if (options.timeout !== undefined) {
-    return options.timeout;
-  }
-  return DEFAULT_TIMEOUT;
-}
-
-/** 同 resolveAcquireTimeout，维度换为 holdTimeout */
-function resolveHoldTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
-  if (callOpts && callOpts.holdTimeout !== undefined) {
-    return callOpts.holdTimeout;
-  }
-  if (options.timeout !== undefined) {
-    return options.timeout;
-  }
-  return DEFAULT_TIMEOUT;
-}
-
-/** 把 TimeoutValue 归一化为毫秒数；NEVER_TIMEOUT 返回 null 表示"不计时" */
-function toMilliseconds(value: TimeoutValue): number | null {
-  return value === NEVER_TIMEOUT ? null : (value as number);
-}
-
-// ---------------------------------------------------------------------------
-// 合并 signal 生成
-// ---------------------------------------------------------------------------
-
-interface AcquireSignalBundle {
-  readonly signal: AbortSignal;
-  readonly dispose: () => void;
-  /** acquireTimeout 触发用的 AbortController（null 表示 NEVER_TIMEOUT 不计时） */
-  readonly timeoutController: AbortController | null;
-}
-
-/**
- * 把 options.signal / callOpts.signal / acquireTimeout / disposedSignal 合成一个派生 signal
- *
- * 返回 `dispose`：清理 timer + 内部 anySignal 的监听；调用方在 acquire 完成 / 失败时都要调用
- */
-function buildAcquireSignal(baseSignals: readonly SignalLike[], acquireTimeoutMs: number | null): AcquireSignalBundle {
-  const timeoutController = acquireTimeoutMs === null ? null : new AbortController();
-  const acquireTimer =
-    timeoutController === null
-      ? null
-      : setTimeout(
-          () => timeoutController.abort(new DOMException('acquire timeout', 'TimeoutError')),
-          acquireTimeoutMs as number,
-        );
-  const merged = anySignal([...baseSignals, timeoutController ? timeoutController.signal : null]);
-  const dispose = (): void => {
-    if (acquireTimer !== null) {
-      clearTimeout(acquireTimer);
-    }
-    merged.dispose();
-  };
-  return { signal: merged.signal, dispose, timeoutController };
 }
 
 // ---------------------------------------------------------------------------
@@ -276,102 +113,24 @@ function handleRevoke<T extends object>(deps: ActionsDeps<T>, state: ActionsInte
   // 详见 src/shared/lock-data/fixes/revoke-clear-acquired-by-get-lock.md
   state.acquiredByGetLock = false;
   clearHoldTimer(state);
-  releaseDriverHandle(deps, state);
+  releaseStateHandle(deps, state);
   transitionTo(deps, state, 'revoked', token);
   fanoutRevoked(deps.entry.listenersSet, { reason, token }, deps.entry.adapters.logger);
 }
 
-function clearHoldTimer(state: ActionsInternalState): void {
-  if (state.holdTimer !== null) {
-    clearTimeout(state.holdTimer);
-    state.holdTimer = null;
-  }
-}
-
 /**
- * 调用 driver handle.release；异步 release 的错误通过 logger.warn 兜底，
- * 不让 actions 的"还锁成功"被异步失败反向污染
+ * 释放当前 state 持有的 driver handle 并清空 currentHandle 字段
+ *
+ * 实际释放工作委托给 helpers 的 `releaseDriverHandle(handle, logger)`；
+ * 此处只负责"从 state 取出 handle 并清空"的状态机职责
  */
-function releaseDriverHandle<T extends object>(deps: ActionsDeps<T>, state: ActionsInternalState): void {
+function releaseStateHandle<T extends object>(deps: ActionsDeps<T>, state: ActionsInternalState): void {
   const handle = state.currentHandle;
   if (!handle) {
     return;
   }
   state.currentHandle = null;
-  let result: unknown;
-  try {
-    result = handle.release();
-  } catch (error) {
-    deps.entry.adapters.logger.warn('[lockData] driver.release threw (sync)', error);
-    return;
-  }
-  // 严谨 thenable 鸭子类型判定：三重守卫过滤 undefined/null/primitive，Promise.resolve
-  // 把最小 thenable（只有 .then 没有 .catch）正规化为 Promise 再挂 catch，避免
-  // `(result as Promise<void>).catch` 在最小 thenable 上抛 "catch is not a function"
-  // 回归测试：actions.browser.test.ts 第 13 组 describe「driver.release 返回最小 rejected thenable」
-  if (isObject(result) && 'then' in result && isFunction(result.then)) {
-    Promise.resolve(result as Promise<void>).catch((error: unknown) => {
-      deps.entry.adapters.logger.warn('[lockData] driver.release threw (async)', error);
-    });
-  }
-}
-
-/** 独立调用 handle.release（用于 dispose-race 场景，此时 currentHandle 可能未设置） */
-function safeReleaseHandle<T extends object>(deps: ActionsDeps<T>, handle: LockDriverHandle): void {
-  let result: unknown;
-  try {
-    result = handle.release();
-  } catch (error) {
-    deps.entry.adapters.logger.warn('[lockData] handle.release threw (dispose-race)', error);
-    return;
-  }
-  // 严谨 thenable 鸭子类型判定：result 类型是 unknown（driver.release 的实际返回值可能
-  // 偏离契约），通过 isObject + 'then' in + isFunction 三重守卫过滤 null/primitive；
-  // Promise.resolve 把最小 thenable（只有 .then 没有 .catch）正规化为 Promise 再挂 catch
-  // 回归测试：actions.browser.test.ts 第 13 组 describe「dispose-race：acquire 期间 dispose 触发 → safeReleaseHandle 处理最小 thenable 不抛 TypeError」
-  if (isObject(result) && 'then' in result && isFunction(result.then)) {
-    Promise.resolve(result as Promise<void>).catch((error: unknown) => {
-      deps.entry.adapters.logger.warn('[lockData] handle.release threw (dispose-race async)', error);
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 错误辅助
-// ---------------------------------------------------------------------------
-
-/** 抛 LockDisposedError 辅助 */
-function throwDisposed(cause?: unknown): never {
-  throwError(ERROR_FN_NAME, 'actions disposed', LockDisposedError as unknown as ErrorConstructor, { cause });
-}
-
-function isAbortLike(error: unknown): false | true {
-  if (!isObject(error)) {
-    return false;
-  }
-  const { name } = error as { name?: unknown };
-  return name === 'AbortError' || name === 'TimeoutError';
-}
-
-/**
- * driver.acquire 抛错时按 signal 原因翻译错误类型
- *
- * - 超时 controller 触发 → LockTimeoutError
- * - 其他 AbortError / TimeoutError → LockAbortedError
- * - 其他错误原样透传（driver 内部故障、自定义 driver 抛错）
- */
-function translateAcquireError(error: unknown, timeoutController: AbortController | null): Error {
-  if (timeoutController && timeoutController.signal.aborted) {
-    return createError(ERROR_FN_NAME, 'acquire timeout', LockTimeoutError as unknown as ErrorConstructor, {
-      cause: error,
-    });
-  }
-  if (isAbortLike(error)) {
-    return createError(ERROR_FN_NAME, 'acquire aborted', LockAbortedError as unknown as ErrorConstructor, {
-      cause: error,
-    });
-  }
-  return error as Error;
+  releaseDriverHandle(handle, deps.entry.adapters.logger);
 }
 
 // ---------------------------------------------------------------------------
@@ -381,25 +140,20 @@ function translateAcquireError(error: unknown, timeoutController: AbortControlle
 /**
  * 进入抢锁流程前的前置检查：
  * - disposed 终态 → reject LockDisposedError
- * - dataReady 'failed' → reject LockDisposedError(cause=原因)
- * - dataReady 'pending' → await dataReadyPromise（等待期不计入 acquireTimeout）
+ * - dataReadyPromise 存在（异步初始化未就绪）→ await（等待期不计入 acquireTimeout）；
+ *   reject 通道由 `prepareEntryData` 负责包装为 `LockDisposedError(cause=...)`，本处直接透传
+ *
+ * 半极简方案（设计文档 §12）：删除 `dataReadyState/dataReadyError` 字段后，仅靠
+ * `dataReadyPromise !== null` 一个标志位就能完整表达"是否需要等待初始化"
  */
 async function ensureDataReady<T extends object>(deps: ActionsDeps<T>, state: ActionsInternalState): Promise<void> {
   if (state.disposed) {
     throwDisposed();
   }
   const { entry } = deps;
-  if (entry.dataReadyState === 'failed') {
-    throw createFailedInitError(entry.id, entry.dataReadyError);
-  }
-  // Entry 契约：dataReadyState === 'pending' ↔ dataReadyPromise !== null（resolveInitialData 保证）
-  // 这里用显式 !== null 避开 `Promise | null` 做布尔条件触发的 noMisusedPromises 告警
-  if (entry.dataReadyState === 'pending' && entry.dataReadyPromise !== null) {
-    try {
-      await entry.dataReadyPromise;
-    } catch (error) {
-      throw createFailedInitError(entry.id, error);
-    }
+  // 显式 !== null 避开 `Promise | null` 做布尔条件触发的 noMisusedPromises 告警
+  if (entry.dataReadyPromise !== null) {
+    await entry.dataReadyPromise;
     if (state.disposed) {
       throwDisposed();
     }
@@ -467,7 +221,7 @@ async function performAcquire<T extends object>(
   // 2. aliveToken 被 revoke 改写成 ''（driver 通过别的通道触发了 revoke）
   // 两种情况都要立刻归还 handle 并抛错
   if (state.disposed || state.aliveToken !== token) {
-    safeReleaseHandle(deps, handle);
+    safeReleaseHandle(handle, deps.entry.adapters.logger);
     if (state.disposed) {
       throwDisposed();
     }
@@ -520,9 +274,13 @@ function startHoldTimer<T extends object>(
 /**
  * 在 ensureHolding 成功后执行 recipe，按事务语义处理 commit / rollback
  *
- * 回滚语义与锁状态解耦：Draft 的写入原地落到 entry.data，只要未 commit 就必须 rollback
- * 恢复 data，避免脏写入泄漏给其他共享 Entry 的实例 / readonly view（revoke / dispose
- * 不影响此结论，通过 `committed` 标志在 finally 中统一判定）
+ * 回滚语义与锁状态解耦：Draft 的写入原地落到 `entry.dataRef.current`，只要未 commit
+ * 就必须 rollback 恢复 dataRef.current，避免脏写入泄漏给其他共享 Entry 的实例 /
+ * readonly view（revoke / dispose 不影响此结论，通过 `committed` 标志在 finally 中
+ * 统一判定）
+ *
+ * wrapper 方案契约：draft session 直接挂载在 `dataRef.current` 上做原地修改 ——
+ * `dataRef` 引用本身永不变更，readonly view 与外部缓存的 dataRef 持续看到同一内容
  */
 async function runTransaction<T extends object>(
   deps: ActionsDeps<T>,
@@ -531,7 +289,7 @@ async function runTransaction<T extends object>(
   recipe: (draft: T) => void | Promise<void>,
 ): Promise<void> {
   const { entry } = deps;
-  const session = createDraftSession(entry.data);
+  const session = createDraftSession(entry.dataRef.current);
   const token = state.currentToken;
   transitionTo(deps, state, 'committing', token);
 
@@ -567,8 +325,9 @@ async function runTransaction<T extends object>(
  *     自增 rev + 写权威副本 + 派发 onCommit（见 `authority/index.ts::performCommitSuccess`）
  *   - `entry.authority === null` → Actions 直接在此自增 rev 并派发 fanoutCommit
  *
- * 事件的 `snapshot` 必须 clone 隔离：fanout 期间用户可能继续修改 data，
- * 让 snapshot 与 data 引用断开避免用户事后误改数据
+ * 事件的 `snapshot` 必须 JSON 拷贝隔离：fanout 期间用户可能继续修改 dataRef.current，
+ * 让 snapshot 与 dataRef.current 引用断开避免用户事后误改数据。wrapper 方案下
+ * 统一走 `cloneByJson`，与 `entry.applyRemote` / `getValue` 入口用同一份隔离契约
  */
 function applyCommit<T extends object>(
   deps: ActionsDeps<T>,
@@ -578,7 +337,7 @@ function applyCommit<T extends object>(
   mutations: readonly LockDataMutation[],
 ): void {
   const { entry } = deps;
-  const snapshot = entry.adapters.clone(entry.data);
+  const snapshot = cloneByJson(entry.dataRef.current);
   if (entry.authority) {
     // authority 路径：rev 自增 + 权威副本写入 + onCommit 派发全部在 onCommitSuccess 内部完成
     entry.authority.onCommitSuccess({ source, token, mutations, snapshot });
@@ -610,7 +369,7 @@ function performRelease<T extends object>(deps: ActionsDeps<T>, state: ActionsIn
   const token = state.currentToken;
   state.aliveToken = '';
   clearHoldTimer(state);
-  releaseDriverHandle(deps, state);
+  releaseStateHandle(deps, state);
   state.acquiredByGetLock = false;
   transitionTo(deps, state, 'released', token);
   transitionTo(deps, state, 'idle', token);
@@ -653,7 +412,7 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
       const token = state.aliveToken;
       state.aliveToken = '';
       clearHoldTimer(state);
-      releaseDriverHandle(deps, state);
+      releaseStateHandle(deps, state);
       fanoutRevoked(deps.entry.listenersSet, { reason: 'dispose', token }, deps.entry.adapters.logger);
     }
 
@@ -733,6 +492,9 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
       if (!isObject(next)) {
         throwError(ERROR_FN_NAME, 'replace requires a non-null object', TypeError);
       }
+      // 入口 fail-fast：顶层数组 / 非 JSON-safe 立即抛错，避免污染 draft / commit
+      // 链路。与 `entry.applyRemote` / `getValue` resolve 后入口共享同一份契约
+      assertJsonSafeInput(next, 'lockData actions.replace(next)');
       return enqueueWrite(state, async () => {
         ensureAlive();
         const { alreadyHeld } = await ensureHolding(callOpts, 'replace');
@@ -748,9 +510,12 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
       });
     },
 
-    read(): T {
+    snapshot(): T {
       ensureAlive();
-      return deps.entry.adapters.clone(deps.entry.data);
+      // wrapper 方案契约：snapshot 必须与内部 dataRef.current 完全隔离，调用方对返回
+      // 值的任意 mutate 都不会反向影响 lock-data 内部状态。统一走 JSON 拷贝，与
+      // commit / applyRemote / getValue 入口共享同一份隔离语义
+      return cloneByJson(deps.entry.dataRef.current);
     },
 
     async getLock(callOpts): Promise<void> {
@@ -771,39 +536,6 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
   };
 
   return actions;
-}
-
-// ---------------------------------------------------------------------------
-// signal.aborted 自动 dispose 桥接
-// ---------------------------------------------------------------------------
-
-/**
- * 为 options.signal 注册 abort 监听；触发时等价于自动 dispose
- *
- * 返回 unbind 函数：actions 主动 dispose 时调用，避免悬挂监听
- *
- * 若 signal 构造期已 aborted：通过 queueMicrotask 延迟触发，保证 createActions 完整
- * 返回后再进入 dispose 路径，避免构造期半初始化状态被观察
- */
-function attachSignalAutoDispose(signal: AbortSignal | undefined, triggerDispose: () => void): () => void {
-  if (!(signal instanceof AbortSignal)) {
-    return noop;
-  }
-  if (signal.aborted) {
-    queueMicrotask(triggerDispose);
-    return noop;
-  }
-  const onAbort = (): void => {
-    triggerDispose();
-  };
-  signal.addEventListener('abort', onAbort, { once: true });
-  return (): void => {
-    signal.removeEventListener('abort', onAbort);
-  };
-}
-
-function noop(): void {
-  /* no-op */
 }
 
 export type { ActionsDeps };

@@ -1,38 +1,38 @@
 /**
  * lockData 主入口：组装 Registry / Adapters / Driver / Authority / Actions / ReadonlyView
  *
- * 对应 RFC.md「架构分层」「InstanceRegistry」「能力检测与降级」章节（L612-760）。
+ * 对应 RFC.md「架构分层」「InstanceRegistry」「能力检测与降级」章节。
  *
- * 流程总览：
- *   lockData(initial, options)
- *     ├─ 参数校验（id / signal / syncMode / listeners）
+ * 流程总览（wrapper 方案 + 单参数 API）：
+ *   lockData(options)
+ *     ├─ 顶层数组运行时拒绝（assertNotTopLevelArray，类型层已禁止；防擦除）
+ *     ├─ 参数校验（id / getValue / syncMode / listeners 等结构层）
  *     ├─ 分派：id 存在 → defaultRegistry.getOrCreateEntry(id, options, factory)
  *     │        id 缺失 → 直接执行 factory（无 Registry 跟踪）
  *     │
  *     ├─ factory 内部（entryFactory）：
  *     │    ├─ pickDefaultAdapters(options.adapters)
- *     │    ├─ resolveInitialData(options, initial, logger, onStateChange)
+ *     │    ├─ prepareEntryData(id, options) —— 同步抛错走 LockDisposedError；
+ *     │    │   异步返回 { firstValue, dataReadyPromise }（首值 resolve 后由
+ *     │    │   `applyRemote` 写入 dataRef.current）
  *     │    ├─ pickDriver({ adapters, options, id })
- *     │    ├─ 构造 Entry 骨架（authority: null 初值）
+ *     │    ├─ 构造 Entry 骨架（dataRef = { current: firstValue }；authority: null）
  *     │    ├─ 若 syncMode='storage-authority' 且 id 存在 → 构造 StorageAuthority：
- *     │    │   ├─ host = entry（Entry 的 data/rev/lastAppliedRev/epoch 字段
- *     │    │   │           恰好匹配 StorageAuthorityHost 契约）
- *     │    │   ├─ applySnapshot = applyInPlace
+ *     │    │   ├─ host = entry（提供 dataRef / applyRemote / rev / lastAppliedRev / epoch）
  *     │    │   ├─ emitSync / emitCommit → fanoutSync / fanoutCommit
- *     │    │   ├─ 通过构造期 mutable 写回 entry.authority（类型层标记为 readonly，
- *     │    │   │   运行时仅在 factory 构造期允许一次性写入）
  *     │    │   └─ registerTeardown(authority.dispose) + 发起 authority.init()
- *     │    └─ 把 authority.init() 合成进 dataReadyPromise（确保就绪时两者都已完成）
+ *     │    └─ 把 authority.init() 合成进 dataReadyPromise
  *     │
  *     ├─ createActions({ entry, options, releaseFromRegistry })
- *     ├─ createReadonlyView(entry.data)
+ *     ├─ createReadonlyView(entry.dataRef) —— wrapper Proxy；trap 重定向到 dataRef.current
  *     └─ 返回：dataReadyPromise === null ? [view, actions] : Promise<[view, actions]>
  *
  * 职责边界：
  * - 参数校验只做"结构层"（类型 / 非空）；语义合法性（如 timeout < 0）由下游模块负责
  * - Entry 构造期的部分字段（authority）是"一次性 readonly"：仅在 factory 内写入一次，
- *   Entry 对外暴露后字段视为 frozen；用 `Entry<T> & { authority: ... }` 的 mutable
- *   视图收敛到 factory 闭包内，避免外部代码误改
+ *   Entry 对外暴露后字段视为 frozen；用 mutable 视图收敛到 factory 闭包内
+ * - dataRef.current 在异步 resolve / commit / applyRemote 时由内部重新赋值；
+ *   wrapper Proxy view 自动看到最新值
  */
 
 import { isObject, isString } from '@/shared/utils/verify';
@@ -51,18 +51,17 @@ import type {
   SyncMode,
   SyncSource,
 } from '../types';
+import { cloneByJson } from '../utils/json-safe';
 import { createActions } from './actions';
 import { fanoutCommit, fanoutSync } from './fanout';
 import { createReadonlyView } from './readonly-view';
 import {
-  applyInPlace,
-  createFailedInitError,
   createInstanceRegistry,
   type Entry,
   type EntryFactory,
   type EntryFactoryContext,
   type InstanceRegistry,
-  resolveInitialData,
+  prepareEntryData,
 } from './registry';
 
 // ---------------------------------------------------------------------------
@@ -190,7 +189,11 @@ function buildEmitSync<T extends object>(entry: Entry<T>, guard: FanoutGuard): (
  * 构造 StorageAuthority 并写回 entry.authority；返回 init Promise
  *
  * 仅在 `syncMode === 'storage-authority' && id` 时调用；authority 构造失败时
- * 走 logger.warn（RFC L740 "权威副本不可用 → 退化为同进程共享"），返回 null Promise
+ * 走 logger.warn（RFC「权威副本不可用 → 退化为同进程共享」），返回 null Promise
+ *
+ * wrapper 方案差异：
+ * - 不再注入 `applySnapshot` 钩子（authority 通过 `host.applyRemote(next)` 完成原子覆写）
+ * - 不再注入 `clone` 函数（authority 内部走 JSON 拷贝隔离）
  */
 function attachAuthority<T extends object>(
   mutableEntry: MutableEntry<T>,
@@ -213,7 +216,8 @@ function attachAuthority<T extends object>(
 
   const guard: FanoutGuard = { disposed: false };
 
-  // Entry 本身满足 StorageAuthorityHost 契约：同时具备 data/rev/lastAppliedRev/epoch 字段
+  // Entry 本身满足 StorageAuthorityHost 契约：同时具备 dataRef / applyRemote /
+  // rev / lastAppliedRev / epoch 字段
   const authority = createStorageAuthority<T>({
     host: mutableEntry,
     authority: authorityAdapter,
@@ -222,8 +226,6 @@ function attachAuthority<T extends object>(
     persistence,
     sessionProbeTimeout: options.sessionProbeTimeout ?? DEFAULT_SESSION_PROBE_TIMEOUT,
     logger: adapters.logger,
-    clone: adapters.clone,
-    applySnapshot: applyInPlace,
     emitSync: buildEmitSync(mutableEntry, guard),
     emitCommit: buildEmitCommit(mutableEntry, guard),
   });
@@ -269,41 +271,56 @@ function mergeReadyPromises(
 // ---------------------------------------------------------------------------
 
 /**
- * 构造 EntryFactory —— 承担 adapters / driver / initialData / authority 四件事的组装
+ * 构造 `applyRemote(next: T)` 闭包
  *
- * 传入 `initial` 作为闭包参数：Registry 路径下 `getOrCreateEntry` 命中已有 Entry 时
- * 不会调用 factory，initial 被忽略；首次创建才会应用
+ * 契约（StorageAuthorityHost.applyRemote 同款）：
+ * - 入参 `next` 必须是已通过 `assertJsonSafeInput` 的 JSON 安全值
+ *   （由调用方在更早的边界完成 fail-fast，本函数到达时已确定为 JSON 安全）
+ * - 内部走 `cloneByJson(next)` 拷贝隔离后赋给 `dataRef.current`
+ * - 不触发 emit / commit / fanout —— 这些由 authority 外层 emitSync 负责
+ *
+ * applyRemote 是 wrapper 方案下「authority 远程同步 / 异步 getValue resolve」共用的
+ * 单一入口，确保所有进入 `dataRef.current` 的值都经过同一层 JSON 拷贝隔离
  */
-function createEntryFactory<T extends object>(initial: T | undefined): EntryFactory<T> {
+function buildApplyRemote<T extends object>(dataRef: { current: T }): (next: T) => void {
+  return (next) => {
+    dataRef.current = cloneByJson(next);
+  };
+}
+
+/**
+ * 构造 EntryFactory —— 承担 adapters / driver / initialData / authority 四件事的组装
+ */
+function createEntryFactory<T extends object>(): EntryFactory<T> {
   return (id, lockId, options, ctx: EntryFactoryContext): Entry<T> => {
     const adapters = pickDefaultAdapters<T>(options.adapters);
 
-    // Entry 引用通过 closure 变量向前传递给 onStateChange；初始为 null，构造完立即赋值
-    // 不会出现"骨架未构造时触发 onStateChange" —— resolveInitialData 的 failed 态
-    // 已经通过返回的 InitialDataPatch.dataReadyState / dataReadyError 字段同步暴露
-    let entryRef: MutableEntry<T> | null = null;
-    const onStateChange = (state: 'pending' | 'ready' | 'failed', error: unknown): void => {
-      if (entryRef === null) {
-        return;
-      }
-      entryRef.dataReadyState = state;
-      entryRef.dataReadyError = error;
-    };
+    // 同步抛错（getValue 同步抛 / 顶层数组 / 非 JSON-safe 值）会从这里直接向上抛 LockDisposedError /
+    // InvalidOptionsError / TypeError —— Entry 不构造，不进 registry
+    // 异步路径返回的 firstValue 是占位空对象；resolve 时通过 dataReadyPromise 携带 awaited 真实值，
+    // 由 EntryFactory 调用 applyRemote(awaited) 写入 dataRef.current（占位永不暴露给用户）
+    const initialData = prepareEntryData<T>(id, options);
 
-    const initialPatch = resolveInitialData(options, initial, adapters.logger, onStateChange);
     // 用 lockId 而非 id 喂 pickDriver：standalone 路径 lockId === undefined，
     // pickDriver 内部 `!isString(id) || id.length === 0` 短路命中 LocalLockDriver；
     // 不会被 mode='web-locks' 等强制起跨 Tab driver
     const driver = pickDriver<T>({ adapters, options, id: lockId });
     const listenersSet = new Set<LockDataListeners<T>>();
+    // 用 isObject 严格校验：过滤 null / undefined / 字符串 / 数字等类型擦除路径下的脏值，
+    // 与 registry.ts `getOrCreateEntry` 命中已有 Entry 时的 `isObject(listeners)` 保持一致
     if (isObject(options.listeners)) {
       listenersSet.add(options.listeners);
     }
 
+    // 稳定 dataRef wrapper：引用本身在 Entry 生命周期内永不变更；
+    // 所有「重新赋值」都通过修改 .current 完成（commit / applyRemote / 异步 resolve）
+    const dataRef: { current: T } = { current: initialData.firstValue };
+    const applyRemote = buildApplyRemote<T>(dataRef);
+
     const mutableEntry: MutableEntry<T> = {
       id,
       lockId,
-      data: initialPatch.data,
+      dataRef,
       driver,
       adapters,
       authority: null,
@@ -315,16 +332,18 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
         persistence: options.persistence,
         sessionProbeTimeout: options.sessionProbeTimeout,
       }),
-      dataReadyPromise: initialPatch.dataReadyPromise,
+      dataReadyPromise: null,
       registerTeardown: ctx.registerTeardown,
       refCount: 1,
       rev: 0,
       lastAppliedRev: 0,
       epoch: null,
-      dataReadyState: initialPatch.dataReadyState,
-      dataReadyError: initialPatch.dataReadyError,
+      applyRemote,
     };
-    entryRef = mutableEntry;
+
+    // 异步路径：dataReadyPromise resolve 时携带 awaited 真实首值，applyRemote 写入 dataRef.current
+    // 仅一次 await，无需重复调用用户的 getValue
+    const dataReadyAfterApply = attachAsyncFirstValue(applyRemote, initialData.dataReadyPromise);
 
     // syncMode 分派：'storage-authority' 且 **真实 id 存在**（lockId !== undefined）才启用
     // 注意必须用 lockId 判断 —— Entry.id 在 standalone 路径是占位 '__local__'（非空字符串），
@@ -337,10 +356,35 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
         : null;
 
     // 合成最终的 dataReadyPromise（构造期允许覆盖 readonly 字段）
-    mutableEntry.dataReadyPromise = mergeReadyPromises(initialPatch.dataReadyPromise, authorityReady);
+    mutableEntry.dataReadyPromise = mergeReadyPromises(dataReadyAfterApply, authorityReady);
 
     return mutableEntry;
   };
+}
+
+/**
+ * 异步路径：resolve 后通过 `applyRemote` 把 awaited 真实首值写入 `dataRef.current`
+ *
+ * 契约：
+ * - 同步路径（initialData.dataReadyPromise === null）：firstValue 已是真实首值（经
+ *   `prepareEntryData` 内部 `assertJsonSafeInput` + `cloneByJson`），无需 applyRemote 处理 → 返回 null
+ * - 异步路径：消费 `prepareEntryData` 携带 awaited 的 Promise<T>；resolve 时调用
+ *   `applyRemote(awaited)` 写入 `dataRef.current`；reject 直接透传 `LockDisposedError`
+ *   （`prepareEntryData` 已把校验失败 / 原始 reject 都包装为 LockDisposedError）
+ *
+ * 注意：本函数不再二次调用 `options.getValue()` —— `prepareEntryData` 已完成单次 await + 校验，
+ * awaited 真实值通过 Promise 通道直接透传过来；用户的 getValue **不要求幂等**
+ */
+function attachAsyncFirstValue<T extends object>(
+  applyRemote: (next: T) => void,
+  dataReadyPromise: Promise<T> | null,
+): Promise<void> | null {
+  if (dataReadyPromise === null) {
+    return null;
+  }
+  return dataReadyPromise.then((awaited) => {
+    applyRemote(awaited);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -348,39 +392,34 @@ function createEntryFactory<T extends object>(initial: T | undefined): EntryFact
 // ---------------------------------------------------------------------------
 
 /**
- * lockData 主入口
+ * lockData 主入口（单参数 + getValue 必传）
  *
  * 返回值类型：
- * - 数据同步就绪（未提供 getValue / getValue 同步返回 / 未启用 authority）→ `readonly [T, LockDataActions<T>]`
- * - 异步就绪（getValue 返回 Promise 或 syncMode='storage-authority'）→ `Promise<readonly [T, LockDataActions<T>]>`
+ * - getValue 同步返回 + 未启用 authority → `readonly [T, LockDataActions<T>]`
+ * - getValue 返回 Promise 或 syncMode='storage-authority' → `Promise<readonly [T, LockDataActions<T>]>`
  *
  * 初始化失败（getValue reject / getValue 同步抛错）时：
- * - 同步路径：抛 `LockDisposedError`
+ * - 同步路径：抛 `LockDisposedError`（getValue 同步抛错时 prepareEntryData 直接向上抛）
  * - 异步路径：返回的 Promise reject `LockDisposedError`（cause 携带原始错误）
  *
- * id 冲突：同 id 多次调用 lockData 复用同一份 Entry（data/driver/adapters/authority 共享），
- * 传入的 `newInitial` 自第二次起被忽略（RFC L663）；非 listeners 字段冲突走 logger.warn
+ * id 冲突：同 id 多次调用 lockData 复用同一份 Entry（dataRef / driver / adapters / authority 共享），
+ * 自第二次起 getValue 不被重新执行（首值由首次调用产出）；非 listeners 字段冲突走 logger.warn
  */
-function lockData<T extends object>(
-  initial: T | undefined,
-  options?: LockDataOptions<T>,
-): LockDataResult<T> | Promise<LockDataResult<T>> {
-  const normalizedOptions: LockDataOptions<T> = options || {};
-  const id = extractValidId(normalizedOptions);
-  const factory = createEntryFactory<T>(initial);
+function lockData<T extends object>(options: LockDataOptions<T>): LockDataResult<T> | Promise<LockDataResult<T>> {
+  const id = extractValidId(options);
+  const factory = createEntryFactory<T>();
 
   // 分派 Registry / 无 id 路径；无 id 场景用一次性 ctx（teardowns 在实例 dispose 时逆序运行）
+  // prepareEntryData 内的同步抛错（getValue 同步抛 / 校验失败）会从这里直接向上抛
   const { entry, releaseFromRegistry } =
-    id === undefined
-      ? acquireStandalone<T>(normalizedOptions, factory)
-      : acquireFromRegistry<T>(id, normalizedOptions, factory);
+    id === undefined ? acquireStandalone<T>(options, factory) : acquireFromRegistry<T>(id, options, factory);
 
   const actions = createActions<T>({
     entry,
-    options: normalizedOptions,
+    options,
     releaseFromRegistry,
   });
-  const view = createReadonlyView(entry.data);
+  const view = createReadonlyView<T>(entry.dataRef);
 
   return finalizeResult<T>(entry, view, actions);
 }
@@ -455,8 +494,10 @@ function acquireStandalone<T extends object>(
 /**
  * 根据 `entry.dataReadyPromise` 决定同步返回还是 Promise 返回
  *
- * - 同步就绪 → 立即检查 `dataReadyState === 'failed'`（getValue 同步抛错路径）；
- *   failed 时抛 LockDisposedError
+ * 简化说明（极简方案）：
+ * - dataReadyState / dataReadyError 字段已删除；同步抛错路径在 prepareEntryData 内
+ *   直接抛 LockDisposedError（Entry 不构造 / 不进入 finalizeResult）
+ * - 同步就绪 → 直接返回元组
  * - 异步就绪 → 返回 Promise；resolve 到元组，reject 转为 LockDisposedError
  */
 function finalizeResult<T extends object>(
@@ -467,23 +508,16 @@ function finalizeResult<T extends object>(
   const tuple: LockDataResult<T> = [view, actions] as const;
 
   if (entry.dataReadyPromise === null) {
-    if (entry.dataReadyState === 'failed') {
-      // 同步 getValue 抛错：RFC L684 要求立即抛 LockDisposedError
-      // 在 throwError 之前先触发 actions.dispose 保证资源不泄漏
-      void actions.dispose();
-      throw createFailedInitError(entry.id, entry.dataReadyError);
-    }
     return tuple;
   }
 
   return entry.dataReadyPromise.then(
     () => tuple,
     (error: unknown) => {
-      // authority.init 失败已被 attachAuthority 内部 warn + swallow；
-      // 这里 reject 只来自 dataReadyPromise（getValue 异步 reject），
-      // 统一包装为 LockDisposedError
+      // dataReadyPromise reject 时，prepareEntryData 已将原始错误包装为 LockDisposedError(cause)；
+      // 此处直接透传，避免双重包装导致 cause 链路断裂（cause 应直接指向 getValue 原始错误）
       void actions.dispose();
-      throw createFailedInitError(entry.id, error);
+      throw error;
     },
   );
 }

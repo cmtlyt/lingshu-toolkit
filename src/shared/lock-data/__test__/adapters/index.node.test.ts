@@ -3,13 +3,16 @@
  *
  * 覆盖点：
  * 1. 空对象 → 全部字段走默认实现
- * 2. logger / clone 的用户覆盖直接透传实例
+ * 2. logger 用户覆盖通过 resolveLoggerAdapter 混合注入
  * 3. 用户未提供 logger 时，默认 logger 会被注入给所有 adapter 工厂
  *    —— 通过"用户提供 logger 时，默认 adapter 内部降级日志走用户 logger"反向验证
  * 4. getAuthority / getChannel / getSessionStore 用户工厂返回非 null → 使用用户实例
  * 5. getAuthority / getChannel / getSessionStore 用户工厂返回 null → fallback 到默认工厂
  * 6. getLock 透传（不被聚合层解释）
  * 7. 工厂每次调用都返回新实例（不缓存）
+ *
+ * 注：JSON-only 契约下 clone 不再是公开 adapter（由内部 cloneByJson 统一处理），
+ *     adapters 层不再暴露 clone 字段
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
@@ -115,7 +118,6 @@ describe('adapters/index (pickDefaultAdapters)', () => {
 
       expect(typeof resolved.logger.warn).toBe('function');
       expect(typeof resolved.logger.error).toBe('function');
-      expect(typeof resolved.clone).toBe('function');
       expect(typeof resolved.getAuthority).toBe('function');
       expect(typeof resolved.getChannel).toBe('function');
       expect(typeof resolved.getSessionStore).toBe('function');
@@ -131,18 +133,9 @@ describe('adapters/index (pickDefaultAdapters)', () => {
       expect(authority?.read()).toBe('raw-1');
       expect((g.localStorage as MockStorage)._data.get(`${LOCK_PREFIX}:test:latest`)).toBe('raw-1');
     });
-
-    test('clone 默认实现可工作', () => {
-      const resolved = pickDefaultAdapters({});
-      const source = { nested: { value: 42 } };
-      const cloned = resolved.clone(source);
-
-      expect(cloned).not.toBe(source);
-      expect(cloned).toEqual(source);
-    });
   });
 
-  describe('logger / clone 实例透传', () => {
+  describe('logger 实例透传', () => {
     test('用户提供 logger 时产物代理到用户方法（新契约：logger 走 resolveLoggerAdapter 混合）', () => {
       const userLogger = createLoggerSpy();
       const resolved = pickDefaultAdapters({ logger: userLogger });
@@ -204,19 +197,6 @@ describe('adapters/index (pickDefaultAdapters)', () => {
       expect(
         userLogger.warnMock.mock.calls.some((call) => /Failed to write authority snapshot/u.test(String(call[0]))),
       ).toBe(true);
-    });
-
-    test('用户提供 clone 时直接透传', () => {
-      const userClone = vi.fn(<V>(value: V): V => value);
-      // @ts-expect-error
-      const resolved = pickDefaultAdapters({ clone: userClone });
-
-      expect(resolved.clone).toBe(userClone);
-
-      const source = { a: 1 };
-      const cloned = resolved.clone(source);
-      expect(cloned).toBe(source);
-      expect(userClone).toHaveBeenCalledWith(source);
     });
   });
 

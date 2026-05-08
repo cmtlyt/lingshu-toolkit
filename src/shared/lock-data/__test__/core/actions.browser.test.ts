@@ -12,7 +12,7 @@
  * 8. holdTimeout：持锁期自动 revoke('timeout') + 广播 onRevoked
  * 9. dataReady 失败：failed 态下 update 抛 LockDisposedError
  * 10. authority：有 authority 时 pullOnAcquire + onCommitSuccess 被调用；无 authority 时直接 fanoutCommit
- * 11. read：深克隆；disposed 后抛错
+ * 11. snapshot：深克隆；disposed 后抛错
  * 12. replace 结构不一致抛 TypeError
  */
 
@@ -163,12 +163,6 @@ function createStubAdapters<T>(): ResolvedAdapters<T> {
   });
   return {
     logger,
-    clone: <V>(value: V): V => {
-      if (value === null || typeof value !== 'object') {
-        return value;
-      }
-      return JSON.parse(JSON.stringify(value));
-    },
     getAuthority: () => null,
     getChannel: () => null,
     getSessionStore: () => null,
@@ -182,8 +176,6 @@ interface StubEntryOptions<T extends object> {
   readonly driver: LockDriver;
   readonly authority?: StorageAuthority<T> | null;
   readonly dataReadyPromise?: Promise<void> | null;
-  readonly dataReadyState?: 'pending' | 'ready' | 'failed';
-  readonly dataReadyError?: unknown;
   readonly listeners?: LockDataListeners<T>;
 }
 
@@ -193,12 +185,16 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
     listenersSet.add(opts.listeners);
   }
   const id = opts.id || 'test-id';
+  const dataRef = { current: opts.data };
   return {
     id,
     // stub Entry 模拟 Registry 路径下的真实 Entry：lockId 与 id 同值（非空字符串）
     // standalone 路径的 lockId === undefined 不在 actions 单元测试关注范围内
     lockId: id,
-    data: opts.data,
+    dataRef,
+    applyRemote: (next: T): void => {
+      dataRef.current = JSON.parse(JSON.stringify(next)) as T;
+    },
     driver: opts.driver,
     adapters: createStubAdapters<T>(),
     authority: opts.authority === undefined ? null : opts.authority,
@@ -218,14 +214,16 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
     rev: 0,
     lastAppliedRev: 0,
     epoch: null,
-    dataReadyState: opts.dataReadyState || 'ready',
-    dataReadyError: opts.dataReadyError,
   };
 }
 
+// 测试辅助类型：buildActions 只读 listeners / signal / timeout 字段，不会真正调用 getValue；
+// 用 Pick 子集类型避免 LockDataOptions 的 getValue 必传约束污染测试用例
+type BuildActionsOptions<T extends object> = Pick<LockDataOptions<T>, 'listeners' | 'signal' | 'timeout'>;
+
 function buildActions<T extends object>(
   entryOpts: StubEntryOptions<T>,
-  options: LockDataOptions<T> = {},
+  options: BuildActionsOptions<T> = {},
 ): {
   entry: Entry<T>;
   actions: ReturnType<typeof createActions<T>>;
@@ -238,7 +236,7 @@ function buildActions<T extends object>(
   const releaseSpy = vi.fn();
   const actions = createActions<T>({
     entry,
-    options,
+    options: options as LockDataOptions<T>,
     releaseFromRegistry: releaseSpy,
   });
   return { entry, actions, releaseSpy };
@@ -269,7 +267,7 @@ describe('actions / 基础写入', () => {
       draft.count = 10;
     });
 
-    expect(entry.data.count).toBe(10);
+    expect(entry.dataRef.current.count).toBe(10);
     expect(entry.rev).toBe(1);
     expect(entry.lastAppliedRev).toBe(1);
     expect(commitEvents).toHaveLength(1);
@@ -277,8 +275,8 @@ describe('actions / 基础写入', () => {
     expect(commitEvents[0].rev).toBe(1);
     expect(commitEvents[0].mutations).toEqual([{ path: ['count'], op: 'set', value: 10 }]);
     expect(commitEvents[0].snapshot).toEqual({ count: 10 });
-    // snapshot 与 entry.data 是克隆隔离的
-    expect(commitEvents[0].snapshot).not.toBe(entry.data);
+    // snapshot 与 entry.dataRef.current 是克隆隔离的
+    expect(commitEvents[0].snapshot).not.toBe(entry.dataRef.current);
   });
 
   test('update 抛错：data 被 rollback + rev 不递增 + 错误原样抛出', async () => {
@@ -293,7 +291,7 @@ describe('actions / 基础写入', () => {
       }),
     ).rejects.toBe(boom);
 
-    expect(entry.data.count).toBe(5);
+    expect(entry.dataRef.current.count).toBe(5);
     expect(entry.rev).toBe(0);
   });
 
@@ -308,7 +306,7 @@ describe('actions / 基础写入', () => {
 
     await actions.replace({ a: 2 });
 
-    expect(entry.data).toEqual({ a: 2 });
+    expect(entry.dataRef.current).toEqual({ a: 2 });
     expect(commitEvents).toHaveLength(1);
     expect(commitEvents[0].source).toBe('replace');
   });
@@ -415,7 +413,7 @@ describe('actions / dispose', () => {
       }),
     ).rejects.toThrow(LockDisposedError);
     await expect(actions.getLock()).rejects.toThrow(LockDisposedError);
-    expect(() => actions.read()).toThrow(LockDisposedError);
+    expect(() => actions.snapshot()).toThrow(LockDisposedError);
   });
 
   test('dispose 幂等：多次调用 releaseFromRegistry 只触发一次', async () => {
@@ -590,7 +588,7 @@ describe('actions / driver revoke', () => {
     recipeGate.resolve();
 
     await expect(updatePromise).rejects.toThrow(LockRevokedError);
-    expect(entry.data.v).toBe(0);
+    expect(entry.dataRef.current.v).toBe(0);
     expect(entry.rev).toBe(0);
   });
 });
@@ -619,34 +617,16 @@ describe('actions / holdTimeout', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. dataReady 失败
+// 8. dataReady 等待（半极简方案：仅靠 dataReadyPromise 一个标志位）
 // ---------------------------------------------------------------------------
 
 describe('actions / dataReady', () => {
-  test('dataReadyState === "failed"：update 抛 LockDisposedError', async () => {
-    const driverCtl = createStubDriver();
-    const cause = new Error('getValue failed');
-    const { actions } = buildActions<{ v: number }>({
-      data: { v: 0 },
-      driver: driverCtl.driver,
-      dataReadyState: 'failed',
-      dataReadyError: cause,
-    });
-
-    await expect(
-      actions.update((d) => {
-        d.v = 1;
-      }),
-    ).rejects.toThrow(LockDisposedError);
-  });
-
-  test('dataReadyState === "pending"：update 先等待 dataReadyPromise resolve 再 acquire', async () => {
+  test('dataReadyPromise !== null：update 先等待 resolve 再 acquire', async () => {
     const driverCtl = createStubDriver();
     const gate = withResolvers<void>();
     const { entry, actions } = buildActions<{ v: number }>({
       data: { v: 0 },
       driver: driverCtl.driver,
-      dataReadyState: 'pending',
       dataReadyPromise: gate.promise,
     });
 
@@ -663,13 +643,39 @@ describe('actions / dataReady', () => {
     expect(driverCtl.acquireCount).toBe(0);
     expect(updateDone).toBe(false);
 
-    // getValue resolve 前把 state 也切到 ready（模拟 resolveInitialData 的 onStateChange）
-    (entry as { dataReadyState: 'pending' | 'ready' | 'failed' }).dataReadyState = 'ready';
+    // gate resolve 后 ensureDataReady 通过，acquire 才发起
     gate.resolve();
     await updatePromise;
 
     expect(driverCtl.acquireCount).toBe(1);
-    expect(entry.data.v).toBe(42);
+    expect(entry.dataRef.current.v).toBe(42);
+  });
+
+  test('dataReadyPromise reject：update 抛 LockDisposedError（cause 保留原错误）', async () => {
+    const driverCtl = createStubDriver();
+    const gate = withResolvers<void>();
+    const { actions } = buildActions<{ v: number }>({
+      data: { v: 0 },
+      driver: driverCtl.driver,
+      dataReadyPromise: gate.promise,
+    });
+
+    // 模拟 prepareEntryData 的真实契约：reject 通道由 prepareEntryData 包装为 LockDisposedError(cause)
+    // ensureDataReady 直接透传该错误（详见 actions.ts ensureDataReady 注释）
+    const cause = new Error('getValue failed');
+    const wrapped = new LockDisposedError('lockData id=test initialization failed during getValue()', { cause });
+    gate.reject(wrapped);
+
+    const captured = await actions
+      .update((d) => {
+        d.v = 1;
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(captured).toBeInstanceOf(LockDisposedError);
+    expect((captured as { cause?: unknown }).cause).toBe(cause);
   });
 });
 
@@ -730,28 +736,28 @@ describe('actions / authority', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 10. read
+// 10. snapshot
 // ---------------------------------------------------------------------------
 
-describe('actions / read', () => {
-  test('read 返回深克隆，修改不影响 entry.data', async () => {
+describe('actions / snapshot', () => {
+  test('snapshot 返回深克隆，修改不影响 entry.dataRef.current', async () => {
     const driverCtl = createStubDriver();
     const { entry, actions } = buildActions<{ list: number[] }>({
       data: { list: [1, 2, 3] },
       driver: driverCtl.driver,
     });
 
-    const snapshot = actions.read();
-    snapshot.list.push(999);
-    expect(entry.data.list).toEqual([1, 2, 3]);
+    const cloned = actions.snapshot();
+    cloned.list.push(999);
+    expect(entry.dataRef.current.list).toEqual([1, 2, 3]);
   });
 
-  test('read 不抢锁；acquireCount 保持 0', async () => {
+  test('snapshot 不抢锁；acquireCount 保持 0', async () => {
     const driverCtl = createStubDriver();
     const { actions } = buildActions<{ v: number }>({ data: { v: 1 }, driver: driverCtl.driver });
 
-    actions.read();
-    actions.read();
+    actions.snapshot();
+    actions.snapshot();
     expect(driverCtl.acquireCount).toBe(0);
   });
 });

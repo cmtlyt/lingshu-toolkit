@@ -1,20 +1,19 @@
 /**
  * InstanceRegistry 单元测试
  *
- * 覆盖 RFC.md「InstanceRegistry（同 id 进程内单例）」章节 L633-671 的全部契约：
+ * 覆盖 RFC.md「InstanceRegistry（同 id 进程内单例）」章节的全部契约：
  *
- * 1. 同 id 复用 —— data / driver / adapters / authority 引用稳定
- * 2. 后续 initial 忽略（RFC L660）
- * 3. listeners 每实例独立，listenersSet 按实例数累加
- * 4. 非 listeners 字段冲突 → logger.warn，以首次为准
- * 5. refCount 生命周期：归零触发 teardowns 逆序运行 + driver.destroy
- * 6. teardown / driver.destroy 异常隔离（不中断其他清理）
- * 7. releaseEntry 幂等
- * 8. Entry 销毁后 registerTeardown 成为 no-op（alive 守卫）
- * 9. 空 id 抛 TypeError
- * 10. resolveInitialData 三分支 + 异常分支
- * 11. applyInPlace（通过 Promise resolve 后 initial 原地覆写验证）
- * 12. createFailedInitError 携带 cause
+ * 1. 同 id 复用 —— dataRef / driver / adapters / authority 引用稳定
+ * 2. listeners 每实例独立，listenersSet 按实例数累加
+ * 3. 非 listeners 字段冲突 → logger.warn，以首次为准
+ * 4. refCount 生命周期：归零触发 teardowns 逆序运行 + driver.destroy
+ * 5. teardown / driver.destroy 异常隔离（不中断其他清理）
+ * 6. releaseEntry 幂等
+ * 7. Entry 销毁后 registerTeardown 成为 no-op（alive 守卫）
+ * 8. 空 id 抛 TypeError
+ * 9. prepareEntryData 同步 / 异步路径 + 同步抛错 fail-fast 路径
+ * 10. 顶层数组运行时拒绝（assertJsonSafeInput 拦截）
+ * 11. createFailedInitError 携带 cause
  */
 
 import { describe, expect, test, vi } from 'vitest';
@@ -27,10 +26,10 @@ import {
   type Entry,
   type EntryFactory,
   freezeInitOptions,
-  resolveInitialData,
+  prepareEntryData,
 } from '@/shared/lock-data/core/registry';
 import type { LockDriver } from '@/shared/lock-data/drivers/types';
-import { LockDisposedError } from '@/shared/lock-data/errors';
+import { InvalidOptionsError, LockDisposedError } from '@/shared/lock-data/errors';
 import type { LockDataListeners, LockDataOptions, LoggerAdapter } from '@/shared/lock-data/types';
 
 // ---------------------------------------------------------------------------
@@ -59,7 +58,6 @@ function createMockAdapters<T>(logger?: LoggerAdapter): ResolvedAdapters<T> {
   const resolved = resolveLoggerAdapter(logger);
   return {
     logger: resolved,
-    clone: <V>(value: V): V => value,
     getAuthority: () => null,
     getChannel: () => null,
     getSessionStore: () => null,
@@ -90,10 +88,14 @@ function buildFactory<T extends object>(args: BuildFactoryArgs<T>): EntryFactory
       throw new Error(`buildFactory: lockId (${String(lockId)}) must equal id (${id}) on Registry path`);
     }
     const adapters = args.adapters || createMockAdapters<T>();
+    const dataRef = { current: args.data };
     const entry: Entry<T> = {
       id,
       lockId,
-      data: args.data,
+      dataRef,
+      applyRemote: (next: T): void => {
+        dataRef.current = next;
+      },
       driver: args.driver || createMockDriver(),
       adapters,
       authority: args.authority || null,
@@ -105,8 +107,6 @@ function buildFactory<T extends object>(args: BuildFactoryArgs<T>): EntryFactory
       rev: 0,
       lastAppliedRev: 0,
       epoch: null,
-      dataReadyState: 'ready',
-      dataReadyError: undefined,
     };
     if (options.listeners) {
       entry.listenersSet.add(options.listeners);
@@ -119,21 +119,44 @@ function buildFactory<T extends object>(args: BuildFactoryArgs<T>): EntryFactory
   };
 }
 
+/**
+ * 公共 mock options：满足 LockDataOptions<{a: number}>.getValue 必传约束
+ *
+ * 使用场景：测试用例聚焦 Registry 的 `getOrCreateEntry` 行为本身（refCount / factory 调用次数 /
+ * teardown 注册等），不关心 getValue 实际执行；mock factory 也不会真的调用 getValue。
+ *
+ * 类型断言为 `LockDataOptions<{ a: number }>` 让 sed 批量替换后无须每处都写完整泛型。
+ */
+const noopOptions = {
+  getValue: (): { a: number } => {
+    return { a: 1 };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // createInstanceRegistry — 同 id 复用
 // ---------------------------------------------------------------------------
 
 describe('createInstanceRegistry — 同 id 复用', () => {
-  test('同 id 二次 getOrCreateEntry 复用 data / driver / adapters / authority 引用', () => {
+  test('同 id 二次 getOrCreateEntry 复用 dataRef / driver / adapters / authority 引用', () => {
     const registry = createInstanceRegistry();
     const data = { count: 0 };
     const factory = buildFactory({ data });
 
-    const first = registry.getOrCreateEntry<typeof data>('id-1', {}, factory);
-    const second = registry.getOrCreateEntry<typeof data>('id-1', {}, factory);
+    // typeof data 是 { count: number }，不同于 noopOptions 的 { a: number } 泛型；
+    // 这里 mock factory 不会真正调用 getValue，构造一个匹配类型的 mock 即可
+    const mockOptions = {
+      getValue: (): typeof data => {
+        return { count: 0 };
+      },
+    };
+    const first = registry.getOrCreateEntry<typeof data>('id-1', mockOptions, factory);
+    const second = registry.getOrCreateEntry<typeof data>('id-1', mockOptions, factory);
 
     expect(second).toBe(first);
-    expect(second.data).toBe(data);
+    // wrapper 方案：dataRef wrapper 引用稳定（同一对象）；dataRef.current 指向用户传入的初始数据
+    expect(second.dataRef).toBe(first.dataRef);
+    expect(second.dataRef.current).toBe(data);
     expect(second.driver).toBe(first.driver);
     expect(second.adapters).toBe(first.adapters);
   });
@@ -142,9 +165,9 @@ describe('createInstanceRegistry — 同 id 复用', () => {
     const registry = createInstanceRegistry();
     const factory = vi.fn(buildFactory({ data: { a: 1 } }));
 
-    const entry1 = registry.getOrCreateEntry('id-1', {}, factory);
-    registry.getOrCreateEntry('id-1', {}, factory);
-    registry.getOrCreateEntry('id-1', {}, factory);
+    const entry1 = registry.getOrCreateEntry('id-1', noopOptions, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
 
     expect(entry1.refCount).toBe(3);
     expect(factory).toHaveBeenCalledTimes(1);
@@ -156,10 +179,10 @@ describe('createInstanceRegistry — 同 id 复用', () => {
     const listenersA: LockDataListeners<{ a: number }> = { onCommit: vi.fn() };
     const listenersB: LockDataListeners<{ a: number }> = { onSync: vi.fn() };
 
-    const entry = registry.getOrCreateEntry('id-1', { listeners: listenersA }, factory);
-    registry.getOrCreateEntry('id-1', { listeners: listenersB }, factory);
+    const entry = registry.getOrCreateEntry('id-1', { ...noopOptions, listeners: listenersA }, factory);
+    registry.getOrCreateEntry('id-1', { ...noopOptions, listeners: listenersB }, factory);
     // 同一 listeners 对象再次注册不会重复加入 Set
-    registry.getOrCreateEntry('id-1', { listeners: listenersA }, factory);
+    registry.getOrCreateEntry('id-1', { ...noopOptions, listeners: listenersA }, factory);
 
     expect(entry.listenersSet.size).toBe(2);
     expect(entry.listenersSet.has(listenersA)).toBe(true);
@@ -170,9 +193,9 @@ describe('createInstanceRegistry — 同 id 复用', () => {
     const registry = createInstanceRegistry();
     const factory = buildFactory({ data: { a: 1 } });
 
-    const entry = registry.getOrCreateEntry('id-1', {}, factory);
+    const entry = registry.getOrCreateEntry('id-1', noopOptions, factory);
     // 再次注册但不传 listeners
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
 
     expect(entry.listenersSet.size).toBe(0);
   });
@@ -184,8 +207,8 @@ describe('createInstanceRegistry — 同 id 复用', () => {
     expect(registry.peek.size()).toBe(0);
     expect(registry.peek.has('id-1')).toBe(false);
 
-    registry.getOrCreateEntry('id-1', {}, factory);
-    registry.getOrCreateEntry('id-2', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
+    registry.getOrCreateEntry('id-2', noopOptions, factory);
 
     expect(registry.peek.size()).toBe(2);
     expect(registry.peek.has('id-1')).toBe(true);
@@ -205,8 +228,8 @@ describe('createInstanceRegistry — 冲突检查', () => {
     const adapters = createMockAdapters<{ a: number }>(logger);
     const factory = buildFactory({ data: { a: 1 }, adapters });
 
-    const first = registry.getOrCreateEntry('id-1', { timeout: 1000, mode: 'auto' }, factory);
-    const second = registry.getOrCreateEntry('id-1', { timeout: 2000, mode: 'web-locks' }, factory);
+    const first = registry.getOrCreateEntry('id-1', { ...noopOptions, timeout: 1000, mode: 'auto' }, factory);
+    const second = registry.getOrCreateEntry('id-1', { ...noopOptions, timeout: 2000, mode: 'web-locks' }, factory);
 
     expect(second).toBe(first);
     expect(first.initOptions.timeout).toBe(1000);
@@ -224,6 +247,7 @@ describe('createInstanceRegistry — 冲突检查', () => {
     const adapters = createMockAdapters<{ a: number }>(logger);
     const factory = buildFactory({ data: { a: 1 }, adapters });
     const options: LockDataOptions<{ a: number }> = {
+      ...noopOptions,
       timeout: 500,
       mode: 'auto',
       syncMode: 'none',
@@ -254,7 +278,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 1 }, driver })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     registry.releaseEntry('id-1', undefined);
 
     // 逆序：t2 先于 t1
@@ -271,8 +295,8 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 1 }, driver })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory);
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     registry.releaseEntry('id-1', undefined);
 
     expect(teardown).not.toHaveBeenCalled();
@@ -286,8 +310,8 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const listenersB: LockDataListeners<{ a: number }> = { onSync: vi.fn() };
     const factory = buildFactory({ data: { a: 1 } });
 
-    const entry = registry.getOrCreateEntry('id-1', { listeners: listenersA }, factory);
-    registry.getOrCreateEntry('id-1', { listeners: listenersB }, factory);
+    const entry = registry.getOrCreateEntry('id-1', { ...noopOptions, listeners: listenersA }, factory);
+    registry.getOrCreateEntry('id-1', { ...noopOptions, listeners: listenersB }, factory);
 
     registry.releaseEntry('id-1', listenersA);
 
@@ -305,7 +329,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     const driver = createMockDriver();
     const factory = buildFactory({ data: { a: 1 }, driver });
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     registry.releaseEntry('id-1', undefined);
     expect(driver.destroy).toHaveBeenCalledTimes(1);
 
@@ -332,7 +356,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 1 }, driver, adapters })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     expect(() => registry.releaseEntry('id-1', undefined)).not.toThrow();
 
     // 逆序：boom 先执行（抛错），okTeardown 继续执行
@@ -354,7 +378,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
     });
     const factory = buildFactory({ data: { a: 1 }, driver, adapters });
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     expect(() => registry.releaseEntry('id-1', undefined)).not.toThrow();
 
     expect(registry.peek.has('id-1')).toBe(false);
@@ -372,7 +396,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 1 } })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
     registry.releaseEntry('id-1', undefined);
 
     const lateTeardown = vi.fn();
@@ -389,7 +413,7 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 1 } })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory);
+    registry.getOrCreateEntry('id-1', noopOptions, factory);
 
     expect(() => capturedRegister?.(null as unknown as () => void)).not.toThrow();
     expect(() => capturedRegister?.(undefined as unknown as () => void)).not.toThrow();
@@ -411,8 +435,8 @@ describe('createInstanceRegistry — refCount / 销毁', () => {
       return buildFactory({ data: { a: 2 }, driver: driver2 })(id, lockId, options, ctx);
     };
 
-    registry.getOrCreateEntry('id-1', {}, factory1);
-    registry.getOrCreateEntry('id-2', {}, factory2);
+    registry.getOrCreateEntry('id-1', noopOptions, factory1);
+    registry.getOrCreateEntry('id-2', noopOptions, factory2);
     registry.releaseEntry('id-1', undefined);
 
     expect(teardown1).toHaveBeenCalledTimes(1);
@@ -432,7 +456,7 @@ describe('createInstanceRegistry — 参数校验', () => {
     const registry = createInstanceRegistry();
     const factory = buildFactory({ data: { a: 1 } });
 
-    expect(() => registry.getOrCreateEntry('', {}, factory)).toThrow(TypeError);
+    expect(() => registry.getOrCreateEntry('', noopOptions, factory)).toThrow(TypeError);
   });
 
   test('factory 抛错不会污染 Registry（后续同 id 再次调用走 miss 分支）', () => {
@@ -440,12 +464,12 @@ describe('createInstanceRegistry — 参数校验', () => {
     const failingFactory: EntryFactory<{ a: number }> = () => {
       throw new Error('factory failed');
     };
-    expect(() => registry.getOrCreateEntry('id-1', {}, failingFactory)).toThrow('factory failed');
+    expect(() => registry.getOrCreateEntry('id-1', noopOptions, failingFactory)).toThrow('factory failed');
     expect(registry.peek.has('id-1')).toBe(false);
 
     // 再次调用能正常走 miss 分支
     const okFactory = buildFactory({ data: { a: 1 } });
-    const entry = registry.getOrCreateEntry('id-1', {}, okFactory);
+    const entry = registry.getOrCreateEntry('id-1', noopOptions, okFactory);
     expect(entry.refCount).toBe(1);
   });
 });
@@ -455,13 +479,20 @@ describe('createInstanceRegistry — 参数校验', () => {
 // ---------------------------------------------------------------------------
 
 describe('freezeInitOptions', () => {
+  // 公共 mock：freezeInitOptions 仅裁剪冲突字段，不会真正调用 getValue；
+  // 用 noop fn 满足 LockDataOptions<T> 的 getValue 必传约束
+  const noopGetValue = (): { a: number } => {
+    return { a: 1 };
+  };
+
   test('返回对象被 Object.freeze', () => {
-    const frozen = freezeInitOptions({ timeout: 1000, mode: 'auto' });
+    const frozen = freezeInitOptions<{ a: number }>({ getValue: noopGetValue, timeout: 1000, mode: 'auto' });
     expect(Object.isFrozen(frozen)).toBe(true);
   });
 
   test('仅包含冲突检查相关字段', () => {
-    const frozen = freezeInitOptions({
+    const frozen = freezeInitOptions<{ a: number }>({
+      getValue: noopGetValue,
       timeout: 1000,
       mode: 'auto',
       syncMode: 'storage-authority',
@@ -479,174 +510,130 @@ describe('freezeInitOptions', () => {
     expect(frozen.sessionProbeTimeout).toBe(100);
     expect('id' in frozen).toBe(false);
     expect('listeners' in frozen).toBe(false);
+    expect('getValue' in frozen).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// resolveInitialData — 三分支
+// prepareEntryData — 同步路径
 // ---------------------------------------------------------------------------
 
-describe('resolveInitialData — 无 getValue（同步分支）', () => {
-  test('initial 存在时直接作为 data，状态 ready，Promise null', () => {
-    const logger = resolveLoggerAdapter();
-    const initial = { count: 1 };
-    const patch = resolveInitialData({}, initial, logger, vi.fn());
+describe('prepareEntryData — 同步 getValue', () => {
+  test('同步返回 plain object → firstValue 经 cloneByJson 隔离，dataReadyPromise 为 null', () => {
+    const original = { count: 7, label: 'sync' };
+    const result = prepareEntryData('id-sync-1', { getValue: () => original });
 
-    expect(patch.data).toBe(initial);
-    expect(patch.dataReadyPromise).toBeNull();
-    expect(patch.dataReadyState).toBe('ready');
-    expect(patch.dataReadyError).toBeUndefined();
+    expect(result.dataReadyPromise).toBeNull();
+    expect(result.firstValue).toEqual(original);
+    // JSON 拷贝隔离：firstValue 必须是独立副本，原对象后续 mutate 不影响 firstValue
+    expect(result.firstValue).not.toBe(original);
+    original.count = 999;
+    expect(result.firstValue.count).toBe(7);
   });
 
-  test('initial 为 undefined 抛 TypeError（同步分支契约违反）', () => {
-    const logger = resolveLoggerAdapter();
-    expect(() => resolveInitialData<{ a: number }>({}, undefined, logger, vi.fn())).toThrow(TypeError);
-  });
-});
-
-describe('resolveInitialData — getValue 同步返回', () => {
-  test('同步返回值覆盖 initial（RFC L141）', () => {
-    const logger = resolveLoggerAdapter();
-    const initial = { count: 0 };
-    const fromGetValue = { count: 99 };
-    const patch = resolveInitialData({ getValue: () => fromGetValue }, initial, logger, vi.fn());
-
-    expect(patch.data).toBe(fromGetValue);
-    expect(patch.data).not.toBe(initial);
-    expect(patch.dataReadyState).toBe('ready');
-    expect(patch.dataReadyPromise).toBeNull();
+  test('getValue 缺失（运行时校验兜底）→ TypeError', () => {
+    expect(() => prepareEntryData<{ a: number }>('id-missing', {} as LockDataOptions<{ a: number }>)).toThrow(
+      TypeError,
+    );
   });
 
-  test('getValue 同步抛错进入 failed 分支；onStateChange 被立即通知', () => {
-    const logger = createTestLogger();
-    const resolved = resolveLoggerAdapter(logger);
-    const stateChanges: Array<{ state: string; error: unknown }> = [];
-    const onStateChange = (state: 'pending' | 'ready' | 'failed', error: unknown): void => {
-      stateChanges.push({ state, error });
-    };
-    const boom = new Error('getValue sync error');
-
-    const patch = resolveInitialData(
-      {
+  test('getValue 同步抛错 → fail-fast LockDisposedError（cause 携带原始原因）', () => {
+    const boom = new Error('sync getValue error');
+    let captured: unknown;
+    try {
+      prepareEntryData('id-sync-throw', {
         getValue: (): never => {
           throw boom;
         },
-      },
-      { count: 0 },
-      resolved,
-      onStateChange,
-    );
+      });
+    } catch (err) {
+      captured = err;
+    }
 
-    expect(patch.dataReadyState).toBe('failed');
-    expect(patch.dataReadyError).toBe(boom);
-    expect(stateChanges).toEqual([{ state: 'failed', error: boom }]);
-    expect(patch.dataReadyPromise).toBeInstanceOf(Promise);
-    // 等待 reject，确认带原始 reason
-    return expect(patch.dataReadyPromise).rejects.toBe(boom);
+    expect(captured).toBeInstanceOf(LockDisposedError);
+    expect((captured as Error).message).toContain('id=id-sync-throw');
+    expect((captured as Error & { cause?: unknown }).cause).toBe(boom);
+  });
+
+  test('同步返回顶层数组 → InvalidOptionsError（运行时双重 fail-fast）', () => {
+    expect(() =>
+      prepareEntryData('id-top-array', {
+        // 运行时类型擦除路径下顶层数组也会被拦截
+        getValue: () => [1, 2, 3] as unknown as { count: number },
+      }),
+    ).toThrow(InvalidOptionsError);
+  });
+
+  test('同步返回非 JSON-safe 值（含 Date 字段）→ TypeError', () => {
+    expect(() =>
+      prepareEntryData('id-not-json-safe', {
+        getValue: () => ({ when: new Date() }) as unknown as { count: number },
+      }),
+    ).toThrow(TypeError);
   });
 });
 
-describe('resolveInitialData — getValue 返回 Promise', () => {
-  test('resolve 后 applyInPlace 原地覆写 initial 引用（引用稳定）', async () => {
-    const logger = resolveLoggerAdapter();
-    const initial = { count: 0, name: 'old' };
-    const onStateChange = vi.fn();
-    const patch = resolveInitialData<typeof initial>(
-      { getValue: () => Promise.resolve({ count: 99, name: 'new' }) },
-      initial,
-      logger,
-      onStateChange,
-    );
+// ---------------------------------------------------------------------------
+// prepareEntryData — 异步路径
+// ---------------------------------------------------------------------------
 
-    expect(patch.data).toBe(initial); // 引用不变
-    expect(patch.dataReadyState).toBe('pending');
+describe('prepareEntryData — 异步 getValue', () => {
+  test('Promise resolve → dataReadyPromise 携带 awaited 真实首值', async () => {
+    const result = prepareEntryData('id-async-1', {
+      getValue: () => Promise.resolve({ count: 42, label: 'async' }),
+    });
 
-    await patch.dataReadyPromise;
+    expect(result.dataReadyPromise).toBeInstanceOf(Promise);
+    // 占位 firstValue：在 resolve 前作为 dataRef.current 的填充值
+    expect(result.firstValue).toEqual({});
 
-    // 内容被 in-place 覆写，引用仍为 initial
-    expect(patch.data).toBe(initial);
-    expect(initial.count).toBe(99);
-    expect(initial.name).toBe('new');
-    expect(onStateChange).toHaveBeenCalledWith('ready', undefined);
+    const awaited = await result.dataReadyPromise;
+    expect(awaited).toEqual({ count: 42, label: 'async' });
   });
 
-  test('resolve 后覆写 Symbol key（Reflect.ownKeys 路径）', async () => {
-    const logger = resolveLoggerAdapter();
-    const sym = Symbol('meta');
-    const initial: Record<string | symbol, unknown> = { a: 1, [sym]: 'orig' };
-    const next: Record<string | symbol, unknown> = { b: 2, [sym]: 'next' };
-    const patch = resolveInitialData({ getValue: () => Promise.resolve(next) }, initial, logger, vi.fn());
-    await patch.dataReadyPromise;
-
-    expect(initial.a).toBeUndefined();
-    expect(initial.b).toBe(2);
-    expect(initial[sym]).toBe('next');
-  });
-
-  test('resolve 后覆写数组（长度截断 + push）', async () => {
-    const logger = resolveLoggerAdapter();
-    const initial: number[] = [1, 2, 3, 4, 5];
-    const patch = resolveInitialData({ getValue: () => Promise.resolve([10, 20]) }, initial, logger, vi.fn());
-    await patch.dataReadyPromise;
-
-    expect(initial).toEqual([10, 20]);
-    expect(initial.length).toBe(2);
-  });
-
-  test('source 为对象但 initial 为数组时 applyInPlace 抛错 → failed 态', async () => {
-    const logger = createTestLogger();
-    const resolved = resolveLoggerAdapter(logger);
-    const initial: number[] = [1, 2];
-    const onStateChange = vi.fn();
-    const patch = resolveInitialData<unknown[]>(
-      { getValue: () => Promise.resolve({ 0: 10, 1: 20 } as unknown as number[]) },
-      initial,
-      resolved,
-      onStateChange,
-    );
-
-    await expect(patch.dataReadyPromise).rejects.toThrow(TypeError);
-    expect(onStateChange).toHaveBeenCalledWith('failed', expect.any(TypeError));
-    expect(logger.errorMock).toHaveBeenCalledWith(
-      expect.stringContaining('failed to apply getValue result in-place'),
-      expect.any(Error),
-    );
-  });
-
-  test('Promise reject → failed 态，reject 原因透传', async () => {
-    const logger = resolveLoggerAdapter();
-    const onStateChange = vi.fn();
+  test('Promise reject → dataReadyPromise reject 为 LockDisposedError（cause 携带原始 reason）', async () => {
     const reason = new Error('fetch failed');
-    const patch = resolveInitialData<{ a: number }>(
-      { getValue: () => Promise.reject(reason) },
-      { a: 0 },
-      logger,
-      onStateChange,
-    );
+    const result = prepareEntryData<{ a: number }>('id-async-reject', {
+      getValue: () => Promise.reject(reason),
+    });
 
-    expect(patch.dataReadyState).toBe('pending');
-
-    await expect(patch.dataReadyPromise).rejects.toBe(reason);
-    expect(onStateChange).toHaveBeenCalledWith('failed', reason);
+    expect(result.dataReadyPromise).toBeInstanceOf(Promise);
+    await expect(result.dataReadyPromise).rejects.toBeInstanceOf(LockDisposedError);
+    await expect(result.dataReadyPromise).rejects.toMatchObject({ cause: reason });
   });
 
-  test('initial 为 undefined 时使用 {} 占位并 logger.warn', async () => {
-    const logger = createTestLogger();
-    const resolved = resolveLoggerAdapter(logger);
-    const patch = resolveInitialData<{ count: number }>(
-      { getValue: () => Promise.resolve({ count: 42 }) },
-      undefined,
-      resolved,
-      vi.fn(),
-    );
+  test('Promise resolve 顶层数组 → reject 为 LockDisposedError（cause = InvalidOptionsError）', async () => {
+    const result = prepareEntryData<{ a: number }>('id-async-top-array', {
+      getValue: () => Promise.resolve([1, 2, 3] as unknown as { a: number }),
+    });
 
-    expect(patch.data).toEqual({});
-    expect(logger.warnMock).toHaveBeenCalledWith(
-      expect.stringContaining('initial data is undefined during async getValue'),
-    );
+    await expect(result.dataReadyPromise).rejects.toBeInstanceOf(LockDisposedError);
+    await expect(result.dataReadyPromise).rejects.toMatchObject({
+      cause: expect.any(InvalidOptionsError),
+    });
+  });
 
-    await patch.dataReadyPromise;
-    expect(patch.data).toEqual({ count: 42 });
+  test('Promise resolve 非 JSON-safe（含 Map 字段）→ reject 为 LockDisposedError（cause = TypeError）', async () => {
+    const result = prepareEntryData<{ a: number }>('id-async-not-json-safe', {
+      getValue: () => Promise.resolve({ a: 1, m: new Map() } as unknown as { a: number }),
+    });
+
+    await expect(result.dataReadyPromise).rejects.toBeInstanceOf(LockDisposedError);
+    await expect(result.dataReadyPromise).rejects.toMatchObject({
+      cause: expect.any(TypeError),
+    });
+  });
+
+  test('多次 await 同一 dataReadyPromise 拿到相同结果（共享语义）', async () => {
+    // 同 Tab 二次 lockData 调用方的核心场景：refCount++ 后共享 dataReadyPromise
+    const result = prepareEntryData('id-shared', {
+      getValue: () => Promise.resolve({ a: 200 }),
+    });
+
+    const [first, second] = await Promise.all([result.dataReadyPromise, result.dataReadyPromise]);
+    expect(first).toEqual({ a: 200 });
+    expect(second).toEqual({ a: 200 });
+    expect(first).toBe(second);
   });
 });
 

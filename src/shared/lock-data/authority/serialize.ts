@@ -30,7 +30,7 @@ interface AuthoritySerializedParts {
  * @param rev 单调递增版本号
  * @param ts 写入时间戳（ms，来自 `Date.now()`）
  * @param epoch 会话纪元；`persistence === 'persistent'` 时固定为 `'persistent'`，否则为 UUID 字符串
- * @param snapshot 用户数据快照；由调用方保证已通过 `adapters.clone` 深克隆
+ * @param snapshot 用户数据快照；由调用方保证已通过 `cloneByJson` 深克隆（JSON 拷贝隔离）
  */
 function serializeAuthority(rev: number, ts: number, epoch: string, snapshot: unknown): string {
   return `{"rev":${rev},"ts":${ts},"epoch":${JSON.stringify(epoch)},"snapshot":${JSON.stringify(snapshot)}}`;

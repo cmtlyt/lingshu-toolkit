@@ -94,13 +94,13 @@ describe('standalone-driver-isolation / pickDriver 走 LocalLockDriver', () => {
     // 进入 mode='web-locks' 分支 → createWebLocksOrThrow 在 node 环境检测 navigator.locks
     // 不可用，抛 TypeError "mode='web-locks' requested but navigator.locks is unavailable"
     // 修复后：lockId === undefined，pickDriver 直接 LocalLockDriver；本调用不抛错
-    const result = lockData(
-      { v: 0 },
-      {
-        mode: 'web-locks',
-        adapters: { logger: createSilentLogger() },
+    const result = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    );
+      mode: 'web-locks',
+      adapters: { logger: createSilentLogger() },
+    });
     // 同步路径返回 [view, actions]；如果 pickDriver 抛错则上述 lockData 调用会同步抛错
     expect(Array.isArray(result)).toBe(true);
     const [, actions] = result as readonly [{ v: number }, LockDataActions<{ v: number }>];
@@ -116,13 +116,13 @@ describe('standalone-driver-isolation / pickDriver 走 LocalLockDriver', () => {
   });
 
   test('无 id + mode="broadcast" 同样走 LocalLockDriver 分支（不抛 "BroadcastChannel unavailable"）', async () => {
-    const result = lockData(
-      { v: 0 },
-      {
-        mode: 'broadcast',
-        adapters: { logger: createSilentLogger() },
+    const result = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    );
+      mode: 'broadcast',
+      adapters: { logger: createSilentLogger() },
+    });
     expect(Array.isArray(result)).toBe(true);
     const [, actions] = result as readonly [{ v: number }, LockDataActions<{ v: number }>];
     await expect(
@@ -144,18 +144,18 @@ describe('standalone-driver-isolation / attachAuthority 不启用', () => {
     const getChannel = vi.fn((_ctx: ChannelAdapterContext) => null);
     const getSessionStore = vi.fn((_ctx: SessionStoreAdapterContext) => null);
 
-    const result = lockData(
-      { v: 0 },
-      {
-        syncMode: 'storage-authority',
-        adapters: {
-          logger: createSilentLogger(),
-          getAuthority,
-          getChannel,
-          getSessionStore,
-        },
+    const result = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    );
+      syncMode: 'storage-authority',
+      adapters: {
+        logger: createSilentLogger(),
+        getAuthority,
+        getChannel,
+        getSessionStore,
+      },
+    });
 
     // 修复前：lockData 会走 attachAuthority → 三个工厂被分别调用一次 + 拼出 authority 实例
     // 修复后：lockId === undefined → attachAuthority 整个分支被跳过，三个工厂零调用
@@ -177,12 +177,12 @@ describe('standalone-driver-isolation / attachAuthority 不启用', () => {
 describe('standalone-driver-isolation / CustomDriver name 不再泄漏伪真实 id', () => {
   test('无 id + adapters.getLock → CustomDriver 收到的 name 是 LOCK_PREFIX:__local__ 占位 fallback', async () => {
     const stub = createStubGetLock();
-    const [, actions] = lockData(
-      { v: 0 },
-      {
-        adapters: { logger: createSilentLogger(), getLock: stub.getLock },
+    const [, actions] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+      adapters: { logger: createSilentLogger(), getLock: stub.getLock },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     await actions.update((draft) => {
       draft.v = 1;
@@ -200,12 +200,12 @@ describe('standalone-driver-isolation / CustomDriver name 不再泄漏伪真实 
 
   test('无 id + adapters.getLock 多次 update → 每次 acquire 的 name 稳定为占位（无 id 拼接）', async () => {
     const stub = createStubGetLock();
-    const [, actions] = lockData(
-      { count: 0 },
-      {
-        adapters: { logger: createSilentLogger(), getLock: stub.getLock },
+    const [, actions] = lockData<{ count: number }>({
+      getValue: () => {
+        return { count: 0 };
       },
-    ) as readonly [{ count: number }, LockDataActions<{ count: number }>];
+      adapters: { logger: createSilentLogger(), getLock: stub.getLock },
+    }) as readonly [{ count: number }, LockDataActions<{ count: number }>];
 
     await actions.update((draft) => {
       draft.count = 1;
@@ -237,14 +237,18 @@ describe('standalone-driver-isolation / 多个无 id 实例彼此独立', () => 
     // 每个 Entry 持有独立的 LocalLockDriver 实例 —— 即便两者 name 都是 ':__local__'
     // 占位，也不会共享锁状态（LocalLockDriver 的互斥范围是 driver 实例本身）
     const logger = createSilentLogger();
-    const [viewA, actionsA] = lockData({ v: 0 }, { adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
-    const [viewB, actionsB] = lockData({ v: 0 }, { adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
+    const [viewA, actionsA] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [viewB, actionsB] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     // 并发发起 update；若两者共享同一把锁，第二个会排队 / 抢占
     await Promise.all([

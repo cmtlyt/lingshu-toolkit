@@ -226,14 +226,14 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
       logger,
     };
 
-    const tabA = await lockData<SharedData>(
-      { count: 0, label: 'A-init' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: tabAAdapters,
+    const tabA = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'A-init' };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: tabAAdapters,
+    });
     const [, actionsA] = tabA;
 
     // 关键：重置 Registry，让 TabB 用完全独立的 Entry
@@ -246,19 +246,19 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
       // TabA 的 write 手动派发的 StorageEvent 会被 TabB 收到
       logger,
     };
-    const tabB = await lockData<SharedData>(
-      { count: 0, label: 'B-init' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: tabBAdapters,
-        listeners: {
-          onSync: (event): void => {
-            tabBSyncEvents.push({ rev: event.rev, source: event.source });
-          },
+    const tabB = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'B-init' };
+      },
+      id,
+      syncMode: 'storage-authority',
+      adapters: tabBAdapters,
+      listeners: {
+        onSync: (event): void => {
+          tabBSyncEvents.push({ rev: event.rev, source: event.source });
         },
       },
-    );
+    });
     const [viewB, actionsB] = tabB;
 
     // TabA commit：count 0 → 42
@@ -292,38 +292,38 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
 
     const tabBSyncEvents: number[] = [];
 
-    const tabA = await lockData<SharedData>(
-      { count: 0, label: 'A' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          getAuthority: (ctx) => createTabAAuthority(ctx, logger),
-          logger,
-        },
+    const tabA = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'A' };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        getAuthority: (ctx) => createTabAAuthority(ctx, logger),
+        logger,
+      },
+    });
     const [, actionsA] = tabA;
 
     __resetDefaultRegistry();
 
-    const tabB = await lockData<SharedData>(
-      { count: 0, label: 'B' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          logger,
-        },
-        listeners: {
-          onSync: (event): void => {
-            tabBSyncEvents.push(event.rev);
-          },
+    const tabB = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'B' };
+      },
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        logger,
+      },
+      listeners: {
+        onSync: (event): void => {
+          tabBSyncEvents.push(event.rev);
         },
       },
-    );
+    });
     const [viewB, actionsB] = tabB;
 
     // TabA 连续 3 次 commit
@@ -359,23 +359,23 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
 
     const tabASyncEvents: number[] = [];
 
-    const tabA = await lockData<SharedData>(
-      { count: 0, label: 'A' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          getAuthority: (ctx) => createTabAAuthority(ctx, logger),
-          logger,
-        },
-        listeners: {
-          onSync: (event): void => {
-            tabASyncEvents.push(event.rev);
-          },
+    const tabA = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'A' };
+      },
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        getAuthority: (ctx) => createTabAAuthority(ctx, logger),
+        logger,
+      },
+      listeners: {
+        onSync: (event): void => {
+          tabASyncEvents.push(event.rev);
         },
       },
-    );
+    });
     const [, actionsA] = tabA;
 
     await actionsA.update((draft) => {
@@ -398,34 +398,34 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
     const id = uniqueId('xtab-4');
     const logger = createLogger();
 
-    const tabA = await lockData<SharedData>(
-      { count: 0, label: 'A' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          getAuthority: (ctx) => createTabAAuthority(ctx, logger),
-          logger,
-        },
+    const tabA = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'A' };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        getAuthority: (ctx) => createTabAAuthority(ctx, logger),
+        logger,
+      },
+    });
     const [, actionsA] = tabA;
 
     __resetDefaultRegistry();
 
-    const tabB = await lockData<SharedData>(
-      { count: 0, label: 'B' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          getAuthority: (ctx) => createTabAAuthority(ctx, logger),
-          logger,
-        },
+    const tabB = await lockData({
+      getValue: (): SharedData => {
+        return { count: 0, label: 'B' };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        getAuthority: (ctx) => createTabAAuthority(ctx, logger),
+        logger,
+      },
+    });
     const [viewB, actionsB] = tabB;
 
     // TabA dispose
@@ -447,33 +447,36 @@ describe('lockData 真跨 Tab storage-authority 端到端 (browser)', () => {
     const id = uniqueId('xtab-5');
     const logger = createLogger();
 
-    const tabA = await lockData<{ items: number[] }>(
-      { items: [] },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          getAuthority: (ctx) => createTabAAuthority(ctx, logger),
-          logger,
-        },
+    interface ItemsShape {
+      items: number[];
+    }
+    const tabA = await lockData({
+      getValue: (): ItemsShape => {
+        return { items: [] };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        getAuthority: (ctx) => createTabAAuthority(ctx, logger),
+        logger,
+      },
+    });
     const [viewA, actionsA] = tabA;
 
     __resetDefaultRegistry();
 
-    const tabB = await lockData<{ items: number[] }>(
-      { items: [] },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          logger,
-        },
+    const tabB = await lockData({
+      getValue: (): ItemsShape => {
+        return { items: [] };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        logger,
+      },
+    });
     const [viewB, actionsB] = tabB;
 
     await actionsA.update((draft) => {

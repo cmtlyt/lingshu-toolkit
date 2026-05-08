@@ -40,13 +40,15 @@ describe('lockData 主入口 / 公开契约', () => {
     });
   });
 
-  describe('lockData 分支 A（同步初始化）', () => {
-    test('无 options：返回元组（非 Promise），view 可读，actions 是对象', async () => {
-      const result = lockData({ count: 0, label: 'init' });
-      // 分支 A 必须是同步返回：类型和运行时都不是 Promise
-      expect(result).not.toBeInstanceOf(Promise);
-
-      const [view, actions] = result;
+  describe('lockData / 同步 getValue 路径', () => {
+    test('同步 getValue：直接得到元组（无需 await / 断言）', async () => {
+      // runtime 行为验证：同步 getValue → 调用方可直接解构，无需 `as` 断言或 `instanceof Promise` 分支
+      // （类型层精确推断契约见 index.test-d.ts）
+      const [view, actions] = lockData({
+        getValue: (): { count: number; label: string } => {
+          return { count: 0, label: 'init' };
+        },
+      });
       expect(view.count).toBe(0);
       expect(view.label).toBe('init');
       expect(actions).toBeTypeOf('object');
@@ -58,8 +60,12 @@ describe('lockData 主入口 / 公开契约', () => {
     });
 
     test('view 为深只读视图：直接写入抛 ReadonlyMutationError', async () => {
-      const [view, actions] = lockData({ count: 0 });
-      // RFC L138 契约：ReadonlyView<T> 禁止直接写入
+      const [view, actions] = lockData({
+        getValue: (): { count: number } => {
+          return { count: 0 };
+        },
+      });
+      // 深只读契约：ReadonlyView<T> 禁止直接写入
       expect(() => {
         (view as { count: number }).count = 999;
       }).toThrow(ReadonlyMutationError);
@@ -68,7 +74,11 @@ describe('lockData 主入口 / 公开契约', () => {
     });
 
     test('actions.update 可提交事务：view 读取到新值', async () => {
-      const [view, actions] = lockData({ count: 0 });
+      const [view, actions] = lockData({
+        getValue: (): { count: number } => {
+          return { count: 0 };
+        },
+      });
       await actions.update((draft) => {
         draft.count = 42;
       });
@@ -78,14 +88,34 @@ describe('lockData 主入口 / 公开契约', () => {
     });
 
     test('actions.dispose 可 await 且幂等', async () => {
-      const [, actions] = lockData({ value: 1 });
+      const [, actions] = lockData({
+        getValue: (): { value: number } => {
+          return { value: 1 };
+        },
+      });
       await actions.dispose();
       // 二次 dispose 应静默返回，不抛错
       await expect(actions.dispose()).resolves.toBeUndefined();
     });
   });
 
-  describe('lockData 类型导出（编译期契约）', () => {
+  describe('lockData / 异步 getValue 路径', () => {
+    test('异步 getValue：返回 Promise，需要 await', async () => {
+      // runtime 行为验证：异步 getValue → 入口返回 Promise 实例，必须 await
+      // （类型层精确推断契约见 index.test-d.ts）
+      const result = lockData({
+        getValue: (): Promise<{ count: number }> => Promise.resolve({ count: 42 }),
+      });
+      expect(result).toBeInstanceOf(Promise);
+
+      const [view, actions] = await result;
+      expect(view.count).toBe(42);
+
+      await actions.dispose();
+    });
+  });
+
+  describe('lockData 函数导出', () => {
     test('lockData 是函数', () => {
       expect(lockData).toBeTypeOf('function');
     });

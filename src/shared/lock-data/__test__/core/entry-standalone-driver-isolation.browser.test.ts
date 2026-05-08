@@ -38,10 +38,15 @@ describe('standalone-driver-isolation / 回归保证（browser）', () => {
 
     const requestSpy = vi.spyOn(navigator.locks, 'request');
 
-    const [, actions] = lockData(
-      { v: 0 },
-      { id: 'real-id-web-locks', mode: 'web-locks', adapters: { logger: createSilentLogger() } },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const result = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'real-id-web-locks',
+      mode: 'web-locks',
+      adapters: { logger: createSilentLogger() },
+    }) as Promise<readonly [{ v: number }, LockDataActions<{ v: number }>]>;
+    const [, actions] = await result;
 
     await actions.update((draft) => {
       draft.v = 1;

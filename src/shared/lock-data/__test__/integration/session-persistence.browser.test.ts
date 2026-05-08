@@ -176,15 +176,15 @@ describe("lockData persistence='persistent' 生命周期 (browser)", () => {
   test('A 分支：persistent 策略 → epoch 固定为常量 "persistent"', async () => {
     const id = uniqueId('a-branch');
 
-    const result = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'persistent',
-        adapters: { getLock: createInMemoryLockFactory() },
+    const result = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'persistent',
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [, actions] = result;
 
     await actions.update((draft) => {
@@ -207,15 +207,15 @@ describe("lockData persistence='persistent' 生命周期 (browser)", () => {
     const id = uniqueId('persistent-restart');
 
     // 第一轮：TabA 写入 count=42，dispose
-    const firstRound = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'persistent',
-        adapters: { getLock: createInMemoryLockFactory() },
+    const firstRound = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'persistent',
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     await firstRound[1].update((draft) => {
       draft.count = 42;
     });
@@ -226,15 +226,16 @@ describe("lockData persistence='persistent' 生命周期 (browser)", () => {
     sessionStorage.clear();
 
     // 第二轮：新 Entry 启动，应读到上一轮的权威副本
-    const secondRound = await lockData<Counter>(
-      { count: 0 }, // 本地默认值会被 authority 覆盖
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'persistent',
-        adapters: { getLock: createInMemoryLockFactory() },
+    const secondRound = await lockData({
+      // 本地默认值会被 authority 覆盖
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'persistent',
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [view, actions] = secondRound;
 
     expect(view.count).toBe(42);
@@ -265,16 +266,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     );
 
     // 启动 session 策略 Entry：F 分支会 authority.remove() 清空残留
-    const result = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50, // 缩短等待窗口加速测试
-        adapters: { getLock: createInMemoryLockFactory() },
+    const result = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50, // 缩短等待窗口加速测试
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [view, actions] = result;
 
     // 本地 view 保持初始值（不会被 stale-epoch 的残留污染）
@@ -313,16 +314,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
       `{"rev":3,"ts":${Date.now()},"epoch":"${existingEpoch}","snapshot":{"count":30}}`,
     );
 
-    const result = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const result = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [view, actions] = result;
 
     // C 分支直接继承 existingEpoch，首次 pull 命中，view.count=30
@@ -349,16 +350,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     );
 
     // 本 Tab session 策略启动 → F 分支清空 authority（不应读到 staleEpoch 数据）
-    const result = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const result = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [view, actions] = result;
 
     // 关键断言：view.count 保持本地初始值 0，未被 staleEpoch 的 500 污染
@@ -372,16 +373,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     const id = uniqueId('session-refresh');
 
     // 第一轮：首次启动，走 F 分支生成新 UUID
-    const firstRound = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const firstRound = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     await firstRound[1].update((draft) => {
       draft.count = 11;
     });
@@ -394,16 +395,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     __resetDefaultRegistry();
 
     // 第二轮：C 分支读 sessionStorage 里的 epochFirst，继承
-    const secondRound = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const secondRound = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [view, actions] = secondRound;
 
     // 刷新后应读到上一轮 commit 的数据（同 epoch 下 authority 可见）
@@ -425,16 +426,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     const id = uniqueId('new-tab');
 
     // 第一轮 Tab：首次启动 F 分支
-    const firstTab = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const firstTab = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const epochFirst = readSessionEpoch(id);
     expect(epochFirst).not.toBeNull();
     await firstTab[1].dispose();
@@ -445,16 +446,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
 
     // 第二轮 Tab：sessionStorage 没 epoch，channel 虽可用但没有活的 responder
     // （前一轮 dispose 解绑了 session-probe）→ 超时走 F 分支生成新 UUID
-    const secondTab = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const secondTab = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
 
     const epochSecond = readSessionEpoch(id);
     expect(epochSecond).not.toBeNull();
@@ -468,16 +469,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     const id = uniqueId('e-branch');
 
     // TabA：首次启动 F 分支生成 UUID 并保持存活（作为 session-probe responder）
-    const tabA = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: { getLock: createInMemoryLockFactory() },
+    const tabA = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [, actionsA] = tabA;
     await actionsA.update((draft) => {
       draft.count = 77;
@@ -491,16 +492,16 @@ describe("lockData persistence='session' 生命周期 (browser)", () => {
     sessionStorage.clear();
 
     // TabB 启动 → 广播 session-probe → TabA 回复 reply → TabB E 分支继承 epochA
-    const tabB = await lockData<Counter>(
-      { count: 0 },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 500, // 留足窗口等待 reply
-        adapters: { getLock: createInMemoryLockFactory() },
+    const tabB = await lockData({
+      getValue: (): Counter => {
+        return { count: 0 };
       },
-    );
+      id,
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 500, // 留足窗口等待 reply
+      adapters: { getLock: createInMemoryLockFactory() },
+    });
     const [viewB, actionsB] = tabB;
 
     // E 分支：TabB 继承了 TabA 的 epoch

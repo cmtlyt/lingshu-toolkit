@@ -87,12 +87,6 @@ function createStubAdapters<T>(): ResolvedAdapters<T> {
   });
   return {
     logger,
-    clone: <V>(value: V): V => {
-      if (value === null || typeof value !== 'object') {
-        return value;
-      }
-      return JSON.parse(JSON.stringify(value));
-    },
     getAuthority: () => null,
     getChannel: () => null,
     getSessionStore: () => null,
@@ -111,9 +105,14 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
   if (opts.listeners) {
     listenersSet.add(opts.listeners);
   }
+  const dataRef = { current: opts.data };
   return {
     id: 'test-id',
-    data: opts.data,
+    lockId: 'test-id',
+    dataRef,
+    applyRemote: (next: T): void => {
+      dataRef.current = JSON.parse(JSON.stringify(next)) as T;
+    },
     driver: opts.driver,
     adapters: createStubAdapters<T>(),
     authority: null,
@@ -133,14 +132,15 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
     rev: 0,
     lastAppliedRev: 0,
     epoch: null,
-    dataReadyState: 'ready',
-    dataReadyError: undefined,
   };
 }
 
+// 测试辅助类型：只读 listeners / signal 两个字段，避免 LockDataOptions 的 getValue 必传约束
+type BuildActionsOptions<T extends object> = Pick<LockDataOptions<T>, 'listeners' | 'signal'>;
+
 function buildActions<T extends object>(
   entryOpts: StubEntryOptions<T>,
-  options: LockDataOptions<T> = {},
+  options: BuildActionsOptions<T> = {},
 ): {
   entry: Entry<T>;
   actions: ReturnType<typeof createActions<T>>;
@@ -151,7 +151,7 @@ function buildActions<T extends object>(
   }
   const actions = createActions<T>({
     entry,
-    options,
+    options: options as LockDataOptions<T>,
     releaseFromRegistry: vi.fn(),
   });
   return { entry, actions };

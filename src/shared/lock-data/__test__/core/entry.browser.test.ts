@@ -65,7 +65,12 @@ afterEach(() => {
 
 describe('entry / 无 id 路径', () => {
   test('initial 直用：同步返回 [view, actions]，view 反映 data', () => {
-    const result = lockData({ count: 10 }, { adapters: { logger: createSilentLogger() } });
+    const result = lockData<{ count: number }>({
+      getValue: () => {
+        return { count: 10 };
+      },
+      adapters: { logger: createSilentLogger() },
+    });
 
     expect(Array.isArray(result)).toBe(true);
     const [view, actions] = result as readonly [{ count: number }, LockDataActions<{ count: number }>];
@@ -75,10 +80,12 @@ describe('entry / 无 id 路径', () => {
   });
 
   test('view 是只读代理：set 抛 ReadonlyMutationError', () => {
-    const [view, actions] = lockData({ count: 0 }, { adapters: { logger: createSilentLogger() } }) as readonly [
-      { count: number },
-      LockDataActions<{ count: number }>,
-    ];
+    const [view, actions] = lockData<{ count: number }>({
+      getValue: () => {
+        return { count: 0 };
+      },
+      adapters: { logger: createSilentLogger() },
+    }) as readonly [{ count: number }, LockDataActions<{ count: number }>];
 
     expect(() => {
       (view as { count: number }).count = 999;
@@ -88,10 +95,12 @@ describe('entry / 无 id 路径', () => {
   });
 
   test('update 后 view 读到最新值（原地修改）', async () => {
-    const [view, actions] = lockData({ count: 0 }, { adapters: { logger: createSilentLogger() } }) as readonly [
-      { count: number },
-      LockDataActions<{ count: number }>,
-    ];
+    const [view, actions] = lockData<{ count: number }>({
+      getValue: () => {
+        return { count: 0 };
+      },
+      adapters: { logger: createSilentLogger() },
+    }) as readonly [{ count: number }, LockDataActions<{ count: number }>];
 
     await actions.update((draft) => {
       draft.count = 42;
@@ -109,10 +118,12 @@ describe('entry / 无 id 路径', () => {
         /* no-op */
       },
     });
-    const [, actions] = lockData(
-      { v: 0 },
-      { adapters: { logger: createSilentLogger(), getLock: userGetLock } },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [, actions] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      adapters: { logger: createSilentLogger(), getLock: userGetLock },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     await actions.update((draft) => {
       draft.v = 1;
@@ -129,14 +140,20 @@ describe('entry / 无 id 路径', () => {
 describe('entry / 有 id 同 id 复用', () => {
   test('同 id 两次 lockData：view 对应的底层 data 引用相同', async () => {
     const logger = createSilentLogger();
-    const [viewA, actionsA] = lockData({ name: 'first' }, { id: 'shared-id-1', adapters: { logger } }) as readonly [
-      { name: string },
-      LockDataActions<{ name: string }>,
-    ];
-    const [viewB, actionsB] = lockData(
-      { name: 'second-ignored' },
-      { id: 'shared-id-1', adapters: { logger } },
-    ) as readonly [{ name: string }, LockDataActions<{ name: string }>];
+    const [viewA, actionsA] = lockData<{ name: string }>({
+      getValue: () => {
+        return { name: 'first' };
+      },
+      id: 'shared-id-1',
+      adapters: { logger },
+    }) as readonly [{ name: string }, LockDataActions<{ name: string }>];
+    const [viewB, actionsB] = lockData<{ name: string }>({
+      getValue: () => {
+        return { name: 'second-ignored' };
+      },
+      id: 'shared-id-1',
+      adapters: { logger },
+    }) as readonly [{ name: string }, LockDataActions<{ name: string }>];
 
     // 首次 initial 生效，第二次被忽略（RFC L663）
     expect(viewA.name).toBe('first');
@@ -154,14 +171,20 @@ describe('entry / 有 id 同 id 复用', () => {
 
   test('actions 独立：A.dispose 不影响 B 可继续写入', async () => {
     const logger = createSilentLogger();
-    const [, actionsA] = lockData({ v: 0 }, { id: 'shared-id-2', adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
-    const [viewB, actionsB] = lockData({ v: 0 }, { id: 'shared-id-2', adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
+    const [, actionsA] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'shared-id-2',
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [viewB, actionsB] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'shared-id-2',
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     await actionsA.dispose();
     await actionsB.update((draft) => {
@@ -183,14 +206,22 @@ describe('entry / 有 id 同 id 复用', () => {
       onCommit: (evt) => eventsB.push(evt),
     };
 
-    const [, actionsA] = lockData(
-      { v: 0 },
-      { id: 'shared-id-3', adapters: { logger }, listeners: listenersA },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
-    const [, actionsB] = lockData(
-      { v: 0 },
-      { id: 'shared-id-3', adapters: { logger }, listeners: listenersB },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [, actionsA] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'shared-id-3',
+      adapters: { logger },
+      listeners: listenersA,
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [, actionsB] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'shared-id-3',
+      adapters: { logger },
+      listeners: listenersB,
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     await actionsA.update((draft) => {
       draft.v = 1;
@@ -207,14 +238,22 @@ describe('entry / 有 id 同 id 复用', () => {
 
   test('initOptions 冲突：非 listeners 字段不一致 → logger.warn', () => {
     const logger = createSilentLogger();
-    const [, actionsA] = lockData({ v: 0 }, { id: 'conflict-id', timeout: 1000, adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
-    const [, actionsB] = lockData({ v: 0 }, { id: 'conflict-id', timeout: 5000, adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
+    const [, actionsA] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'conflict-id',
+      timeout: 1000,
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [, actionsB] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'conflict-id',
+      timeout: 5000,
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     const warnCalls = logger.warnMock.mock.calls.map((call) => String(call[0]));
     expect(warnCalls.some((msg) => msg.includes('option conflict') && msg.includes('timeout'))).toBe(true);
@@ -231,43 +270,41 @@ describe('entry / 有 id 同 id 复用', () => {
 describe('entry / dataReady 异步', () => {
   test('getValue 返回 Promise：lockData 返回 Promise<[view, actions]>，resolve 后 view 就位', async () => {
     const gate = withResolvers<{ count: number }>();
-    const result = lockData<{ count: number }>(undefined, {
+    const result = lockData<{ count: number }>({
       getValue: () => gate.promise,
       adapters: { logger: createSilentLogger() },
     });
     expect(result).toBeInstanceOf(Promise);
 
     gate.resolve({ count: 99 });
-    const [view, actions] = await result;
+    const [view, actions] = await (result as Promise<readonly [{ count: number }, LockDataActions<{ count: number }>]>);
     expect(view.count).toBe(99);
 
     await actions.dispose();
   });
 
-  test('getValue 同步抛错：返回的 Promise reject LockDisposedError 且 cause 保留原错误', async () => {
+  test('getValue 同步抛错：抛出 LockDisposedError 且 cause 保留原错误（同步路径直接 throw）', () => {
     const boom = new Error('sync getValue boom');
-    // resolveInitialData 对「getValue 同步抛错」按 Promise.reject 等价处理（RFC L684 的 failed 分支统一入口）
-    // core/entry.ts::lockData 签名是 LockDataResult | Promise<LockDataResult> 联合，这里显式断言为
-    // Promise 分支（getValue 返回 Promise / syncMode storage-authority 命中异步路径）
-    const result = lockData<{ v: number }>(undefined, {
-      getValue: () => {
-        throw boom;
-      },
-      adapters: { logger: createSilentLogger() },
-    }) as Promise<readonly [{ v: number }, LockDataActions<{ v: number }>]>;
-    expect(result).toBeInstanceOf(Promise);
-
-    const captured = await result.then(
-      () => null,
-      (error: unknown) => error,
-    );
+    // 单签名 + 同步抛错路径：lockData 同步抛 LockDisposedError，Entry 不构造
+    let captured: unknown;
+    try {
+      // 同步路径返回元组（非 Promise）；用 void 抑制 biome `noFloatingPromises` 假阳性
+      void lockData<{ v: number }>({
+        getValue: () => {
+          throw boom;
+        },
+        adapters: { logger: createSilentLogger() },
+      });
+    } catch (error) {
+      captured = error;
+    }
     expect(captured).toBeInstanceOf(LockDisposedError);
     expect((captured as { cause?: unknown }).cause).toBe(boom);
   });
 
   test('getValue 异步 reject：Promise reject LockDisposedError 且 cause 保留原错误', async () => {
     const boom = new Error('async getValue boom');
-    const result = lockData<{ v: number }>(undefined, {
+    const result = lockData<{ v: number }>({
       getValue: () => Promise.reject(boom),
       adapters: { logger: createSilentLogger() },
     }) as Promise<readonly [{ v: number }, LockDataActions<{ v: number }>]>;
@@ -281,17 +318,13 @@ describe('entry / dataReady 异步', () => {
     expect((captured as { cause?: unknown }).cause).toBe(boom);
   });
 
-  test('getValue 返回 Promise 期间 view 可访问 initial（占位 data）', async () => {
+  test('getValue 异步 resolve 期间 view 通过返回的 Promise 获得真实首值', async () => {
     const gate = withResolvers<{ count: number }>();
-    const result = lockData<{ count: number }>(
-      { count: 0 },
-      {
-        getValue: () => gate.promise,
-        adapters: { logger: createSilentLogger() },
-      },
-    );
+    const result = lockData<{ count: number }>({
+      getValue: () => gate.promise,
+      adapters: { logger: createSilentLogger() },
+    }) as Promise<readonly [{ count: number }, LockDataActions<{ count: number }>]>;
 
-    // view 通过返回的 Promise 获得 —— 但占位 data 已经在 Entry 内原地挂好
     gate.resolve({ count: 123 });
     const [view, actions] = await result;
     expect(view.count).toBe(123);
@@ -320,13 +353,13 @@ describe('entry / adapters.getLock', () => {
       return handle;
     };
 
-    const [, actions] = lockData(
-      { v: 0 },
-      {
-        id: 'custom-driver-id',
-        adapters: { logger: createSilentLogger(), getLock: userGetLock },
+    const [, actions] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+      id: 'custom-driver-id',
+      adapters: { logger: createSilentLogger(), getLock: userGetLock },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     await actions.update((draft) => {
       draft.v = 1;
@@ -350,13 +383,13 @@ describe('entry / adapters.getLock', () => {
 describe('entry / signal 自动 dispose', () => {
   test('options.signal.abort → actions 自动 disposed', async () => {
     const controller = new AbortController();
-    const [, actions] = lockData(
-      { v: 0 },
-      {
-        signal: controller.signal,
-        adapters: { logger: createSilentLogger() },
+    const [, actions] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
       },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+      signal: controller.signal,
+      adapters: { logger: createSilentLogger() },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     controller.abort();
     await flushMicrotasks();
@@ -371,14 +404,21 @@ describe('entry / signal 自动 dispose', () => {
   test('同 id 复用 + signal 独立：一个实例的 signal.abort 不影响另一个', async () => {
     const logger = createSilentLogger();
     const controllerA = new AbortController();
-    const [, actionsA] = lockData(
-      { v: 0 },
-      { id: 'signal-isolate', signal: controllerA.signal, adapters: { logger } },
-    ) as readonly [{ v: number }, LockDataActions<{ v: number }>];
-    const [viewB, actionsB] = lockData({ v: 0 }, { id: 'signal-isolate', adapters: { logger } }) as readonly [
-      { v: number },
-      LockDataActions<{ v: number }>,
-    ];
+    const [, actionsA] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'signal-isolate',
+      signal: controllerA.signal,
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
+    const [viewB, actionsB] = lockData<{ v: number }>({
+      getValue: () => {
+        return { v: 0 };
+      },
+      id: 'signal-isolate',
+      adapters: { logger },
+    }) as readonly [{ v: number }, LockDataActions<{ v: number }>];
 
     controllerA.abort();
     await flushMicrotasks();
@@ -406,14 +446,20 @@ describe('entry / signal 自动 dispose', () => {
 describe('entry / dispose 级联', () => {
   test('同 id 两个实例：先后 dispose 后再创建新实例 initial 再次生效（Entry 被销毁重建）', async () => {
     const logger = createSilentLogger();
-    const [viewA, actionsA] = lockData({ name: 'first' }, { id: 'refcount-id', adapters: { logger } }) as readonly [
-      { name: string },
-      LockDataActions<{ name: string }>,
-    ];
-    const [, actionsB] = lockData({ name: 'ignored' }, { id: 'refcount-id', adapters: { logger } }) as readonly [
-      { name: string },
-      LockDataActions<{ name: string }>,
-    ];
+    const [viewA, actionsA] = lockData<{ name: string }>({
+      getValue: () => {
+        return { name: 'first' };
+      },
+      id: 'refcount-id',
+      adapters: { logger },
+    }) as readonly [{ name: string }, LockDataActions<{ name: string }>];
+    const [, actionsB] = lockData<{ name: string }>({
+      getValue: () => {
+        return { name: 'ignored' };
+      },
+      id: 'refcount-id',
+      adapters: { logger },
+    }) as readonly [{ name: string }, LockDataActions<{ name: string }>];
 
     expect(viewA.name).toBe('first');
 
@@ -421,10 +467,13 @@ describe('entry / dispose 级联', () => {
     await actionsB.dispose();
 
     // 此时 refCount 归零，Entry 已销毁；新实例用新 initial
-    const [viewC, actionsC] = lockData({ name: 'new-first' }, { id: 'refcount-id', adapters: { logger } }) as readonly [
-      { name: string },
-      LockDataActions<{ name: string }>,
-    ];
+    const [viewC, actionsC] = lockData<{ name: string }>({
+      getValue: () => {
+        return { name: 'new-first' };
+      },
+      id: 'refcount-id',
+      adapters: { logger },
+    }) as readonly [{ name: string }, LockDataActions<{ name: string }>];
     expect(viewC.name).toBe('new-first');
 
     await actionsC.dispose();

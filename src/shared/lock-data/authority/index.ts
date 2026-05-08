@@ -9,22 +9,21 @@
  *   - 会话纪元（epoch）生命周期管理（首次 resolveEpoch + 常驻 session-probe 响应）
  *   - 与锁调度完全无关（acquire / release / revoke 都不经过此处）
  *
- * 三条读路径共享同一应用流程（RFC L1204）：
+ * 三条读路径共享同一应用流程：
  *   | 触发源                | 时机                            | source              | 数据来源                      |
  *   | --------------------- | ------------------------------- | ------------------- | ---------------------------- |
  *   | acquire 时 pull       | driver.acquire 成功、进入 recipe 前 | 'pull-on-acquire'   | authority.read() 同步读      |
  *   | authority.subscribe   | 其他进程写入触发订阅回调        | 'storage-event'     | 回调直接传入 newValue        |
  *   | 激活时主动 pull       | pageshow / visibilitychange     | 'pageshow' 等       | authority.read() 同步读      |
  *
- * 一条写路径（RFC L1190）：
+ * 一条写路径：
  *   commit 成功 → rev++ → authority.write(serialize) → 触发 onCommit
  *
- * Phase 4 阶段的设计约束：
- *   - Phase 5 的 Entry 尚未实现，这里用 `StorageAuthorityHost` 最小契约封装依赖
- *     （结构化鸭子类型：Phase 5 Entry 天然实现此接口）
- *   - 不做 data 的 in-place 替换，通过 `applySnapshot` 回调交给宿主实现
- *     （Phase 5 会注入基于 `core/readonly-view.ts` 的 replaceInPlace）
- *   - 事件触发统一走 `emit` 回调，Phase 5 的 `listenersFanout` 会实现真正的多实例扇出
+ * wrapper 方案下的契约（对应 fixes/api-getvalue-only-redesign.md §14.2 缺口 2）：
+ *   - 不再注入 `applySnapshot` 钩子 —— 远程同步通过 `host.applyRemote(next)` 完成原子覆写，
+ *     authority 不感知 wrapper / dataRef 实现细节
+ *   - 不再注入 `clone` 函数 —— 内部用 `cloneByJson` 完成 emit 事件的 snapshot 隔离
+ *   - 事件触发统一走 `emit` 回调，由调用方接到 listenersFanout
  */
 
 import { isObject, isString } from '@/shared/utils/verify';
@@ -38,20 +37,32 @@ import type {
   SessionStoreAdapter,
   SyncSource,
 } from '../types';
+import { cloneByJson } from '../utils/json-safe';
 import { type ResolveEpochContext, type ResolveEpochResult, resolveEpoch, subscribeSessionProbe } from './epoch';
 import { readIfNewer } from './extract';
 import { serializeAuthority } from './serialize';
 
 /**
- * StorageAuthority 宿主契约（Phase 5 Entry 的最小子集）
+ * StorageAuthority 宿主契约（Entry 的最小子集）
  *
- * 设计动机：Phase 4 不感知 Entry 完整结构，避免与 Phase 5 的 registry 形成循环依赖。
- * 宿主对象必须保证这些字段可读可写 —— `rev` / `lastAppliedRev` 读写双向，
- * `epoch` 仅由 `StorageAuthority` 内部在首次 `resolveEpoch` 后回写。
+ * 设计动机：authority 不感知 Entry 完整结构，避免循环依赖；同时通过 `applyRemote` 方法
+ * 把"如何写入 dataRef.current"的实现细节封装到 Entry 内部，authority 只负责调用该方法
+ *
+ * 字段语义：
+ * - `applyRemote(next)`：远程同步入口；内部走 `cloneByJson(next)` + 赋值 `dataRef.current`，
+ *   与 emit 链解耦（emit 由 authority 自己负责）
+ * - `rev` / `lastAppliedRev` 读写双向；`epoch` 由 `StorageAuthority` 内部在首次
+ *   `resolveEpoch` 后回写
  */
 interface StorageAuthorityHost<T extends object> {
-  /** 当前数据；applySnapshot 会原地改写此对象（由宿主注入的 applySnapshot 实现） */
-  data: T;
+  /**
+   * 远程同步入口：把 awaited / 远程 snapshot 写入 `dataRef.current`
+   *
+   * 调用方语义：authority 拿到远端最新 snapshot 后，先 `host.applyRemote(snapshot)` 完成
+   * 内部状态切换，再由 authority 自己 `emitSync(...)` 通知 listener。Entry 内部实现
+   * 必须保证 `applyRemote` 走 JSON 拷贝隔离（详见 core/entry.ts buildApplyRemote）
+   */
+  readonly applyRemote: (next: T) => void;
   /** 单调递增版本号；commit 时 `rev++` */
   rev: number;
   /** 已应用的最大 rev；commit 后同步更新；subscribe 回调时用于去重 */
@@ -74,21 +85,9 @@ interface StorageAuthorityDeps<T extends object> {
   readonly persistence: Persistence;
   readonly sessionProbeTimeout?: number;
   readonly logger: LoggerAdapter;
-  /**
-   * 深克隆函数；`onCommitSuccess` 写入 authority 前不克隆（由调用方在更靠外层克隆，
-   * 避免 snapshot 再次被改动），但初次 pull 成功时会 clone 以避免外部拿到的对象
-   * 与 data 同一引用
-   */
-  readonly clone: <V>(value: V) => V;
-  /**
-   * in-place 替换 data 内容；Phase 4 阶段交由宿主提供具体实现
-   * （Phase 5 会注入基于 readonly-view 的深度 replaceInPlace；
-   * Phase 4 测试里用简单的 `Object.assign + 删键` 即可）
-   */
-  readonly applySnapshot: (data: T, nextSnapshot: T) => void;
-  /** onSync 事件触发回调；Phase 5 会接到 listenersFanout */
+  /** onSync 事件触发回调；上层接到 listenersFanout */
   readonly emitSync: (event: { source: SyncSource; rev: number; snapshot: T }) => void;
-  /** onCommit 事件触发回调；Phase 5 会接到 listenersFanout */
+  /** onCommit 事件触发回调；上层接到 listenersFanout */
   readonly emitCommit: (event: {
     source: CommitSource;
     token: string;
@@ -105,8 +104,8 @@ interface StorageAuthority<T extends object> {
   /**
    * 初始化：resolveEpoch + 常驻 session-probe 响应 + 初次 pull + 订阅推送通道
    *
-   * 返回 `Promise<ResolveEpochResult>`（Phase 5 的 dataReadyPromise 会把此 Promise
-   * 和 getValue Promise 组合后 resolve）
+   * 返回 `Promise<ResolveEpochResult>`；调用方（`core/entry.ts`）会把此 Promise 与
+   * getValue Promise 合成后挂到 `Entry.dataReadyPromise` 对外暴露
    *
    * 多次调用 init 是非法的：宿主自行保证只调用一次
    */
@@ -118,8 +117,9 @@ interface StorageAuthority<T extends object> {
   /**
    * commit 成功后的写路径：`rev++` → `authority.write` → emit onCommit
    *
-   * `mutations` 由 Phase 5 的 Draft 层提供；Phase 4 测试里可传空数组
-   * `snapshot` 必须是已 clone 的独立副本（authority.write 之后宿主可能继续改 data）
+   * `mutations` 由 Draft 层（`core/draft.ts`）提供；commit 流程为空 mutations 时也可调用
+   * `snapshot` 必须是已隔离的独立副本（调用方走 `cloneByJson`，authority.write 之后
+   * 宿主可能继续改 dataRef.current，独立副本保证 listener 看到的是 commit 当时的值）
    */
   onCommitSuccess: (event: {
     source: CommitSource;
@@ -153,6 +153,10 @@ interface AuthorityState {
  * 根据远端 raw 应用到 host；三条读路径共享
  *
  * 命中条件 see extract.ts: `readIfNewer`
+ *
+ * wrapper 方案下：调用 `host.applyRemote(nextSnapshot)` 完成原子覆写，authority 不感知
+ * dataRef 实现细节；emitSync 的 snapshot 走 `cloneByJson` 拷贝隔离，避免 listener mutate
+ * 影响内部 dataRef.current
  */
 function applyAuthorityIfNewer<T extends object>(
   state: AuthorityState,
@@ -163,29 +167,29 @@ function applyAuthorityIfNewer<T extends object>(
   if (state.disposed) {
     return;
   }
-  const { host, logger, clone, applySnapshot, emitSync } = deps;
+  const { host, logger, emitSync } = deps;
   const result = readIfNewer({ lastAppliedRev: host.lastAppliedRev, epoch: host.epoch }, raw);
   if (!result) {
     return;
   }
-  // Phase 4 不关心 snapshot 的具体类型 —— 由 applySnapshot 宿主实现负责校验；
-  // 但基本 object 守卫能避免脏数据导致 replace 过程里抛错
+  // 远端 snapshot 经过 readIfNewer 内部 JSON.parse；JSON-safe 契约下不会出现非对象（顶层数组
+  // 已被入口 assertJsonSafeInput 拒绝），但保留 isObject 守卫防御脏数据 / 跨版本兼容
   if (!isObject(result.snapshot)) {
     logger.warn(`[lockData] authority snapshot is not an object (source=${source}), skip apply`);
     return;
   }
   const nextSnapshot = result.snapshot as T;
   try {
-    applySnapshot(host.data, nextSnapshot);
+    host.applyRemote(nextSnapshot);
   } catch (error) {
-    logger.error(`[lockData] applySnapshot failed (source=${source}, rev=${result.rev})`, error);
+    logger.error(`[lockData] host.applyRemote failed (source=${source}, rev=${result.rev})`, error);
     return;
   }
   host.rev = result.rev;
   host.lastAppliedRev = result.rev;
-  // 触发 onSync；传出的 snapshot 必须克隆隔离，避免用户监听器改动内部 data
+  // 触发 onSync；传出的 snapshot 走 cloneByJson 隔离，避免用户监听器改动内部 dataRef.current
   try {
-    emitSync({ source, rev: result.rev, snapshot: clone(nextSnapshot) });
+    emitSync({ source, rev: result.rev, snapshot: cloneByJson(nextSnapshot) });
   } catch (error) {
     logger.error(`[lockData] emitSync listener threw (source=${source})`, error);
   }
@@ -382,7 +386,7 @@ function performDispose<T extends object>(state: AuthorityState, deps: StorageAu
   }
   state.unsubscribers.length = 0;
   // channel 由 StorageAuthority 拥有所有权（init 时订阅的 session-probe 响应）；
-  // Phase 3 broadcast driver 也可能共享同一个 channel，但 ResolvedAdapters 的工厂
+  // 同 Entry 的 broadcast driver 也可能共享相同 channel 名，但 ResolvedAdapters 的工厂
   // 每次调用返回独立实例，所以这里 close 是安全的
   if (channel) {
     try {

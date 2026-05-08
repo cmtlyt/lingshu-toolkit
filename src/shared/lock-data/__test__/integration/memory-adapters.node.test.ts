@@ -161,20 +161,20 @@ describe('lockData + memory adapters 集成 (node)', () => {
     const id = uniqueId('scene1');
 
     const commits: number[] = [];
-    const result = await lockData<Counter>(
-      { count: 0, label: 'init' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        adapters: buildTab(),
-        listeners: {
-          onCommit: (event): void => {
-            commits.push(event.rev);
-          },
+    const result = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'init' };
+      },
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      adapters: buildTab(),
+      listeners: {
+        onCommit: (event): void => {
+          commits.push(event.rev);
         },
       },
-    );
+    });
     const [view, actions] = result;
 
     expect(view.count).toBe(0);
@@ -202,37 +202,37 @@ describe('lockData + memory adapters 集成 (node)', () => {
     const tabASyncEvents: number[] = [];
     const tabBSyncEvents: number[] = [];
 
-    const tabA = await lockData<Counter>(
-      { count: 0, label: 'A-init' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: buildTab(),
-        listeners: {
-          onSync: (event): void => {
-            tabASyncEvents.push(event.rev);
-          },
+    const tabA = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'A-init' };
+      },
+      syncMode: 'storage-authority',
+      adapters: buildTab(),
+      listeners: {
+        onSync: (event): void => {
+          tabASyncEvents.push(event.rev);
         },
       },
-    );
+    });
     const [, actionsA] = tabA;
 
     // 关键：TabB 必须用新的 id（否则会命中进程单例 Registry，共享 TabA 的 Entry）
     // 但为了测试"跨 Tab"语义，我们确实要同 id + 不同 adapter 工厂 —— 这需要重置 Registry
     __resetDefaultRegistry();
-    const tabB = await lockData<Counter>(
-      { count: 0, label: 'B-init' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: buildTab(),
-        listeners: {
-          onSync: (event): void => {
-            tabBSyncEvents.push(event.rev);
-          },
+    const tabB = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'B-init' };
+      },
+      syncMode: 'storage-authority',
+      adapters: buildTab(),
+      listeners: {
+        onSync: (event): void => {
+          tabBSyncEvents.push(event.rev);
         },
       },
-    );
+    });
     const [viewB, actionsB] = tabB;
 
     // TabA commit
@@ -261,16 +261,16 @@ describe('lockData + memory adapters 集成 (node)', () => {
     const id = uniqueId('scene3');
 
     // TabA：首次启动，走 F 分支（无 sessionReply → 生成新 UUID + 清空 authority）
-    const tabA = await lockData<Counter>(
-      { count: 0, label: 'A' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 50,
-        adapters: buildTab(),
+    const tabA = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'A' };
       },
-    );
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 50,
+      adapters: buildTab(),
+    });
     const [, actionsA] = tabA;
 
     // TabA commit 一次，确保 authority 里有数据（带 TabA 的 epoch）
@@ -281,16 +281,16 @@ describe('lockData + memory adapters 集成 (node)', () => {
 
     // TabB：新建（清空进程 Registry 模拟新 Tab 进程）
     __resetDefaultRegistry();
-    const tabB = await lockData<Counter>(
-      { count: 0, label: 'B' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        persistence: 'session',
-        sessionProbeTimeout: 200,
-        adapters: buildTab(),
+    const tabB = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'B' };
       },
-    );
+      syncMode: 'storage-authority',
+      persistence: 'session',
+      sessionProbeTimeout: 200,
+      adapters: buildTab(),
+    });
     const [viewB, actionsB] = tabB;
 
     // TabB 通过 session-probe 收到 TabA 的 session-reply → 继承 epoch → 首次 pull 命中
@@ -305,29 +305,29 @@ describe('lockData + memory adapters 集成 (node)', () => {
     const id = uniqueId('scene4');
     const warnMock = vi.fn();
 
-    const result = await lockData<Counter>(
-      { count: 0, label: 'fallback' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-          // 用户显式禁用 authority / sessionStore：`pickDefaultAdapters` 的 fallback 走默认工厂，
-          // node 环境下默认 localStorage / sessionStorage 不可用 → 两个均返回 null（各自打 warn）。
-          // channel 在 node >= 18 下原生 BroadcastChannel 可用 —— 此场景验证 authority 缺失
-          // 但 channel 存在时的降级行为：resolveEpoch 触发 B 分支（sessionStore 不可用 → session
-          // 降级为 persistent），后续 commit 因 `authority === null` 跳过 storage.setItem，
-          // 仍能 emit onCommit、view 正常更新
-          getAuthority: () => null,
-          getSessionStore: () => null,
-          logger: {
-            warn: warnMock,
-            error: vi.fn(),
-            debug: vi.fn(),
-          },
+    const result = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'fallback' };
+      },
+      syncMode: 'storage-authority',
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+        // 用户显式禁用 authority / sessionStore：`pickDefaultAdapters` 的 fallback 走默认工厂，
+        // node 环境下默认 localStorage / sessionStorage 不可用 → 两个均返回 null（各自打 warn）。
+        // channel 在 node >= 18 下原生 BroadcastChannel 可用 —— 此场景验证 authority 缺失
+        // 但 channel 存在时的降级行为：resolveEpoch 触发 B 分支（sessionStore 不可用 → session
+        // 降级为 persistent），后续 commit 因 `authority === null` 跳过 storage.setItem，
+        // 仍能 emit onCommit、view 正常更新
+        getAuthority: () => null,
+        getSessionStore: () => null,
+        logger: {
+          warn: warnMock,
+          error: vi.fn(),
+          debug: vi.fn(),
         },
       },
-    );
+    });
     const [view, actions] = result;
 
     expect(view.count).toBe(0);
@@ -358,14 +358,14 @@ describe('lockData + memory adapters 集成 (node)', () => {
     const buildTab = buildTabAdaptersFactory(env);
     const id = uniqueId('scene5');
 
-    const result = await lockData<Counter>(
-      { count: 0, label: 'x' },
-      {
-        id,
-        syncMode: 'storage-authority',
-        adapters: buildTab(),
+    const result = await lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 0, label: 'x' };
       },
-    );
+      syncMode: 'storage-authority',
+      adapters: buildTab(),
+    });
     const [, actions] = result;
 
     await actions.dispose();
@@ -381,37 +381,37 @@ describe('lockData + memory adapters 集成 (node)', () => {
     await expect(actions.getLock()).rejects.toThrowError(/disposed/u);
   });
 
-  test('场景 6：分支 A 同步入口 —— memory adapters + syncMode=none → 同步返回元组', () => {
+  test('场景 6：同步 getValue —— memory adapters + syncMode=none → 同步返回元组', () => {
     const id = uniqueId('scene6');
-    // 无 syncMode → 分支 A（同步）
-    const result = lockData<Counter>(
-      { count: 7, label: 'sync' },
-      {
-        id,
-        adapters: {
-          getLock: createInMemoryLockFactory(),
-        },
+    // 无 syncMode + 同步 getValue → 同步路径
+    const result = lockData({
+      id,
+      getValue: (): Counter => {
+        return { count: 7, label: 'sync' };
       },
-    );
-    // 同步分支：不是 Promise
-    expect(result).not.toBeInstanceOf(Promise);
+      adapters: {
+        getLock: createInMemoryLockFactory(),
+      },
+    });
+    // 同步路径：条件类型推断为 LockDataTuple<Counter>，无需 instanceof / 断言
     const [view, actions] = result;
     expect(view.count).toBe(7);
 
     void actions.dispose();
   });
 
-  test('场景 7：分支 B 异步 getValue + memory adapters', async () => {
+  test('场景 7：异步 getValue + memory adapters', async () => {
     const id = uniqueId('scene7');
-    const result = lockData<Counter>(undefined, {
+    const result = lockData({
       id,
-      getValue: () => Promise.resolve({ count: 99, label: 'async' }),
+      getValue: (): Promise<Counter> => Promise.resolve({ count: 99, label: 'async' }),
       adapters: {
         getLock: createInMemoryLockFactory(),
       },
     });
     expect(result).toBeInstanceOf(Promise);
 
+    // 异步路径：条件类型推断为 Promise<LockDataTuple<Counter>>，直接 await
     const [view, actions] = await result;
     expect(view.count).toBe(99);
     expect(view.label).toBe('async');

@@ -140,30 +140,26 @@ function createMemoryChannel(): ChannelAdapter & { _closed: { value: boolean } }
 
 /**
  * 构建测试宿主：最小 Entry 子集
+ *
+ * wrapper 方案下：authority 不再感知 Entry 内部结构，而是通过 host.applyRemote(next)
+ * 完成远程同步覆盖。测试 host 模拟该契约：将 next 作为 dataRef.current 整体替换，
+ * 保持引用稳定（dataRef 自身始终是同一对象）。
  */
-function createHost<T extends object>(initial: T): StorageAuthorityHost<T> {
-  return { data: initial, rev: 0, lastAppliedRev: 0, epoch: null };
-}
+type TestHost<T extends object> = StorageAuthorityHost<T> & { readonly dataRef: { current: T } };
 
-/**
- * Phase 4 简易 applySnapshot：Phase 5 会换成基于 readonly-view 的深度实现
- * 这里只对普通对象做"删旧键 + Object.assign 新键"，足够覆盖集成测试的断言
- */
-function simpleApplySnapshot<T extends object>(data: T, next: T): void {
-  for (const key of Object.keys(data)) {
-    delete (data as Record<string, unknown>)[key];
-  }
-  Object.assign(data, next);
-}
-
-/**
- * 简易深克隆（Phase 5 会由 ResolvedAdapters.clone 替代）
- */
-function simpleClone<V>(value: V): V {
-  if (value === null || typeof value !== 'object') {
-    return value;
-  }
-  return JSON.parse(JSON.stringify(value));
+function createHost<T extends object>(initial: T): TestHost<T> {
+  const dataRef = { current: initial };
+  return {
+    dataRef,
+    applyRemote: (next: T): void => {
+      // JSON 拷贝隔离：authority 推过来的 snapshot 已在 readIfNewer 内 deserialize 出独立副本，
+      // 这里直接整体替换 current
+      dataRef.current = next;
+    },
+    rev: 0,
+    lastAppliedRev: 0,
+    epoch: null,
+  };
 }
 
 describe('authority/index — StorageAuthority 初始化流程', () => {
@@ -177,8 +173,6 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -204,8 +198,6 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -213,7 +205,7 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
     await storageAuthority.init();
 
     // host 已被远端 snapshot 覆盖
-    expect(host.data).toEqual({ count: 42, label: 'remote' });
+    expect(host.dataRef.current).toEqual({ count: 42, label: 'remote' });
     expect(host.rev).toBe(5);
     expect(host.lastAppliedRev).toBe(5);
     // onSync 被触发，source 为 'pull-on-acquire'（init 首次 pull 共享同一流程）
@@ -222,8 +214,8 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
     expect(event.source).toBe('pull-on-acquire');
     expect(event.rev).toBe(5);
     expect(event.snapshot).toEqual({ count: 42, label: 'remote' });
-    // snapshot 应为独立引用（clone 过），不与 host.data 同一对象
-    expect(event.snapshot).not.toBe(host.data);
+    // snapshot 应为独立引用（JSON 拷贝隔离），不与 dataRef.current 同一对象
+    expect(event.snapshot).not.toBe(host.dataRef.current);
 
     storageAuthority.dispose();
     paired.cleanup();
@@ -245,8 +237,6 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
       sessionStore,
       persistence: 'session',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -269,8 +259,6 @@ describe('authority/index — StorageAuthority 初始化流程', () => {
       sessionStore: null,
       persistence: 'persistent',
       logger,
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -295,8 +283,6 @@ describe('authority/index — onCommitSuccess 写路径', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit,
     });
@@ -340,8 +326,6 @@ describe('authority/index — onCommitSuccess 写路径', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -367,8 +351,6 @@ describe('authority/index — onCommitSuccess 写路径', () => {
       sessionStore: null,
       persistence: 'session', // 将降级为 persistent（B 分支）
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit,
     });
@@ -392,7 +374,7 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
     paired.cleanup();
   });
 
-  test('Tab A commit → Tab B 的 onSync 被触发 + host.data 更新', async () => {
+  test('Tab A commit → Tab B 的 onSync 被触发 + host.dataRef.current 更新', async () => {
     const hostA = createHost({ count: 0 });
     const hostB = createHost({ count: 0 });
     const emitSyncB = vi.fn();
@@ -404,8 +386,6 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -416,8 +396,6 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: emitSyncB,
       emitCommit: () => {},
     });
@@ -428,7 +406,7 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
     authorityA.onCommitSuccess({ source: 'update', token: 'tok-A-1', mutations: [], snapshot: { count: 7 } });
 
     // Tab B 应收到 subscribe 回调（source='storage-event'）并应用 snapshot
-    expect(hostB.data).toEqual({ count: 7 });
+    expect(hostB.dataRef.current).toEqual({ count: 7 });
     expect(hostB.rev).toBe(1);
     expect(hostB.lastAppliedRev).toBe(1);
     expect(emitSyncB).toHaveBeenCalledTimes(1);
@@ -453,8 +431,6 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: emitSyncB,
       emitCommit: () => {},
     });
@@ -470,7 +446,7 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
 
     // 由于我们监听的是 Tab B，应该没任何 onSync
     expect(emitSyncB).toHaveBeenCalledTimes(0);
-    expect(hostB.data).toEqual({ count: 10 });
+    expect(hostB.dataRef.current).toEqual({ count: 10 });
     expect(hostB.rev).toBe(0); // init 未 pull 到（storage 开始为空）
     authorityB.dispose();
   });
@@ -487,8 +463,6 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
       sessionStore: createMemorySessionStore(null),
       persistence: 'session',
       logger,
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: emitSyncB,
       emitCommit: () => {},
     });
@@ -504,7 +478,7 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
     paired.tabA.write(raw); // A 写入 → 会推给 B 的 subscribe 回调
 
     expect(emitSyncB).toHaveBeenCalledTimes(0);
-    expect(hostB.data).toEqual({ count: 10 });
+    expect(hostB.dataRef.current).toEqual({ count: 10 });
     authorityB.dispose();
   });
 
@@ -519,8 +493,6 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -535,7 +507,7 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
     storageAuthority.pullOnAcquire();
     expect(emitSync).toHaveBeenCalledTimes(1);
     expect(emitSync.mock.calls[0][0].source).toBe('pull-on-acquire');
-    expect(host.data).toEqual({ count: 33 });
+    expect(host.dataRef.current).toEqual({ count: 33 });
     expect(host.rev).toBe(3);
 
     storageAuthority.dispose();
@@ -554,8 +526,6 @@ describe('authority/index — dispose 幂等与资源释放', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -583,8 +553,6 @@ describe('authority/index — dispose 幂等与资源释放', () => {
       sessionStore: null,
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -603,8 +571,6 @@ describe('authority/index — dispose 幂等与资源释放', () => {
       sessionStore: null,
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {},
       emitCommit: () => {},
     });
@@ -625,8 +591,6 @@ describe('authority/index — dispose 幂等与资源释放', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit,
     });
@@ -657,8 +621,6 @@ describe('authority/index — visibilitychange 激活拉取', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -678,7 +640,7 @@ describe('authority/index — visibilitychange 激活拉取', () => {
 
     expect(emitSync).toHaveBeenCalledTimes(1);
     expect(emitSync.mock.calls[0][0].source).toBe('visibilitychange');
-    expect(host.data).toEqual({ count: 50 });
+    expect(host.dataRef.current).toEqual({ count: 50 });
 
     storageAuthority.dispose();
     paired.cleanup();
@@ -696,8 +658,6 @@ describe('authority/index — visibilitychange 激活拉取', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger: createTestLogger(),
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -713,16 +673,26 @@ describe('authority/index — visibilitychange 激活拉取', () => {
     document.dispatchEvent(new Event('visibilitychange'));
 
     expect(emitSync).not.toHaveBeenCalled();
-    expect(host.data).toEqual({ count: 0 });
+    expect(host.dataRef.current).toEqual({ count: 0 });
 
     storageAuthority.dispose();
     paired.cleanup();
   });
 });
 
-describe('authority/index — applySnapshot 异常隔离', () => {
-  test('applySnapshot 抛错时 → logger.error + 不更新 rev + 不触发 onSync', async () => {
-    const host = createHost<{ count: number }>({ count: 0 });
+describe('authority/index — applyRemote 异常隔离', () => {
+  test('host.applyRemote 抛错时 → logger.error + 不更新 rev + 不触发 onSync', async () => {
+    // 构造一个 applyRemote 会抛错的 host（模拟远程同步覆写阶段失败）
+    const dataRef = { current: { count: 0 } };
+    const host: TestHost<{ count: number }> = {
+      dataRef,
+      applyRemote: () => {
+        throw new Error('mock apply fail');
+      },
+      rev: 0,
+      lastAppliedRev: 0,
+      epoch: null,
+    };
     const paired = createPairedAuthorities();
     const emitSync = vi.fn();
     const logger = createTestLogger();
@@ -734,10 +704,6 @@ describe('authority/index — applySnapshot 异常隔离', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger,
-      clone: simpleClone,
-      applySnapshot: () => {
-        throw new Error('mock apply fail');
-      },
       emitSync,
       emitCommit: () => {},
     });
@@ -766,8 +732,6 @@ describe('authority/index — applySnapshot 异常隔离', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger,
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync: () => {
         throw new Error('mock listener fail');
       },
@@ -781,7 +745,7 @@ describe('authority/index — applySnapshot 异常隔离', () => {
     // listener 抛错不影响数据应用
     expect(host.rev).toBe(1);
     expect(host.lastAppliedRev).toBe(1);
-    expect(host.data).toEqual({ count: 42 });
+    expect(host.dataRef.current).toEqual({ count: 42 });
 
     storageAuthority.dispose();
     paired.cleanup();
@@ -802,8 +766,6 @@ describe('authority/index — snapshot 脏数据守卫', () => {
       sessionStore: createMemorySessionStore(),
       persistence: 'persistent',
       logger,
-      clone: simpleClone,
-      applySnapshot: simpleApplySnapshot,
       emitSync,
       emitCommit: () => {},
     });
@@ -814,7 +776,7 @@ describe('authority/index — snapshot 脏数据守卫', () => {
 
     expect(emitSync).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('snapshot is not an object'));
-    expect(host.data).toEqual({ count: 0 });
+    expect(host.dataRef.current).toEqual({ count: 0 });
 
     storageAuthority.dispose();
     paired.cleanup();

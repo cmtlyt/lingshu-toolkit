@@ -1,75 +1,78 @@
+/**
+ * core/readonly-view 单元测试（wrapper Proxy 方案）
+ *
+ * 设计契约：
+ * 1. createReadonlyView 接受 dataRef: { current: T }，wrapper Proxy 永远代理 dataRef
+ *    自身（target 稳定），所有 trap 转发到 dataRef.current —— 用户对 view 的属性读取
+ *    始终命中"最新版本"的 current
+ * 2. JSON-only 契约：仅支持 plain object / array / 原始值；不再特殊处理 Set / Map / Date
+ *    （这些类型在入口 assertJsonSafe 已被 fail-fast 拦截）
+ * 3. 深只读：嵌套对象首次访问时被包裹为子 Proxy；同一嵌套对象多次访问返回同一子 Proxy（缓存）
+ * 4. 写入 / 删除 / defineProperty 全部抛 ReadonlyMutationError
+ */
+
 import { describe, expect, test } from 'vitest';
-import { createReadonlyView } from '@/shared/lock-data/core/readonly-view';
+import { createReadonlyView, type DataRef } from '@/shared/lock-data/core/readonly-view';
 import { ReadonlyMutationError } from '@/shared/lock-data/errors';
 
-describe('createReadonlyView', () => {
-  test('读取浅层属性与原对象一致', () => {
-    const source = { name: 'cmt', age: 18 };
-    const view = createReadonlyView(source);
+function makeRef<T extends object>(current: T): DataRef<T> {
+  return { current };
+}
+
+describe('createReadonlyView / 读取契约', () => {
+  test('读取浅层属性与 dataRef.current 一致', () => {
+    const view = createReadonlyView(makeRef({ name: 'cmt', age: 18 }));
     expect(view.name).toBe('cmt');
     expect(view.age).toBe(18);
   });
 
+  test('dataRef.current 整体替换后，view 读到新值（wrapper 永不失效）', () => {
+    const dataRef = makeRef({ count: 0 });
+    const view = createReadonlyView(dataRef);
+    expect(view.count).toBe(0);
+    dataRef.current = { count: 42 };
+    expect(view.count).toBe(42);
+  });
+
+  test('原地修改 dataRef.current 内部字段后，view 读到最新值', () => {
+    const dataRef = makeRef({ count: 0 });
+    const view = createReadonlyView(dataRef);
+    expect(view.count).toBe(0);
+    dataRef.current.count = 99;
+    expect(view.count).toBe(99);
+  });
+});
+
+describe('createReadonlyView / 深只读', () => {
   test('写入根层属性抛 ReadonlyMutationError', () => {
-    const view = createReadonlyView({ name: 'cmt' });
+    const view = createReadonlyView(makeRef({ name: 'cmt' }));
     expect(() => {
       view.name = 'x';
     }).toThrow(ReadonlyMutationError);
   });
 
-  test('写入嵌套层属性同样抛错（深只读）', () => {
-    const view = createReadonlyView({ profile: { age: 18 } });
+  test('写入嵌套层属性同样抛错', () => {
+    const view = createReadonlyView(makeRef({ profile: { age: 18 } }));
     expect(() => {
       view.profile.age = 19;
     }).toThrow(ReadonlyMutationError);
   });
 
   test('删除属性抛错', () => {
-    const view = createReadonlyView({ name: 'cmt' }) as { name?: string };
+    const view = createReadonlyView(makeRef<{ name?: string }>({ name: 'cmt' }));
     expect(() => {
-      view.name = undefined;
+      // biome-ignore lint/performance/noDelete: 测试 readonly-view 的 deleteProperty trap 必须用 delete 操作符
+      delete view.name;
     }).toThrow(ReadonlyMutationError);
   });
 
-  test('同一原对象多次包裹返回同一代理（引用稳定）', () => {
-    const source = { nested: { value: 1 } };
-    const viewA = createReadonlyView(source);
-    const viewB = createReadonlyView(source);
-    expect(viewA).toBe(viewB);
-  });
-
-  test('同一嵌套对象多次 get 返回同一代理', () => {
-    const source = { nested: { value: 1 } };
-    const view = createReadonlyView(source);
-    expect(view.nested).toBe(view.nested);
-  });
-
-  test('原地修改底层对象后，只读视图能读到最新值', () => {
-    const source = { count: 0 };
-    const view = createReadonlyView(source);
-    expect(view.count).toBe(0);
-    source.count = 42;
-    expect(view.count).toBe(42);
-  });
-
   test('defineProperty 被拦截', () => {
-    const view = createReadonlyView({});
+    const view = createReadonlyView(makeRef<Record<string, number>>({}));
     expect(() => Object.defineProperty(view, 'x', { value: 1 })).toThrow(ReadonlyMutationError);
   });
 
-  test('非对象属性直接返回原值（不被包裹）', () => {
-    const fn = (): number => 42;
-    const source = { value: 1, flag: true, fn };
-    const view = createReadonlyView(source);
-    expect(view.value).toBe(1);
-    expect(view.flag).toBe(true);
-    // 函数是可访问对象，会被包裹为 Proxy，不应当是原引用
-    expect(typeof view.fn).toBe('function');
-    expect(view.fn).not.toBe(fn);
-  });
-
   test('数组元素的深只读', () => {
-    const view = createReadonlyView({ list: [{ id: 1 }] });
+    const view = createReadonlyView(makeRef({ list: [{ id: 1 }] }));
     expect(() => {
       view.list[0].id = 2;
     }).toThrow(ReadonlyMutationError);
@@ -79,94 +82,23 @@ describe('createReadonlyView', () => {
   });
 
   test('错误消息前缀包含 lockData 命名空间', () => {
-    const view = createReadonlyView({ a: 1 });
+    const view = createReadonlyView(makeRef({ a: 1 }));
     expect(() => {
       view.a = 2;
     }).toThrow(/\[@cmtlyt\/lingshu-toolkit#lockData\]: cannot mutate readonly view/u);
   });
 });
 
-describe('createReadonlyView - Set / Map 拦截', () => {
-  test('Set.add 被拦截抛 ReadonlyMutationError', () => {
-    const view = createReadonlyView({ tags: new Set<string>(['a']) });
-    expect(() => view.tags.add('b')).toThrow(ReadonlyMutationError);
+describe('createReadonlyView / 嵌套代理缓存', () => {
+  test('同一嵌套对象多次访问返回同一子代理（引用稳定）', () => {
+    const view = createReadonlyView(makeRef({ nested: { value: 1 } }));
+    expect(view.nested).toBe(view.nested);
   });
 
-  test('Set.delete 被拦截', () => {
-    const view = createReadonlyView({ tags: new Set<string>(['a']) });
-    expect(() => view.tags.delete('a')).toThrow(ReadonlyMutationError);
-  });
-
-  test('Set.clear 被拦截', () => {
-    const view = createReadonlyView({ tags: new Set<string>(['a', 'b']) });
-    expect(() => view.tags.clear()).toThrow(ReadonlyMutationError);
-  });
-
-  test('Set 非 mutation 方法（has / forEach / size）正常工作', () => {
-    const tags = new Set<string>(['a', 'b']);
-    const view = createReadonlyView({ tags });
-    expect(view.tags.has('a')).toBe(true);
-    expect(view.tags.has('z')).toBe(false);
-    expect(view.tags.size).toBe(2);
-    const collected: string[] = [];
-    view.tags.forEach((item) => {
-      collected.push(item);
-    });
-    // @ts-expect-error
-    expect(collected.sort((a, b) => a - b)).toEqual(['a', 'b']);
-  });
-
-  test('Set 的迭代器（Symbol.iterator / values / keys / entries）正常工作', () => {
-    const view = createReadonlyView({ tags: new Set<string>(['a', 'b']) });
-    expect(Array.from(view.tags).sort()).toEqual(['a', 'b']);
-    expect(Array.from(view.tags.values()).sort()).toEqual(['a', 'b']);
-    expect(Array.from(view.tags.keys()).sort()).toEqual(['a', 'b']);
-    expect(Array.from(view.tags.entries()).sort()).toEqual([
-      ['a', 'a'],
-      ['b', 'b'],
-    ]);
-  });
-
-  test('Map.set 被拦截', () => {
-    const view = createReadonlyView({ dict: new Map<string, number>([['a', 1]]) });
-    expect(() => view.dict.set('b', 2)).toThrow(ReadonlyMutationError);
-  });
-
-  test('Map.delete / Map.clear 被拦截', () => {
-    const view = createReadonlyView({ dict: new Map<string, number>([['a', 1]]) });
-    expect(() => view.dict.delete('a')).toThrow(ReadonlyMutationError);
-    expect(() => view.dict.clear()).toThrow(ReadonlyMutationError);
-  });
-
-  test('Map 非 mutation 方法（get / has / size / forEach）正常工作', () => {
-    const view = createReadonlyView({ dict: new Map<string, number>([['a', 1]]) });
-    expect(view.dict.get('a')).toBe(1);
-    expect(view.dict.has('a')).toBe(true);
-    expect(view.dict.size).toBe(1);
-    const collected: [string, number][] = [];
-    view.dict.forEach((value, key) => {
-      collected.push([key, value]);
-    });
-    expect(collected).toEqual([['a', 1]]);
-  });
-
-  test('Map 迭代器正常工作', () => {
-    const view = createReadonlyView({
-      dict: new Map<string, number>([
-        ['a', 1],
-        ['b', 2],
-      ]),
-    });
-    expect(Array.from(view.dict.entries()).sort()).toEqual([
-      ['a', 1],
-      ['b', 2],
-    ]);
-    expect(Array.from(view.dict.keys()).sort()).toEqual(['a', 'b']);
-    expect(Array.from(view.dict.values()).sort()).toEqual([1, 2]);
-  });
-
-  test('嵌套在对象里的 Set / Map 同样受保护', () => {
-    const view = createReadonlyView({ user: { tags: new Set<string>(['admin']) } });
-    expect(() => view.user.tags.add('guest')).toThrow(ReadonlyMutationError);
+  test('非对象属性直接返回原值（不被包裹）', () => {
+    const view = createReadonlyView(makeRef({ value: 1, flag: true, name: 'cmt' }));
+    expect(view.value).toBe(1);
+    expect(view.flag).toBe(true);
+    expect(view.name).toBe('cmt');
   });
 });

@@ -1,6 +1,6 @@
 # lockData 实施清单
 
-> 基于 RFC.md (0.1.4, accepted on 2026/04/29) 的逐步落地计划
+> 基于 RFC.md (0.1.5, accepted on 2026/05/08) 的逐步落地计划
 >
 > **使用方式**：每完成一项，将 `[ ]` 改为 `[x]`；每个条目末尾的 `→ RFC#xxx` 为对应设计章节的页内锚点，点击可直接跳转到 RFC.md 的源头需求
 
@@ -748,6 +748,61 @@ Phase 7 文档与测试收口
     - `pnpm run check` → 全仓 clean
   - **关联文件**：`core/registry.ts`（Entry 接口 + EntryFactory 签名 + getOrCreateEntry 调用点）/ `core/entry.ts`（createEntryFactory 用 lockId、acquireStandalone 传 undefined）/ `core/actions.ts`（buildAcquireName helper、performAcquire 改 driver acquire name）/ `__test__/core/registry.node.test.ts`（stub factory 签名适配）/ `__test__/core/actions.browser.test.ts`（createStubEntry 加 lockId）/ `__test__/core/entry-standalone-driver-isolation.node.test.ts`（新增）/ `__test__/core/entry-standalone-driver-isolation.browser.test.ts`（新增）/ `fixes/standalone-id-leak.md`（方案文档归档）
 
+- [x] **lockData API 单签名重构 + wrapper Proxy 方案 + 三大补丁**（2026/05/08 完成 / 🚨 BREAKING CHANGE / major bump）
+  - **背景**：原三重载 + 双参数 `lockData(initial, options)` 暴露多处契约漏洞 ——
+    ① `getValue` 与 `initial` 形成「冗余首值通道」语义混淆；② 异步路径下 `entry.data` 引用稳定契约依赖 `applyInPlace` 原地改写，对 readonly-view 的 wrapper 时机假设过强；③ 顶层数组（`unknown[]`）允许传入但 `commit/snapshot` 拷贝隔离会丢失 mutation 细节；④ `actions.read()` 与全局 `read()` 命名冲突；⑤ `dataReadyState` 三态 + `dataReadyError` 字段冗余（同步抛错路径下 Entry 根本不构造）；⑥ `assertJsonSafe` 仅覆盖 `update` 路径，`getValue` 返回值与 `replace` 入参绕过校验；⑦ `authority host.data` 引用契约被 `lockId` 拆分后仍未对齐 dataRef wrapper
+  - **决策路径**（设计文档 `fixes/api-getvalue-only-redesign.md` §1-§14 详述）：
+    - 方案演进：方案 A（保留 `initial`+`getValue` 双通道）→ 方案 B（合并到 `getValue` 单参数）→ wrapper Proxy + 三大补丁（最终方案）
+    - **wrapper 方案核心**：以 `entry.dataRef: { current: T }` 替代 `entry.data` 引用稳定契约 —— 所有 readonly-view / authority / actions 通过同一个稳定 wrapper ref 访问数据，"重新赋值"通过修改 `.current` 完成，彻底消除 `applyInPlace` 原地改写依赖
+    - **三大补丁**：① 顶层数组类型层 `LockDataValueShape<T>` 条件类型禁止 + 运行时 fail-fast；② `actions.read()` 改名为 `snapshot()` 避开命名冲突；③ JSON 拷贝隔离契约（`structuredClone` → `JSON.parse(JSON.stringify)` 限制）覆盖所有进入 `dataRef.current` 的入口
+    - **半极简状态机**（设计文档 §12）：删除 `dataReadyState/dataReadyError` 字段；保留 `dataReadyPromise: Promise<T> | null` 单标志位；同步抛错路径 Entry 根本不构造（直接抛 `LockDisposedError`），异步路径 Entry 构造延迟到 resolve 后
+    - **authority host 契约重构**（设计文档 §14.1）：`StorageAuthorityHost.data: T` 字段废弃；新增 `host.applyRemote(next: T): void` 方法 —— authority 不感知 dataRef wrapper 实现细节
+    - **assertJsonSafe 公共闸**（设计文档 §14.4）：从 `core/draft.ts` 提取到 `utils/json-safe.ts`，`getValue` resolve 后 + `replace` 入参 + 同步返回值 + 异步 awaited 全部走同一道 fail-fast 校验
+  - **修复**（11 个源码文件 + 多个测试文件 + 2 个文档）：
+    1. **`types.ts`**：新增 `LockDataValueShape<T> = T extends unknown[] ? never : T` 类型工具；`LockDataOptions.getValue` 改为必传 + `LockDataValueShape<T>` 限制；`LockDataActions::read` 改名为 `snapshot`；删除 `CloneFn` 类型 + `LockDataAdapters.clone` 字段
+    2. **`index.ts`**：删除三重载（同步签名 / 异步签名 / 通用签名），重写为单签名 + `LockDataValueShape<T>` 条件类型；调用 `lockDataImpl(options as unknown as LockDataOptions<T>)` 兜底类型转换；删除 `CloneFn` 公开导出 + 新增 `LockDataValueShape` 公开导出
+    3. **`utils/json-safe.ts`**（新建）：`assertJsonSafe` + `assertNotTopLevelArray` + `cloneByJson` + `assertJsonSafeInput` 四个公共工具，从 `draft.ts` 迁移 JSON 安全校验逻辑
+    4. **`core/registry.ts`**：重写 `resolveInitialData` 为 `prepareEntryData`（单参数 + getValue 必传 + 同步抛错走 `LockDisposedError` + 异步返回 `EntryInitialData`）；`Entry` 接口 `data: T → dataRef: { current: T }` + 新增 `applyRemote: (next: T) => void`；删除 `dataReadyState/dataReadyError` 字段；删除 `resolvePendingPlaceholder/buildFailedInitialData/resolveSyncFallback/buildPendingInitialData/applyInPlace`；新增 `EntryInitialData` 接口 + `cloneByJson` 工具；新增 `createFailedInitError(id, cause)` helper（同步路径 + 异步路径统一调用）
+    5. **`core/readonly-view.ts`**：完全重写为 wrapper Proxy 方案（`new Proxy(dataRef, handler)` + 全 trap 重定向到 `dataRef.current`）；`createReadonlyView` 入参改为 `dataRef: { current: T }`；删除 Set/Map/Date 特殊处理（JSON-safe 契约已在入口拒绝）；导出 `DataRef` 类型
+    6. **`core/entry.ts`**：`createEntryFactory` 删除 `initial` 参数；`lockData` 主入口改单参数 `options` + 顶层数组运行时 fail-fast；`mutableEntry` 新增 `dataRef + applyRemote`；`attachAuthority deps` 删除 `clone/applySnapshot:applyInPlace` 注入；`createReadonlyView` 入参改 `dataRef`；`finalizeResult` 删除 `dataReadyState` 判断 + 直接透传 dataReadyPromise reject（不二次包装）；新增 `buildApplyRemote(dataRef)` helper（authority 远程同步 / 异步 getValue resolve 共用单一入口）
+    7. **`core/actions.ts`**：拆分为 `actions.ts`（物理 542 行 / 非空白 499 行）+ `actions-helpers.ts`（物理 399 行 / 非空白 369 行）以满足 biome `noExcessiveLinesPerFile.maxLines: 500 + skipBlankLines: true` 限制；删除 `applyInPlace` 来自 registry 的引用，新增 `cloneByJson/assertJsonSafeInput` 引用；`ensureDataReady` 删除 `dataReadyState` 判断；`entry.data` 全部改 `entry.dataRef.current`；`read()` 改名为 `snapshot()`；`commit` 快照走 `cloneByJson`；`replace` 路径调用 `assertJsonSafeInput`
+    8. **`core/actions-helpers.ts`**（新建）：`applyInPlace`、`buildAcquireName`、`issueToken`、`releaseDriverHandle`、`resolveAcquireTimeout`、`resolveHoldTimeout`、`safeReleaseHandle`、`throwDisposed`、`toMilliseconds`、`translateAcquireError`、`ActionsInternalState`、`createInitialState`、`enqueueWrite`、`clearHoldTimer`、`attachSignalAutoDispose`、`noop` 等辅助函数
+    9. **`adapters/index.ts`**：删除 `CloneFn` 引入 + `createSafeCloneFn` 引入；`ResolvedAdapters` 删除 `clone` 字段；`pickDefaultAdapters` 删除 clone 解析逻辑
+    10. **`adapters/clone.ts`**：删除（不再需要 CloneFn 实现）
+    11. **`authority/index.ts`**：`StorageAuthorityHost` 删除 `data: T` + 新增 `applyRemote: (next: T) => void`；`StorageAuthorityDeps` 删除 `clone + applySnapshot`；`applyAuthorityIfNewer` 改用 `host.applyRemote(nextSnapshot)`；`emitSync` 内 clone 改 `cloneByJson`
+  - **测试改造**（既有用例适配 + 新增覆盖）：
+    - `index.test.ts` 4 处 `lockData(initial, options)` 双参数 → `lockData({ getValue, ... })` 单参数
+    - `__test__/core/entry.browser.test.ts` 4 处异步路径 + 同步抛错路径用例改写（同步抛错改为 `try/catch + void lockData()`，cause 链路验证 `LockDisposedError(cause=boom)`）
+    - `__test__/core/entry-standalone-driver-isolation.browser.test.ts` 1 处旧形态适配
+    - `__test__/core/registry.node.test.ts` 重写：`buildFactory` + `createMockAdapters` 适配 `dataRef + applyRemote`；删除旧 `resolveInitialData` 三大段测试；新增 **`prepareEntryData` 测试组**（同步路径：`firstValue` 经 `cloneByJson` 隔离、`getValue` 缺失 `TypeError`、同步抛错 `LockDisposedError`、顶层数组 `InvalidOptionsError`、非 JSON-safe `TypeError`；异步路径：`Promise.resolve` 携带 `awaited`、`Promise.reject` 为 `LockDisposedError`、resolve 顶层数组 reject、resolve 非 JSON-safe reject、多次 await 同一 dataReadyPromise 共享语义）；18 处 `getOrCreateEntry({}, ...)` 类型适配（声明全局 `noopOptions`，sed 批量替换）
+    - `__test__/core/actions.browser.test.ts` + `actions-concurrent-write.node.test.ts` + `actions-revoke-getlock.node.test.ts` + `actions-dispose-race.node.test.ts`：`buildActions` 第二个入参类型从 `LockDataOptions<T>` 改为 `Pick<LockDataOptions<T>, 'listeners' | 'signal' | 'timeout'>`（`BuildActionsOptions<T>`），避免 `getValue` 必传约束污染测试用例
+    - `__test__/core/readonly-view.node.test.ts`：完全重写为 wrapper Proxy 测试 + `delete view.name` 用例加 biome ignore 注释（验证 deleteProperty trap 必须用 delete 操作符）
+    - `__test__/integration/memory-adapters.node.test.ts` 9 处旧形态批量改写（场景 1-7 全部从 `lockData(initial, options)` → `lockData({ id, getValue, ... })`）
+    - `__test__/integration/entry.node.test.ts` 重写为单签名集成契约测试（`LockDataTuple<T> | Promise<LockDataTuple<T>>` 联合类型断言收窄）
+    - `__test__/authority/integration.browser.test.ts` + `__test__/authority/init-dispose-race.node.test.ts`：host 工厂适配 `applyRemote` 方法 + `dataRef.current` 字段
+    - `__test__/core/actions.browser.test.ts:670` 用例：`gate.reject(LockDisposedError(cause=boom))` 模拟 `prepareEntryData` 真实包装契约（修正测试期望与实际契约不一致）
+    - 删除 `__test__/adapters/clone.node.test.ts` + `registry-async-initial-required.node.test.ts`（API 已废弃）
+  - **关键设计点 1：单签名 + 条件类型精确推断（2026/05/08 二次重构升级）**——
+    - **初版（2026/05/08 上午）**：单签名返回 `LockDataTuple<T> | Promise<LockDataTuple<T>>` 联合类型，调用方通过 `instanceof Promise` 运行时区分；同步路径仍需 `as LockDataTuple<T>` 断言才能解构，类型层有"是否 Promise"歧义
+    - **终版（2026/05/08 下午）**：升级为条件类型自动推断，`function lockData<const O extends LockDataOptions<unknown>>(options: O): LockDataResolveReturn<O>` 单泛型 + `T` 从 `O['getValue']` 反推（调用方无需显式传任何泛型），三层条件分支：① `syncMode='storage-authority'` 时强制 `id: string`（缺 `id` 推为 `never`，编译期 fail-fast）；② 否则按 `getValue` 返回值是 `Promise<unknown>` 决定 `Promise<LockDataTuple<T>>`；③ 否则 `LockDataTuple<T>`
+    - **关键技术点**：① `LockDataInfer<O>` 用 `Awaited<R> extends infer T extends object` 把同步 / 异步统一反推 `T`；② `LockDataResolveReturn<O>` 在 `LockDataValueShape<LockDataInfer<O>>` 为 `never` 时直接 `never`（顶层数组类型层禁止）；③ 约束位置仅用 `LockDataOptions<unknown>`（避免「O 的约束依赖 `LockDataInfer<O>`、`LockDataInfer<O>` 又依赖 O」的循环推断）；④ `LockDataReturn<T, O>` 第二参数约束放宽为 `object` 而非 `LockDataOptions<X>`（`LockDataListeners.onCommit` 逆变位置导致双向不变 → 必须 `object` 兜底协变）
+    - **测试断言重写**：`index.test.ts` / `entry.node.test.ts` 删除全部 `as readonly [...]` / `as LockDataTuple<...>` 断言（共 6 处）；`expectTypeOf` 同步路径用 `toEqualTypeOf<LockDataTuple<Counter>>()`、异步路径用 `toEqualTypeOf<Promise<LockDataTuple<Counter>>>()` 精确分离；新增 `syncMode='storage-authority'` 缺 `id` → `never` 的类型层断言；`memory-adapters.node.test.ts` / `cross-tab.browser.test.ts` / `session-persistence.browser.test.ts` 共 35 处 `lockData<XXX>(...)` 显式泛型调用全部清理为 `lockData(...)` + `getValue: (): XXX => {...}` 显式返回类型注解
+    - **类型测试抽离（2026/05/08 收尾，参考 `src/shared/condition-merge/index.test-d.ts` 模式）**：把 11 处 `expectTypeOf` 类型断言从 runtime 测试中分离到独立的 `.test-d.ts` 文件 —— 新建 `src/shared/lock-data/index.test-d.ts`（覆盖 lockData 同步 / 异步路径精确推断 + `syncMode='storage-authority'` 缺 id 推为 `never` + `ReadonlyView<T>` 加 readonly 共 4 项类型契约）+ `src/shared/lock-data/__test__/integration/entry.test-d.ts`（覆盖三条初始化路径类型契约 + `ReadonlyView<T>` 嵌套递归 readonly + 函数类型透传不递归）；从 `index.test.ts` / `entry.node.test.ts` 移除全部 `expectTypeOf` 断言及不再使用的 `LockDataTuple` / `ReadonlyView` 类型导入；配套 `vitest.project.config.ts:19` 的 `typecheck.include = ['src/${namespace}/**/*.test-d.ts']` 已支持自动收口（CI 环境 `enabled=!CI_TEST` 跳过省时间，本地 + `tsc --noEmit` 仍能强制校验）。**收益**：runtime 测试聚焦 runtime 行为、类型测试聚焦编译期契约，关注点分离；与仓库其它工具（`condition-merge` / 等）的测试组织风格保持一致
+    - **`LockDataValueShape<T>` 类型层禁止顶层数组**保留不变，运行时 `Array.isArray(awaited)` fail-fast 兜底
+  - **关键设计点 2：wrapper Proxy 引用稳定契约**——`dataRef` 引用本身在 Entry 生命周期内永不变更，所有"重新赋值"通过修改 `.current` 完成（commit / applyRemote / 异步 resolve）；readonly-view 直接以 dataRef 作为 Proxy target，`Object.isFrozen(view) === false` 是已知瑕疵（已在 RFC 文字说明声明：判型不可靠，约定式只读）
+  - **关键设计点 3：Entry 构造延迟 + 同步抛错 fail-fast**——同步抛错路径 Entry 根本不构造（直接抛 `LockDisposedError`，不进 registry），异步抛错路径 Entry 构造延迟到 `dataReadyPromise.resolve` 之后；`finalizeResult` 直接透传 `dataReadyPromise` reject（不二次包装），让用户拿到的 cause 直接指向 `getValue` 原始错误
+  - **关键设计点 4：JSON-safe 公共闸单点收敛**——所有进入 `dataRef.current` 的值（同步 / 异步 / authority 远程同步 / replace 入参 / update commit）都在 `assertJsonSafeInput` 统一校验，校验失败 fail-fast，调用方拿到 `firstValue` 时已是 JSON 安全状态
+  - **关键设计点 5：authority 钩子重构**——`host.applyRemote(next)` 方法替代 `host.data` 字段直读 + `applySnapshot` 钩子，authority 层完全不感知 dataRef wrapper 实现细节（仅依赖 `applyRemote` 方法签名）
+  - **关键设计点 6：actions.ts 文件拆分**——`actions.ts` 主流程（非空白 499 行）+ `actions-helpers.ts` 辅助函数（非空白 369 行），满足 biome `noExcessiveLinesPerFile.maxLines: 500 + skipBlankLines: true` 限制；拆分按职责（主流程 vs 辅助函数）而非按行数硬切
+  - **方案归档**：`fixes/api-getvalue-only-redesign.md`（重写后内容：方案演进 → wrapper 方案 → 三大补丁 → Q1-Q8 决策 → 设计文档 §14.1-§14.4 缺口订正）
+  - **过期文档清理**：删除 `fixes/initial-data-shape-mismatch.md`（fail-fast 方案已被新 API 完全取代）
+  - **验证**（2026/05/08 09:30 本地实测）：
+    - `pnpm run check` → 全仓 200 文件 clean
+    - `pnpm run test:ci src/shared/lock-data/` → **40/40 测试文件通过 + 461/461 用例全绿**
+    - `read_lints src/shared/lock-data` → 仅 IDE 索引缓存对已删除文件的陈旧报错（`adapters/clone.ts` + `__test__/adapters/clone.node.test.ts`，shell `find` 多次确认实际不存在）
+    - `pnpm run build` → 84 文件生成在 dist，shared 70.3KB / react 2.8KB / vue 0.45KB，esm0/esm1 双产物声明文件正常生成
+  - **关联文件**：`types.ts` / `index.ts` / `utils/json-safe.ts`（新建）/ `core/registry.ts` / `core/readonly-view.ts` / `core/entry.ts` / `core/actions.ts` / `core/actions-helpers.ts`（新建）/ `adapters/index.ts` / `adapters/clone.ts`（删除）/ `authority/index.ts` / `authority/serialize.ts` / 大量 `__test__/**` 测试文件 / `RFC.md`（受影响章节全文重写）/ `fixes/api-getvalue-only-redesign.md`（重写）/ `fixes/initial-data-shape-mismatch.md`（删除）
+
 ---
 
 ## 目录结构（最终落地形态）
@@ -809,6 +864,6 @@ src/shared/lock-data/
 
 ## 相关文档
 
-- **设计源头**：[`./RFC.md`](./RFC.md) (0.1.4, accepted on 2026/04/29)
+- **设计源头**：[`./RFC.md`](./RFC.md) (0.1.5, accepted on 2026/05/08)
 - **编码规范**：[`../../../AGENTS.md`](../../../AGENTS.md)（报错走 `shared/throw-error`）
 - **项目测试约定**：[`../../../vitest.config.ts`](../../../vitest.config.ts)

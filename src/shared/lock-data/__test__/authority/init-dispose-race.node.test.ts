@@ -29,7 +29,8 @@ import type {
 } from '../../types';
 
 interface TestHost {
-  data: { value: number };
+  readonly dataRef: { current: { value: number } };
+  readonly applyRemote: (next: { value: number }) => void;
   rev: number;
   lastAppliedRev: number;
   epoch: string | null;
@@ -141,10 +142,16 @@ function createTestDeps(
       }) => void
     >
   >;
-  applySnapshot: ReturnType<typeof vi.fn<(data: { value: number }, next: { value: number }) => void>>;
+  applyRemote: ReturnType<typeof vi.fn<(next: { value: number }) => void>>;
 } {
+  const dataRef = { current: { value: 0 } };
+  const applyRemote = vi.fn<(next: { value: number }) => void>((next: { value: number }): void => {
+    // 测试 host 模拟 applyRemote 契约：整体替换 dataRef.current（authority 已在 readIfNewer 中完成 deserialize 隔离）
+    dataRef.current = next;
+  });
   const host: TestHost = {
-    data: { value: 0 },
+    dataRef,
+    applyRemote,
     rev: 0,
     lastAppliedRev: 0,
     epoch: null,
@@ -160,11 +167,6 @@ function createTestDeps(
         snapshot: { value: number };
       }) => void
     >();
-  const applySnapshot = vi.fn<(data: { value: number }, next: { value: number }) => void>(
-    (data: { value: number }, next: { value: number }) => {
-      data.value = next.value;
-    },
-  );
 
   const authority = overrides.authority === undefined ? createTrackingAuthority() : overrides.authority;
   const channel = overrides.channel === undefined ? createSilentChannel() : overrides.channel;
@@ -178,13 +180,11 @@ function createTestDeps(
     persistence: 'session',
     sessionProbeTimeout: overrides.sessionProbeTimeout ?? 30,
     logger: createTestLogger(),
-    clone: <V>(value: V): V => JSON.parse(JSON.stringify(value)) as V,
-    applySnapshot,
     emitSync,
     emitCommit,
   };
 
-  return { deps, host, authority, channel, emitSync, emitCommit, applySnapshot };
+  return { deps, host, authority, channel, emitSync, emitCommit, applyRemote };
 }
 
 describe('StorageAuthority — init() 与 dispose() 并发场景', () => {
@@ -227,15 +227,15 @@ describe('StorageAuthority — init() 与 dispose() 并发场景', () => {
   });
 
   test('await resolveEpoch 期间调用 dispose：emitSync 不会被触发', async () => {
-    const { deps, emitSync, applySnapshot } = createTestDeps({ sessionProbeTimeout: 30 });
+    const { deps, emitSync, applyRemote } = createTestDeps({ sessionProbeTimeout: 30 });
 
     const sa = createStorageAuthority(deps);
     const initPromise = sa.init();
     sa.dispose();
     await initPromise;
 
-    // 初次 pull 没执行 → applySnapshot 没调用 → emitSync 没触发
-    expect(applySnapshot).not.toHaveBeenCalled();
+    // 初次 pull 没执行 → host.applyRemote 没调用 → emitSync 没触发
+    expect(applyRemote).not.toHaveBeenCalled();
     expect(emitSync).not.toHaveBeenCalled();
   });
 

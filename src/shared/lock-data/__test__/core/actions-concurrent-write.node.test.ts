@@ -118,12 +118,6 @@ function createStubAdapters<T>(): ResolvedAdapters<T> {
   });
   return {
     logger,
-    clone: <V>(value: V): V => {
-      if (value === null || typeof value !== 'object') {
-        return value;
-      }
-      return JSON.parse(JSON.stringify(value));
-    },
     getAuthority: () => null,
     getChannel: () => null,
     getSessionStore: () => null,
@@ -138,9 +132,14 @@ interface StubEntryOptions<T extends object> {
 
 function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> {
   const listenersSet = new Set<LockDataListeners<T>>();
+  const dataRef = { current: opts.data };
   return {
     id: 'test-id',
-    data: opts.data,
+    lockId: 'test-id',
+    dataRef,
+    applyRemote: (next: T): void => {
+      dataRef.current = JSON.parse(JSON.stringify(next)) as T;
+    },
     driver: opts.driver,
     adapters: createStubAdapters<T>(),
     authority: null,
@@ -160,14 +159,15 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
     rev: 0,
     lastAppliedRev: 0,
     epoch: null,
-    dataReadyState: 'ready',
-    dataReadyError: undefined,
   };
 }
 
+// 测试辅助类型：只读 listeners / signal 两个字段，避免 LockDataOptions 的 getValue 必传约束
+type BuildActionsOptions<T extends object> = Pick<LockDataOptions<T>, 'listeners' | 'signal'>;
+
 function buildActions<T extends object>(
   entryOpts: StubEntryOptions<T>,
-  options: LockDataOptions<T> = {},
+  options: BuildActionsOptions<T> = {},
 ): {
   entry: Entry<T>;
   actions: ReturnType<typeof createActions<T>>;
@@ -178,7 +178,7 @@ function buildActions<T extends object>(
   }
   const actions = createActions<T>({
     entry,
-    options,
+    options: options as LockDataOptions<T>,
     releaseFromRegistry: vi.fn(),
   });
   return { entry, actions };
@@ -222,7 +222,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
 
     // 关键断言 1：两次都成功 commit，rev 自增两次
     expect(entry.rev).toBe(2);
-    expect(entry.data.v).toBe(2);
+    expect(entry.dataRef.current.v).toBe(2);
     // 关键断言 2：commit 顺序严格 #1→#2（rev 递增序列）
     expect(onCommitOrder).toEqual([1, 2]);
     // 关键断言 3：未触发任何伪 onRevoked（修复前 update#1 会被 update#2 篡位 → 拿到 LockRevokedError + onRevoked 触发）
@@ -267,7 +267,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
     // 关键断言 1：两次都成功 commit（修复前 update#1 在 commit 时会发现 aliveToken 被
     // update#2 改写 → 抛 LockRevokedError → 事务 rollback，rev 不会到 2）
     expect(entry.rev).toBe(2);
-    expect(entry.data.v).toBe(2);
+    expect(entry.dataRef.current.v).toBe(2);
     // 关键断言 2：每个 update 各自 acquire+release 一次，无 handle 泄漏
     // 修复前 committing 期间重入会让 handle#A 被 handle#B 覆盖 → release 计数不平衡
     // （只调用过 handle#B.release，handle#A 永远悬挂）
@@ -294,7 +294,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
 
     // 关键断言：replace 在 update 之后串行执行，最终值是 replace 写入的对象
     expect(entry.rev).toBe(2);
-    expect(entry.data).toEqual({ v: 999, tag: 'replaced' });
+    expect(entry.dataRef.current).toEqual({ v: 999, tag: 'replaced' });
     // 串行后两次操作各自 acquire→release（与场景 1/2 一致）
     expect(driverCtl.acquireCount).toBe(2);
     expect(driverCtl.releaseCount).toBe(2);
