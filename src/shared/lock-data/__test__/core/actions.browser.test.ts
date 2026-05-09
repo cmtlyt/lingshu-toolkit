@@ -825,7 +825,6 @@ describe('actions / 最小 thenable 安全（回归保护）', () => {
    */
   function createMinimalRejectedThenable(reason: unknown): PromiseLike<void> {
     const thenable: PromiseLike<void> = {
-      // biome-ignore lint/suspicious/noThenProperty: 测试专用：刻意构造 Promises/A+ 最小 thenable 验证实现侧的正规化保护
       then: <TResult1 = void, TResult2 = never>(
         _onFulfilled?: ((value: undefined) => TResult1 | PromiseLike<TResult1>) | null,
         onRejectedCallback?: ((rejectReason: unknown) => TResult2 | PromiseLike<TResult2>) | null,

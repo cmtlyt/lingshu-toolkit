@@ -24,7 +24,7 @@
  * 生命周期管理订阅解绑（refCount === 0 时解绑）
  */
 
-import { isObject, isString } from '@/shared/utils/verify';
+import { isObject, isString } from '@/shared/utils';
 import { withResolvers } from '@/shared/with-resolvers';
 import { DEFAULT_SESSION_PROBE_TIMEOUT, PERSISTENT_EPOCH } from '../constants';
 import type { ChannelAdapter, LoggerAdapter, Persistence, SessionStoreAdapter } from '../types';
@@ -286,12 +286,18 @@ function subscribeSessionProbe(channel: ChannelAdapter, getMyEpoch: () => string
 }
 
 export type { ResolveEpochContext, ResolveEpochResult, SessionProbeMessage, SessionReplyMessage };
+// `probeForExistingSession` / `freshEpoch` 不通过 lock-data/index.ts 对外暴露，仅供 __test__ 直接 import：
+//   - probeForExistingSession：用 fake timers 稳定命中 timeout 早退分支；同时命中
+//     `if (!channel) return null` 的防御兜底（公共路径 resolveEpoch D 分支已前置拦截）
+//   - freshEpoch：命中 `if (ctx.sessionStore)` 的 false 分支（公共路径 B 分支已前置拦截）
 export {
   buildProbeMessage,
   buildReplyMessage,
+  freshEpoch,
   generateUuid,
   isSessionProbeMessage,
   isSessionReplyMessage,
+  probeForExistingSession,
   resolveEpoch,
   subscribeSessionProbe,
 };

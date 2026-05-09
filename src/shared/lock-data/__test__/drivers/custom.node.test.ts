@@ -249,4 +249,57 @@ describe('drivers/custom (node)', () => {
 
     await expect(driver.acquire(buildContext())).rejects.toBeInstanceOf(LockAbortedError);
   });
+
+  // -------------------------------------------------------------------------
+  // 残余分支补测
+  // -------------------------------------------------------------------------
+
+  test('外部 signal 已 aborted 进入 acquire → mergeSignalWithTimeout 直接透传 abort（line 51-57 早退）', async () => {
+    // 让用户工厂监听合并 signal —— 已 aborted 时立即 reject，触发 acquire 主体的
+    // `if (ctx.signal.aborted)` 分支，把错误映射为 LockAbortedError
+    const getLock = vi.fn((userCtx: LockDriverContext) => {
+      if (userCtx.signal.aborted) {
+        return Promise.reject(userCtx.signal.reason);
+      }
+      return Promise.resolve({
+        release: vi.fn(),
+        onRevokedByDriver: vi.fn(),
+      } satisfies LockDriverHandle);
+    });
+    driver = createCustomLockDriver(buildDeps(getLock));
+
+    const controller = new AbortController();
+    controller.abort(new Error('pre-aborted'));
+
+    // signal 已 aborted 进入 acquire，mergeSignalWithTimeout 走早退分支
+    // （controller.abort 后 cleanup: () => undefined，getTimeoutFired: () => false）
+    await expect(driver.acquire(buildContext({ signal: controller.signal }))).rejects.toBeInstanceOf(LockAbortedError);
+
+    // 用户工厂确实被调用过（合并 signal 已是 aborted 状态）
+    expect(getLock).toHaveBeenCalledTimes(1);
+    const passedCtx = getLock.mock.calls[0]?.[0] as LockDriverContext;
+    expect(passedCtx.signal.aborted).toBe(true);
+  });
+
+  test('用户 release 返回 reject Promise → catch 回调命中 logger.error（line 125-127）', async () => {
+    const logger = createLoggerSpy();
+    const releaseRejection = new Error('release rejected');
+
+    const userHandle: LockDriverHandle = {
+      // 返回 Promise 且 reject —— 触发 wrapUserHandle 内 Promise.resolve(ret).catch 回调
+      release: () => Promise.reject(releaseRejection),
+      onRevokedByDriver: vi.fn(),
+    };
+    driver = createCustomLockDriver(buildDeps(() => userHandle, logger));
+
+    const handle = await driver.acquire(buildContext());
+    // wrapped.release() 返回 Promise<void>（catch 后不再 reject）；await 不抛
+    await expect(Promise.resolve(handle.release())).resolves.toBeUndefined();
+
+    // 命中 catch 回调 + logger.error
+    expect(logger.errorMock).toHaveBeenCalled();
+    const errorCall = logger.errorMock.mock.calls.find((call) => /user release rejected/u.test(String(call[0])));
+    expect(errorCall).toBeDefined();
+    expect(errorCall?.[1]).toBe(releaseRejection);
+  });
 });

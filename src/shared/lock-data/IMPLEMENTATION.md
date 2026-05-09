@@ -61,7 +61,7 @@
   - ✅ `const logger: LoggerAdapter = resolveLoggerAdapter(user.logger)`（产物用作 entry.logger）
   - ❌ `const logger = user.logger ?? createDefaultLogger()`（对象级替换，会整体丢失用户部分字段）
   - ❌ 调用点 `logger.debug?.(...)` 判空（契约已保证存在，判空反而暗示不信任契约）
-- **类型判断**：**优先使用 `@/shared/utils/verify` 的语义函数替代原生 `typeof` 运行时判断**
+- **类型判断**：**优先使用 `@/shared/utils` 的语义函数替代原生 `typeof` 运行时判断**
   - 映射表：
     - `typeof x === 'function'` → `isFunction(x)`；`typeof x !== 'function'` → `!isFunction(x)`
     - `typeof x === 'string'` → `isString(x)`；`typeof x !== 'string'` → `!isString(x)`
@@ -335,7 +335,7 @@ Phase 7 文档与测试收口
 
 - [x] **全量回归**：`pnpm run test:ci src/shared/lock-data/` 共 25 文件 **286 用例全通**（Phase 0-4 累计；Phase 4 净新增 79 用例：serialize 8 + extract 29 + epoch 21 + integration 21）
 - [x] **read_lints 全净**：`src/shared/lock-data/` 整个目录零 lint 错误
-- [x] **风格守则落实**：authority 层全部使用 `@/shared/utils/verify` 的 `isObject` / `isString` / `isNumber`；异步外部化用 `withResolvers`（probeForExistingSession）；`shared/throw-error` 未出现本期硬依赖（本层只 logger.warn/error 降级，不向外 throw）
+- [x] **风格守则落实**：authority 层全部使用 `@/shared/utils` 的 `isObject` / `isString` / `isNumber`；异步外部化用 `withResolvers`（probeForExistingSession）；`shared/throw-error` 未出现本期硬依赖（本层只 logger.warn/error 降级，不向外 throw）
 - [x] 为 Phase 5 奠定基础：`StorageAuthorityHost` 鸭子类型契约 + 依赖注入（applySnapshot / emitSync / emitCommit / clone）使 Phase 5 registry 可无缝接入
 
 ---
@@ -394,7 +394,7 @@ Phase 7 文档与测试收口
   - 🔴 生产 bug 3 处 `nursery/noMisusedPromises`：`core/actions.ts:283`（`safeReleaseHandle` thenable 判定）+ `core/actions.ts:355`（`ensureDataReady` 的 `dataReadyPromise` 条件）+ `core/entry.ts:264`（`mergeReadyPromises` 双 promise 条件）—— 全部是 `Promise | null` 被用作布尔条件的语义歧义，修复为显式 `!== null` / `!== undefined` 空检查 + `??` 合并
   - 🟡 `core/fanout.ts:41` `nursery/noShadow`：`fanoutEvent` 的外层 `event: TEvent` 参数与 `pickHook` 回调类型签名中的 `event` 参数同名遮蔽，重命名为 `eventPayload` / `payload` 消除歧义；顺带把同文件 L57 的 `result &&` 风格统一为 `result !== undefined &&`
   - 🟡 `__test__/core/actions.browser.test.ts` 4 处：删除未使用 `LockStateChangeEvent` 导入、`makeHandle` 箭头函数展开为块体、3 处 `(d) => void (d.v = 1)` 改为 `(d) => { d.v = 1; }`（同时解决 `noAssignInExpressions` + `noReturnAssign`）
-- [x] **自审修复 P2（第三轮，语义精确化回炉）**：第二轮为过 `noMisusedPromises` 把 `result && typeof (result as Promise<void>).then === 'function'` 简化成 `result !== undefined && typeof...`，但这是信息收集不充分的简化实现 —— `actions.ts::safeReleaseHandle` 的 `result: unknown`（driver.release 实际返回值可能偏离 `void | Promise<void>` 契约，如用户自定义 driver 返回 `null` / primitive），`fanout.ts::fanoutEvent` 的 hook 是用户 listener（TS 类型约束在运行时丢失）。`!== undefined` 弱守卫过不滤 `null`，对 `null` 做 `typeof (null as Promise<void>).then` 虽不 runtime 错误但语义已偏离"只对 thenable 生效"的原意。两处统一加固为**严谨的三重鸭子类型守卫**：`isObject(result) && 'then' in result && isFunction(result.then)` —— 既过滤所有非 object 值（undefined / null / primitive），又用 `'then' in` 精确判定 thenable，同时 `isFunction` 确认可调用，复用 `@/shared/utils/verify` 统一风格，避开 `noMisusedPromises`
+- [x] **自审修复 P2（第三轮，语义精确化回炉）**：第二轮为过 `noMisusedPromises` 把 `result && typeof (result as Promise<void>).then === 'function'` 简化成 `result !== undefined && typeof...`，但这是信息收集不充分的简化实现 —— `actions.ts::safeReleaseHandle` 的 `result: unknown`（driver.release 实际返回值可能偏离 `void | Promise<void>` 契约，如用户自定义 driver 返回 `null` / primitive），`fanout.ts::fanoutEvent` 的 hook 是用户 listener（TS 类型约束在运行时丢失）。`!== undefined` 弱守卫过不滤 `null`，对 `null` 做 `typeof (null as Promise<void>).then` 虽不 runtime 错误但语义已偏离"只对 thenable 生效"的原意。两处统一加固为**严谨的三重鸭子类型守卫**：`isObject(result) && 'then' in result && isFunction(result.then)` —— 既过滤所有非 object 值（undefined / null / primitive），又用 `'then' in` 精确判定 thenable，同时 `isFunction` 确认可调用，复用 `@/shared/utils` 统一风格，避开 `noMisusedPromises`
 - [x] **自审修复 P2（第四轮，彻底性修复）**：第三轮只修了 `safeReleaseHandle` / `fanoutEvent` 两处，但同文件 `actions.ts` 还有 **2 处同型遗漏**（`releaseLockHandle` L267 / `runTransaction` recipe 判定 L502）以及 **2 处最小 thenable 不安全的 `.catch` 挂钩**（第三轮修复后残留）。具体修复：
   - 🔴 `actions.ts::releaseLockHandle` L267 thenable 判定加固为三重守卫（同 safeReleaseHandle 模式），避免 driver 返回 `null` / primitive 时的 truthy 漏网
   - 🔴 `actions.ts::runTransaction` L502 recipe 返回值判定加固为三重守卫，避免用户 recipe 意外返回 truthy 非 thenable 值时走 `await` 产生不必要 microtask 延迟（影响同步 update 时序契约）
@@ -422,7 +422,7 @@ Phase 7 文档与测试收口
 - [x] **DRY 重构**：删除 `core/actions.ts::applyReplaceRecipe`（32 行），统一复用 `core/registry.ts::applyInPlace`；两者原先语义完全等价（数组 `length=0 + push` / 对象 `Reflect.ownKeys + deleteProperty + set`，含 Symbol key 兼容），重复实现无意义
 - [x] **lint 权威性修正（重要教训）**：`read_lints`（IDE LSP）对 biome nursery 规则覆盖不完整，会漏报 `noMisusedPromises` / `noShadow` / `noReturnAssign` 等。**Phase 5+ 以 `pnpm biome lint` CLI 为权威**，`read_lints` 仅作 IDE 内实时提示参考
 - [x] **biome lint CLI 全净**：`pnpm biome lint src/shared/lock-data/` 共 66 文件零错误
-- [x] **风格守则落实**：core 层全部使用 `@/shared/utils/verify` 的 `isObject` / `isString` / `isFunction`；异步外部化用 `withResolvers`；错误构造走 `@/shared/throw-error`；逻辑或统一 `||` 语义；严禁 `throw new Error`；`Promise | null` 类条件判断统一用 `!== null` / `!== undefined` 显式空检查
+- [x] **风格守则落实**：core 层全部使用 `@/shared/utils` 的 `isObject` / `isString` / `isFunction`；异步外部化用 `withResolvers`；错误构造走 `@/shared/throw-error`；逻辑或统一 `||` 语义；严禁 `throw new Error`；`Promise | null` 类条件判断统一用 `!== null` / `!== undefined` 显式空检查
 - [x] **ES 模块语义守则**：tool 入口 `core/entry.ts` 所有导出放文件尾 `export { __resetDefaultRegistry, lockData }`；helper 文件（registry/actions/fanout/readonly-view/authority/…）全部使用 `export function` / `export const` / `export type` 内联导出
 - [x] 为 Phase 6 奠定基础：`lockData` 主入口已存在且可直接用；Phase 6 只需做 `src/shared/index.ts` 的 barrel 导出 + 三重载类型签名验证
 

@@ -284,7 +284,6 @@ describe('tryCall', () => {
   test('PromiseLike 类型支持', async () => {
     // 测试 tryCall 支持 PromiseLike 类型（不仅仅是 Promise）
     const thenable = {
-      // biome-ignore lint/suspicious/noThenProperty: test ignore
       then: (resolve: (value: number) => void) => {
         resolve(42);
       },
@@ -297,7 +296,6 @@ describe('tryCall', () => {
   test('PromiseLike 错误处理', async () => {
     // 测试 PromiseLike 的错误处理
     const thenableWithError = {
-      // biome-ignore lint/suspicious/noThenProperty: test ignore
       then: (_resolve: any, reject: (error: Error) => void) => {
         reject(new Error('thenable error'));
       },

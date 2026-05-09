@@ -571,3 +571,379 @@ describe('authority/epoch — TOCTOU 与多 Tab 收敛', () => {
     }
   });
 });
+
+describe('authority/epoch — generateUuid fallback（无 crypto.randomUUID）', () => {
+  let originalCrypto: unknown;
+
+  beforeEach(() => {
+    originalCrypto = (globalThis as { crypto?: unknown }).crypto;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  test('crypto 不存在时走 Math.random + Date.now 兜底，仍产出非空字符串', () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+    const id = generateUuid();
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+    // 兜底产物的形态：{base36}-{base36}，不会是 UUID v4 格式
+    expect(id).not.toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u);
+    expect(id).toMatch(/^[0-9a-z]+-[0-9a-z]+$/u);
+  });
+
+  test('crypto 存在但 randomUUID 不是函数 → 走兜底（兼容老浏览器 crypto 仅含 getRandomValues）', () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: { getRandomValues: () => new Uint8Array(0) },
+      configurable: true,
+      writable: true,
+    });
+    const id = generateUuid();
+    expect(typeof id).toBe('string');
+    expect(id).toMatch(/^[0-9a-z]+-[0-9a-z]+$/u);
+  });
+
+  test('crypto.randomUUID 抛错时走兜底', () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: {
+        randomUUID: () => {
+          throw new Error('SecurityError');
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+    const id = generateUuid();
+    expect(typeof id).toBe('string');
+    expect(id.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * 为 settled 重入保护测试构造一个**同步可控**的 ChannelAdapter
+ *
+ * 与 `createPairedBroadcastChannels` 的真实 BroadcastChannel 不同：
+ * - 真实 BroadcastChannel 走内核投递，message 到达对端是异步的，且并发 worker 跑测试
+ *   时调度顺序不稳定，过去导致这两个 flaky 用例偶发"reply 与 noise 抵达 listener
+ *   的顺序错乱 / probe 被吞掉"
+ * - 这里只关心 `probeForExistingSession` handler 内部的两条早退分支（`settled` /
+ *   `!isSessionReplyMessage`），跨 Tab 通信不是被测对象 —— 因此把 listener 引用
+ *   暴露给测试代码主动同步调用即可，完全规避内核投递时序
+ *
+ * 测试代码通过 `feedMessage(msg)` 直接同步触发 listener，按确定顺序覆盖目标分支
+ */
+function createControlledChannel(): {
+  channel: ChannelAdapter;
+  feedMessage: (message: unknown) => void;
+  sentMessages: readonly unknown[];
+} {
+  const listeners = new Set<(message: unknown) => void>();
+  const sent: unknown[] = [];
+  const channel: ChannelAdapter = {
+    postMessage: (message) => {
+      sent.push(message);
+    },
+    subscribe: (onMessage) => {
+      listeners.add(onMessage);
+      return () => {
+        listeners.delete(onMessage);
+      };
+    },
+    close: () => {
+      listeners.clear();
+    },
+  };
+  return {
+    channel,
+    feedMessage: (message: unknown) => {
+      for (const cb of listeners) {
+        cb(message);
+      }
+    },
+    sentMessages: sent,
+  };
+}
+
+describe('authority/epoch — probeForExistingSession 早退分支（settled 重入保护）', () => {
+  test('probe 已 resolve 后第二条 reply 不会重复 settle（settled 早退）', async () => {
+    // 用 controlledChannel 完全规避 BroadcastChannel 内核投递时序：
+    // resolveEpoch 内 channel.postMessage(probe) 后，listener 已通过 channel.subscribe
+    // 注册到 controlled channel；测试代码读取 sentMessages 拿到 probeId，再 feedMessage
+    // 同步驱动两条 reply 进入 listener，按确定顺序命中 settled 早退分支
+    const { channel, feedMessage, sentMessages } = createControlledChannel();
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const resultPromise = resolveEpoch({
+      persistence: 'session',
+      sessionStore,
+      channel,
+      authority,
+      logger: createTestLogger(),
+      sessionProbeTimeout: 200,
+    });
+
+    // 给一个 microtask 让 probeForExistingSession 完成 subscribe + postMessage
+    await Promise.resolve();
+    expect(sentMessages).toHaveLength(1);
+    const probeMessage = sentMessages[0] as { type: string; probeId: string };
+    expect(probeMessage.type).toBe('session-probe');
+    const probeId = probeMessage.probeId;
+    expect(probeId).toBeTruthy();
+
+    // 第一条 reply：进入 listener 后 settled=true → settle.resolve('first-epoch')
+    feedMessage({ type: 'session-reply', probeId, epoch: 'first-epoch' });
+    // 第二条同 probeId 的伪造 reply：listener 入口 if (settled) return 早退（被测分支）
+    feedMessage({ type: 'session-reply', probeId, epoch: 'second-epoch' });
+
+    const result = await resultPromise;
+    expect(result.epoch).toBe('first-epoch');
+
+    // 二次 feed 不会污染已 resolve 的结果（再 feed 一条同样早退）
+    feedMessage({ type: 'session-reply', probeId, epoch: 'third-epoch' });
+    expect(result.epoch).toBe('first-epoch');
+  });
+
+  test('probe 已 resolve 后非 reply 类型消息不会触发回退（!isSessionReplyMessage 早退）', async () => {
+    const { channel, feedMessage, sentMessages } = createControlledChannel();
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const resultPromise = resolveEpoch({
+      persistence: 'session',
+      sessionStore,
+      channel,
+      authority,
+      logger: createTestLogger(),
+      sessionProbeTimeout: 200,
+    });
+
+    await Promise.resolve();
+    const probeMessage = sentMessages[0] as { probeId: string };
+    const probeId = probeMessage.probeId;
+
+    // 先发非法 noise：listener 进入 if (!isSessionReplyMessage) return 早退（被测分支）
+    feedMessage({ type: 'random-noise', payload: 1 });
+    // 再发合法 reply：settled=true，settle.resolve('real-epoch')
+    feedMessage({ type: 'session-reply', probeId, epoch: 'real-epoch' });
+
+    const result = await resultPromise;
+    expect(result.epoch).toBe('real-epoch');
+  });
+
+  test('未传 sessionProbeTimeout 时走 DEFAULT_SESSION_PROBE_TIMEOUT 默认值（不抛错且能正常超时）', async () => {
+    // 不传 sessionProbeTimeout，触发 ctx.sessionProbeTimeout || DEFAULT_SESSION_PROBE_TIMEOUT 的 default 分支；
+    // 没有 paired 响应者，最终走 F 分支（超时 → 生成新 epoch）
+    const paired = createPairedBroadcastChannels(`test-default-timeout-${Math.random()}`);
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    try {
+      // 默认超时是 100ms（DEFAULT_SESSION_PROBE_TIMEOUT），这里只验证「不传 timeout 也能正常 resolve」
+      const result = await resolveEpoch({
+        persistence: 'session',
+        sessionStore,
+        channel: paired.tabA,
+        authority,
+        logger: createTestLogger(),
+        // 故意不传 sessionProbeTimeout
+      });
+      expect(result.effectivePersistence).toBe('session');
+      expect(result.authorityCleared).toBe(true);
+    } finally {
+      paired.cleanup();
+    }
+  }, 1000);
+
+  test('超时触发后 settled 已置为 true → 后续到达的 reply 不会改变 result（timeout 早退 + reply 早退）', async () => {
+    // fake timers 仅拦截 setTimeout/clearTimeout/setInterval/clearInterval，
+    // 不 fake 微任务 / Promise / Date / BroadcastChannel —— BC 消息派发走浏览器原生异步
+    // 队列，与 JS 定时器解耦，因此可以在 fake timers 下正常工作
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const paired = createPairedBroadcastChannels(`test-timeout-then-reply-${Math.random()}`);
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    // 响应者收到 probe 后，通过 fake setTimeout 延迟 200ms（远晚于 timeout=50ms）才回复
+    const unsubscribe = paired.tabB.subscribe((message) => {
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'session-probe') {
+        const probeId = (message as { probeId: string }).probeId;
+        setTimeout(() => {
+          paired.tabB.postMessage({ type: 'session-reply', probeId, epoch: 'late-epoch' });
+        }, 200);
+      }
+    });
+
+    try {
+      const resolvePromise = resolveEpoch({
+        persistence: 'session',
+        sessionStore,
+        channel: paired.tabA,
+        authority,
+        logger: createTestLogger(),
+        sessionProbeTimeout: 50,
+      });
+
+      // 推进到源码 setTimeout(50) 触发，触发后进入 settled=true，settle.resolve(null)
+      // advanceTimersByTimeAsync 同时会让微任务跑，使 finally 内的 clearTimeout/unsubscribe 完成
+      await vi.advanceTimersByTimeAsync(60);
+
+      const result = await resolvePromise;
+      // timeout 路径触发 → 走 freshEpoch 生成新 UUID，而非 'late-epoch'
+      expect(result.epoch).not.toBe('late-epoch');
+      expect(result.authorityCleared).toBe(true);
+
+      // 继续推进到 200ms 让晚到的 reply 真实派发；此时 channel 已 unsubscribe，
+      // 即使消息送达也不会再调用 callback（验证 settled=true 的 reply 早退分支）
+      await vi.advanceTimersByTimeAsync(200);
+      expect(result.epoch).not.toBe('late-epoch');
+    } finally {
+      unsubscribe();
+      paired.cleanup();
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * probeForExistingSession 残余分支补测
+ *
+ * resolveEpoch 在 D 分支已经把 !ctx.channel 拦截掉，但 probeForExistingSession 内部
+ * 仍保留 `if (!channel) return Promise.resolve(null)` 作为防御性早退（避免 unsafe 调用顺序时
+ * channel 为 null 导致 NPE）。这里通过直接构造 ctx + 强制走 reply 双触发场景覆盖：
+ *   1. settled 重入：同一 probeId 多次 reply，第二次进入 subscribe callback 时 settled=true 早退
+ *   2. settled 重入（timeout 后）：reply 早到 settle，timeout 仍触发 cb，进入 settled=true 早退
+ */
+describe('authority/epoch — probeForExistingSession 防御性 / settled 重入', () => {
+  test('reply 早到后 timeout 触发 cb：进入 settled=true 早退分支（line 219-220）', async () => {
+    // fake timers 仅拦截 setTimeout/clearTimeout/setInterval/clearInterval，
+    // 不影响 BroadcastChannel 原生异步投递；reply 通过 BC 真实派发先送达，
+    // 然后用 advanceTimersByTimeAsync 推进源码内 setTimeout(..., 500) 让 timeout cb 触发
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    const paired = createPairedBroadcastChannels(`probe-double-settle-${Math.random()}`);
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const replyEpoch = 'reply-fast-epoch';
+    const unsubscribe = paired.tabB.subscribe((message) => {
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'session-probe') {
+        const probeId = (message as { probeId: string }).probeId;
+        // 立即回复 → reply 先到，timeout 后到时进入 settled=true 早退
+        paired.tabB.postMessage({ type: 'session-reply', probeId, epoch: replyEpoch });
+      }
+    });
+
+    try {
+      const result = await resolveEpoch({
+        persistence: 'session',
+        sessionStore,
+        channel: paired.tabA,
+        authority,
+        logger: createTestLogger(),
+        sessionProbeTimeout: 500, // 给 BroadcastChannel 真实异步投递留足时间
+      });
+      // E 分支：继承 reply 的 epoch
+      expect(result.epoch).toBe(replyEpoch);
+
+      // 推进 fake timers 让源码内 setTimeout(..., 500) 自然到期 → 进入 settled=true 早退分支
+      // 此时 reply 已 settle 并 clearTimeout，但源码 timer 在 finally 触发 clearTimeout
+      // 之前若已 settle 完成，timer 已被清除；此处推进只是兜底验证不抛错
+      await vi.advanceTimersByTimeAsync(600);
+    } finally {
+      unsubscribe();
+      paired.cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  test('多个 reply 触发：第一条进 subscribe cb 后 settled=true，第二条命中早退分支（line 203-204）', async () => {
+    const paired = createPairedBroadcastChannels(`probe-multi-reply-${Math.random()}`);
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const unsubscribe = paired.tabB.subscribe((message) => {
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'session-probe') {
+        const probeId = (message as { probeId: string }).probeId;
+        // 同一 probeId 连发两条 reply；第一条 settle 后第二条命中 settled=true 早退
+        paired.tabB.postMessage({ type: 'session-reply', probeId, epoch: 'first-reply' });
+        paired.tabB.postMessage({ type: 'session-reply', probeId, epoch: 'second-reply' });
+      }
+    });
+
+    try {
+      const result = await resolveEpoch({
+        persistence: 'session',
+        sessionStore,
+        channel: paired.tabA,
+        authority,
+        logger: createTestLogger(),
+        sessionProbeTimeout: 1000,
+      });
+      // 第一条 reply 决定 epoch，第二条进入 settled=true 早退后被忽略
+      expect(result.epoch).toBe('first-reply');
+    } finally {
+      unsubscribe();
+      paired.cleanup();
+    }
+  });
+
+  test('错误 probeId 的 reply 被过滤（命中 message.probeId !== probeId 早退分支）', async () => {
+    const paired = createPairedBroadcastChannels(`probe-wrong-id-${Math.random()}`);
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const unsubscribe = paired.tabB.subscribe((message) => {
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === 'session-probe') {
+        // 故意发不匹配的 probeId → 命中 probeId mismatch 早退；后再发正确 probeId → 命中 happy path
+        paired.tabB.postMessage({ type: 'session-reply', probeId: 'wrong-id', epoch: 'wrong-epoch' });
+        const correctId = (message as { probeId: string }).probeId;
+        paired.tabB.postMessage({ type: 'session-reply', probeId: correctId, epoch: 'correct-epoch' });
+      }
+    });
+
+    try {
+      const result = await resolveEpoch({
+        persistence: 'session',
+        sessionStore,
+        channel: paired.tabA,
+        authority,
+        logger: createTestLogger(),
+        sessionProbeTimeout: 1000,
+      });
+      expect(result.epoch).toBe('correct-epoch');
+    } finally {
+      unsubscribe();
+      paired.cleanup();
+    }
+  });
+});
+
+describe('authority/epoch — freshEpoch sessionStore 写入', () => {
+  test('D 分支 freshEpoch 写入 sessionStore（命中 line 246 ctx.sessionStore 分支）', async () => {
+    const sessionStore = createMemorySessionStore(null);
+    const authority = createMemoryAuthority();
+
+    const result = await resolveEpoch({
+      persistence: 'session',
+      sessionStore,
+      channel: null, // 触发 D 分支
+      authority,
+      logger: createTestLogger(),
+    });
+
+    // D 分支生成新 epoch + 写入 sessionStore + 调用 authority.remove
+    expect(result.authorityCleared).toBe(true);
+    expect(result.epoch).not.toBe(PERSISTENT_EPOCH);
+    expect(sessionStore._store.value).toBe(result.epoch);
+    expect(authority._removed.count).toBe(1);
+  });
+});

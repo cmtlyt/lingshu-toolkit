@@ -16,7 +16,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isNumber, isString } from '@/shared/utils/verify';
+import { isNumber, isString } from '@/shared/utils';
 import { ERROR_FN_NAME, LOCK_PREFIX } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDriverContext, LockDriverHandle } from '../types';
@@ -337,4 +337,13 @@ function createStorageDriver(deps: LockDriverDeps): LockDriver {
   };
 }
 
-export { createStorageDriver };
+export {
+  acquireForceLock,
+  acquireNonForceLock,
+  acquireStorageLock,
+  buildWaiter,
+  createStorageDriver,
+  enqueueSlowPath,
+  handleFastPathGrant,
+  hasUsableLocalStorage,
+};

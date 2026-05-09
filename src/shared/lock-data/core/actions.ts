@@ -20,7 +20,7 @@
  */
 
 import { createError, throwError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils/verify';
+import { isFunction, isObject } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockRevokedError } from '../errors';
 import type {
@@ -217,8 +217,11 @@ async function performAcquire<T extends object>(
   }
 
   // acquire 成功但在 await 期间可能发生：
-  // 1. dispose 被触发 → state.disposed = true
-  // 2. aliveToken 被 revoke 改写成 ''（driver 通过别的通道触发了 revoke）
+  // 1. dispose 被触发 → state.disposed = true（由 dispose-race 测试覆盖）
+  // 2. aliveToken 被外部改写为 ''：生产链路下罕见 —— aliveToken 通常只由 handleRevoke
+  //    改写，而 handleRevoke 由 handle.onRevokedByDriver 触发，handle 必须 acquire 成功后
+  //    才能拿到。但作为双重防御保留：自定义 driver 若在 acquire 内部直接回调 revoke
+  //    路径仍可能命中。覆盖见 __test__/core/actions-perform-acquire.node.test.ts
   // 两种情况都要立刻归还 handle 并抛错
   if (state.disposed || state.aliveToken !== token) {
     safeReleaseHandle(handle, deps.entry.adapters.logger);
@@ -400,7 +403,8 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
     unbindSignalAutoDispose();
     unbindSignalAutoDispose = noop;
 
-    // 中断正在进行的 acquire
+    // 中断正在进行的 acquire；保留 if 是防御性兜底：未来若出现「外部直接 abort
+    // disposedController」的新调用点，避免这里二次 abort 触发不一致
     if (!disposedController.signal.aborted) {
       disposedController.abort(
         createError(ERROR_FN_NAME, 'actions disposed', LockAbortedError as unknown as ErrorConstructor),
@@ -535,8 +539,39 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
     },
   };
 
+  // `__testHooks` 仅供 __test__ 导入：暴露 doDispose 闭包 + disposedController 引用，
+  // 用于命中"signal 已 aborted 时调 doDispose → 跳过 abort 早退分支"等公共路径不可触达的
+  // 防御性分支。生产代码不应读取此字段（lock-data/index.ts 对外暴露的 LockDataActions 类型
+  // 也不包含此字段，TypeScript 层面已隔离）
+  Object.defineProperty(actions, '__testHooks', {
+    value: { doDispose, disposedController },
+    enumerable: false,
+    configurable: false,
+    writable: false,
+  });
+
   return actions;
 }
 
-export type { ActionsDeps };
-export { createActions };
+interface ActionsTestHooks {
+  readonly doDispose: () => void;
+  readonly disposedController: AbortController;
+}
+
+/** 从 createActions 返回值上取出测试钩子；仅供 __test__ 使用 */
+function getTestHooks<T extends object>(actions: LockDataActions<T>): ActionsTestHooks {
+  return (actions as unknown as { readonly __testHooks: ActionsTestHooks }).__testHooks;
+}
+
+export type { ActionsDeps, ActionsTestHooks };
+// `performAcquire` / `ensureDataReady` / `getTestHooks` 不通过 lock-data/index.ts 对外暴露，
+// 仅供 __test__ 直接 import 用于覆盖 createActions 公共路径下不便构造的内部分支：
+//   - performAcquire：`lock revoked before activation` 的双重防御性兜底
+//   - ensureDataReady：入口 disposed 守卫（公共路径下 update/replace 入口的 ensureAlive
+//     已先于 ensureDataReady 抛 LockDisposedError，导致此守卫不可触达，但作为函数
+//     自洽性保留 —— 直接 import 测试可命中）
+//   - getTestHooks：取出 actions 实例的内部 doDispose 闭包，用于命中
+//     `if (!disposedController.signal.aborted)` 的 false 分支（外部预先 abort
+//     disposedController 后调 doDispose 即可）
+// 生产代码请通过 createActions 返回的 actions API 间接调用。
+export { createActions, ensureDataReady, getTestHooks, performAcquire };

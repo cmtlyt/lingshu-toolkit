@@ -98,4 +98,21 @@ describe('adapters/authority (browser, real localStorage)', () => {
 
     expect(cb).not.toHaveBeenCalled();
   });
+
+  test('remove 抛错时降级为 logger.warn 不抛出（QuotaExceededError / SecurityError 等罕见路径）', () => {
+    const warnMock = vi.fn();
+    const logger: LoggerAdapter = { warn: warnMock, error: vi.fn() };
+    const adapter = createDefaultAuthorityAdapter({ id: 'browser-rm-err' }, { logger });
+    expect(adapter).not.toBeNull();
+
+    const removeItemSpy = vi.spyOn(localStorage, 'removeItem').mockImplementation(() => {
+      throw new Error('mock-removeItem-failed');
+    });
+
+    expect(() => adapter?.remove()).not.toThrow();
+    expect(warnMock).toHaveBeenCalledTimes(1);
+    expect(warnMock.mock.calls[0]?.[0]).toMatch(/Failed to remove authority snapshot from localStorage/u);
+
+    removeItemSpy.mockRestore();
+  });
 });

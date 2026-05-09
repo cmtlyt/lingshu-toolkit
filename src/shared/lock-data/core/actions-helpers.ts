@@ -17,7 +17,7 @@
  */
 
 import { createError, throwError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils/verify';
+import { isFunction, isObject } from '@/shared/utils';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';
 import { DEFAULT_TIMEOUT, ERROR_FN_NAME, LOCK_PREFIX, NEVER_TIMEOUT } from '../constants';
 import { LockAbortedError, LockDisposedError, LockTimeoutError } from '../errors';

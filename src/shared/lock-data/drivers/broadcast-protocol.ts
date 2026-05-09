@@ -13,7 +13,7 @@
  * 两端独立执行相同仲裁得出一致结果（基于消息内容是全局确定的：(ts, id) 一旦发出就不变）
  */
 
-import { isBoolean, isNumber, isObject, isString } from '@/shared/utils/verify';
+import { isBoolean, isNumber, isObject, isString } from '@/shared/utils';
 
 /** announce 的拒绝等待窗口（ms）；窗口内无 reject / 无更早的他方 announce → 拿锁 */
 const REJECT_WINDOW = 50;

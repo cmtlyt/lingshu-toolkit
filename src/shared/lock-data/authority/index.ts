@@ -26,7 +26,7 @@
  *   - 事件触发统一走 `emit` 回调，由调用方接到 listenersFanout
  */
 
-import { isObject, isString } from '@/shared/utils/verify';
+import { isObject, isString } from '@/shared/utils';
 import type {
   AuthorityAdapter,
   ChannelAdapter,
@@ -419,5 +419,13 @@ function createStorageAuthority<T extends object>(deps: StorageAuthorityDeps<T>)
   };
 }
 
-export type { StorageAuthority, StorageAuthorityDeps, StorageAuthorityHost };
-export { createStorageAuthority };
+export type { AuthorityState, StorageAuthority, StorageAuthorityDeps, StorageAuthorityHost };
+export {
+  applyAuthorityIfNewer,
+  attachActivationPullSubscription,
+  createStorageAuthority,
+  performCommitSuccess,
+  performDispose,
+  performInit,
+  performPullOnAcquire,
+};

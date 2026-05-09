@@ -156,3 +156,156 @@ describe('drivers/pickDriver (node)', () => {
     expect(() => pickDriver(args)).toThrow(TypeError);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 能力探测函数残余分支补测：hasNavigatorLocks / hasBroadcastChannel / hasUsableLocalStorage
+//
+// stubGlobalsUnavailable 把 navigator stub 成空对象（{}），命中的是 nav.locks 缺失分支；
+// 这里用更激进的 stub（navigator=undefined / BroadcastChannel 抛错构造）命中其他防御性分支
+// ---------------------------------------------------------------------------
+
+describe('drivers/index 能力探测残余分支', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test('hasNavigatorLocks：navigator=undefined 命中 if (!isObject(nav)) → false', () => {
+    vi.stubGlobal('navigator', undefined);
+    expect(hasNavigatorLocks()).toBe(false);
+  });
+
+  test('hasNavigatorLocks：navigator.locks 不是对象（如字符串）→ false', () => {
+    vi.stubGlobal('navigator', { locks: 'not-an-object' });
+    expect(hasNavigatorLocks()).toBe(false);
+  });
+
+  test('hasNavigatorLocks：navigator.locks.request 不是函数 → false', () => {
+    vi.stubGlobal('navigator', { locks: { request: 'not-a-function' } });
+    expect(hasNavigatorLocks()).toBe(false);
+  });
+
+  test('hasNavigatorLocks：navigator.locks.request 是函数 → true', () => {
+    vi.stubGlobal('navigator', { locks: { request: () => Promise.resolve() } });
+    expect(hasNavigatorLocks()).toBe(true);
+  });
+
+  test('hasBroadcastChannel：BroadcastChannel 不是函数 → 命中 if (!isFunction(Ctor)) false 分支', () => {
+    vi.stubGlobal('BroadcastChannel', undefined);
+    expect(hasBroadcastChannel()).toBe(false);
+
+    vi.stubGlobal('BroadcastChannel', 'not-a-function');
+    expect(hasBroadcastChannel()).toBe(false);
+  });
+
+  test('hasBroadcastChannel：构造函数抛错 → 命中 catch return false 分支', () => {
+    function ThrowingBroadcastChannel(): never {
+      throw new Error('synthetic ctor error');
+    }
+    vi.stubGlobal('BroadcastChannel', ThrowingBroadcastChannel);
+    expect(hasBroadcastChannel()).toBe(false);
+  });
+
+  test('hasUsableLocalStorage：localStorage=undefined → 命中 if (!storage) false 分支', () => {
+    vi.stubGlobal('localStorage', undefined);
+    expect(hasUsableLocalStorage()).toBe(false);
+  });
+
+  test('hasUsableLocalStorage：完整可用的 localStorage stub → setItem/removeItem 走通 + 返回 true', () => {
+    const setItemMock = vi.fn();
+    const removeItemMock = vi.fn();
+    vi.stubGlobal('localStorage', {
+      setItem: setItemMock,
+      removeItem: removeItemMock,
+      // 其他必需字段一并提供，避免类型层面拒绝
+      getItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    });
+    expect(hasUsableLocalStorage()).toBe(true);
+    expect(setItemMock).toHaveBeenCalledTimes(1);
+    expect(removeItemMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('hasUsableLocalStorage：setItem 抛错 → 命中 catch return false 分支', () => {
+    vi.stubGlobal('localStorage', {
+      setItem: () => {
+        throw new Error('quota exceeded');
+      },
+      removeItem: vi.fn(),
+      getItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    });
+    expect(hasUsableLocalStorage()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pickDriver 主入口残余分支补测：mode='storage' 主路径 + auto 降级到 storage
+//
+// 上面 describe 已覆盖各能力 stub 的不可用情况；这里显式 stub 让某个能力可用，
+// 走通 createStorageOrThrow 主路径 + createAutoDriver 的 storage 分支
+// ---------------------------------------------------------------------------
+
+describe('pickDriver 显式 mode + auto 降级链残余分支', () => {
+  function stubLocalStorageUsable(): void {
+    vi.stubGlobal('localStorage', {
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+      getItem: vi.fn(),
+      clear: vi.fn(),
+      key: vi.fn(),
+      length: 0,
+    });
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  test("显式 mode='storage' + localStorage 可用 → 走通 createStorageOrThrow 主路径", () => {
+    // 先把其他能力 stub 成不可用，避免误命中
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('BroadcastChannel', undefined);
+    stubLocalStorageUsable();
+
+    const args = buildArgs({ mode: 'storage' }, 'id-storage');
+    const driver = pickDriver(args);
+    expect(driver).toBeDefined();
+    expect(typeof driver.acquire).toBe('function');
+    driver.destroy();
+  });
+
+  test("mode='auto' + 仅 localStorage 可用 → 降级到 storage（命中 createAutoDriver 第三个 if 真分支）", () => {
+    // navigator.locks / BroadcastChannel 全部不可用，只有 localStorage 可用
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('BroadcastChannel', undefined);
+    stubLocalStorageUsable();
+
+    const args = buildArgs({ mode: 'auto' }, 'id-auto-fallback-storage');
+    const driver = pickDriver(args);
+    expect(driver).toBeDefined();
+    driver.destroy();
+  });
+
+  test("显式 mode='broadcast' + BroadcastChannel 不可用 → 抛 TypeError（强制 stub 命中 L141）", () => {
+    // 强制 stub BroadcastChannel=undefined，确保命中 createBroadcastOrThrow 的 throw 分支
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('BroadcastChannel', undefined);
+    vi.stubGlobal('localStorage', undefined);
+
+    const args = buildArgs({ mode: 'broadcast' }, 'id-broadcast-unavailable');
+    expect(() => pickDriver(args)).toThrow(TypeError);
+  });
+
+  test("mode='auto' + 三种能力全不可用 → 抛 TypeError（强制 stub 命中 createAutoDriver L184）", () => {
+    vi.stubGlobal('navigator', {});
+    vi.stubGlobal('BroadcastChannel', undefined);
+    vi.stubGlobal('localStorage', undefined);
+
+    const args = buildArgs({ mode: 'auto' }, 'id-auto-all-unavailable');
+    expect(() => pickDriver(args)).toThrow(TypeError);
+  });
+});

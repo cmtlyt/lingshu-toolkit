@@ -24,7 +24,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isObject } from '@/shared/utils/verify';
+import { isFunction, isNumber, isObject } from '@/shared/utils';
 import { withResolvers } from '@/shared/with-resolvers';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
@@ -340,20 +340,42 @@ function createWebLocksDriver(deps: LockDriverDeps): LockDriver {
     }
     destroyed = true;
     logger.debug(`[${name}] web-locks driver: destroy (active holdings=${holdings.size})`);
-    // 复制一份再遍历，避免 resolveHold 触发的副作用修改 `holdings`
-    // 用 Array.from 代替 forEach —— biome.useIterableCallbackReturn 禁止 forEach 回调有返回值
-    const snapshot = Array.from(holdings);
-    for (let i = 0; i < snapshot.length; i++) {
-      const holding = snapshot[i];
-      if (!holding.released) {
-        holding.released = true;
-        holdings.delete(holding);
-        holding.resolveHold();
-      }
-    }
+    drainHoldingsOnDestroy(holdings);
   }
 
   return { acquire, destroy };
 }
 
-export { createWebLocksDriver };
+/**
+ * destroy 时排空 holdings：把所有未 released 的 holding 同步释放
+ *
+ * 提至模块顶层的原因：
+ * - `holding.released === true` 的 false 分支在正常运行路径下不可达（release/handleStealRejection
+ *   都同步从 holdings 删除 + 置 released=true），属于防御性死代码
+ * - 抽出顶层后允许测试直接构造混合 holdings 集合（含已 released 的元素），命中防御分支
+ *
+ * 复制一份再遍历，避免 resolveHold 触发的副作用修改 `holdings`
+ * 用 Array.from + for 循环代替 forEach —— biome.useIterableCallbackReturn 禁止 forEach 回调有返回值
+ */
+function drainHoldingsOnDestroy(holdings: Set<WebLockHolding>): void {
+  const snapshot = Array.from(holdings);
+  for (let i = 0; i < snapshot.length; i++) {
+    const holding = snapshot[i];
+    if (!holding.released) {
+      holding.released = true;
+      holdings.delete(holding);
+      holding.resolveHold();
+    }
+  }
+}
+
+export type { DriverScope, WebLockHolding, WebLockManager };
+export {
+  createWebLocksDriver,
+  drainHoldingsOnDestroy,
+  getWebLockManager,
+  handleStealRejection,
+  isAbortLikeError,
+  mergeSignalWithTimeout,
+  wireRequestSettle,
+};

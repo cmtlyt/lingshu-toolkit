@@ -20,7 +20,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber } from '@/shared/utils/verify';
+import { isFunction, isNumber } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDriverContext, LockDriverHandle } from '../types';
@@ -340,4 +340,12 @@ function createLocalLockDriver(deps: LockDriverDeps): LockDriver {
   };
 }
 
-export { createLocalLockDriver };
+// `enqueueWaiter` / `pumpNextWaiter` / `removeWaiter` 不通过 lock-data/index.ts 对外暴露，
+// 仅供 __test__ 直接 import 用于覆盖 createLocalLockDriver 公共路径下不便构造的内部分支：
+//   - enqueueWaiter：waiter 的 settled 重入早退（resolve/reject/abort 均有；公共路径下
+//     resolve 后 waiter 已出队、reject 仅由 abort 触发且 abort 已先 settled —— 真不可达）
+//   - pumpNextWaiter：`shift()` 返回 undefined 的防御早退（前置 `length===0` 已拦截）
+//   - removeWaiter：target 不在队列中的兜底（公共路径下 abort 调用前已 settled 检查保证 target 必在）
+// 生产代码请通过 createLocalLockDriver 返回的 driver API 间接使用。
+export type { LocalDriverState, LocalWaiter };
+export { createLocalLockDriver, enqueueWaiter, pumpNextWaiter, removeWaiter };

@@ -26,7 +26,7 @@
  */
 
 import { createError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils/verify';
+import { isFunction, isObject } from '@/shared/utils';
 import { withResolvers } from '@/shared/with-resolvers';
 import type { ResolvedAdapters } from '../adapters/index';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';

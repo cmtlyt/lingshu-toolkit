@@ -18,7 +18,7 @@
  * 两者通过 waiter.token 关联；入队 / 出队均走 CAS 重试（最多 WRITE_RETRY_MAX 次）
  */
 
-import { isFunction } from '@/shared/utils/verify';
+import { isFunction } from '@/shared/utils';
 import type { LockDriverHandle } from '../types';
 import {
   EMPTY_VALUE,

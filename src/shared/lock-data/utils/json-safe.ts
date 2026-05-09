@@ -46,6 +46,9 @@ function formatPath(path: readonly PropertyKey[]): string {
  * 例：`Set` / `Map` / `Date` / `class instance (Foo)` / `function` / `bigint` / `NaN`
  */
 function describeNonJsonValue(value: unknown): string {
+  // 防御性兜底：assertJsonSafe 入口已对 undefined 早抛，公共路径下不会进入此函数；
+  // 但作为独立工具保留 undefined 描述以保证函数自洽性。
+  // 覆盖见 __test__/utils/json-safe-describe.node.test.ts
   if (value === undefined) {
     return 'undefined';
   }
@@ -62,6 +65,8 @@ function describeNonJsonValue(value: unknown): string {
     // bigint / symbol / function
     return primitiveType;
   }
+  // 防御性兜底：assertJsonSafe 入口已对 null 早返回，公共路径下不会进入此函数；
+  // 同上保留 null 描述
   if (value === null) {
     return 'null';
   }
@@ -74,6 +79,8 @@ function describeNonJsonValue(value: unknown): string {
   if (ctor && ctor !== Object && typeof ctor.name === 'string' && ctor.name.length > 0) {
     return `class instance (${ctor.name})`;
   }
+  // 兜底：toString tag 为 Object 且 ctor 缺失 name 的极端组合（如 Object.create(null)
+  // 后挂匿名 ctor），覆盖见 __test__/utils/json-safe-describe.node.test.ts
   return 'non-plain object';
 }
 
@@ -223,4 +230,6 @@ function assertJsonSafeInput(value: unknown, subject: string): void {
   assertJsonSafe(value, [], new WeakSet<object>(), subject);
 }
 
-export { assertJsonSafe, assertJsonSafeInput, assertNotTopLevelArray, cloneByJson };
+// `describeNonJsonValue` 不通过 lock-data/index.ts 对外暴露，仅供 __test__ 直接 import
+// 覆盖 assertJsonSafe 入口已早退掉的 undefined / null / 匿名 ctor 兜底分支。
+export { assertJsonSafe, assertJsonSafeInput, assertNotTopLevelArray, cloneByJson, describeNonJsonValue };

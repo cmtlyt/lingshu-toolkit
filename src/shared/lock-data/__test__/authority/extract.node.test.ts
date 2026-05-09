@@ -170,6 +170,23 @@ describe('authority/extract — parseAuthorityRaw (safe parse)', () => {
     expect(parseAuthorityRaw('{"rev":1,"ts":100,"epoch":"persistent"}')).toBe(null);
   });
 
+  test('快路径命中但 snapshot 字段缺失 → 走兜底 parseAuthorityRaw 仍返回 null（snapshot key 缺失）', () => {
+    // 构造一段「快路径 extractRev 能命中，但 JSON 解析后 snapshot 字段缺失」的产物：
+    // 快路径正则期望前缀 `{"rev":...,"ts":...,"epoch":...,`，正好对齐序列化产物的字段顺序；
+    // 这里手写一段满足前缀但删掉 snapshot 字段的产物，使快路径 rev 命中后真正 parse 时返回 null
+    const raw = '{"rev":7,"ts":100,"epoch":"persistent","other":1}';
+    expect(readIfNewer({ lastAppliedRev: 0, epoch: null }, raw)).toBe(null);
+  });
+
+  test('快路径命中后 parseAuthorityRaw 返回非 object（极端伪造路径）→ 兜底返回 null', () => {
+    // 这里直接覆盖 parseAuthorityRaw 自身的「!isObject(parsed) → return null」分支：
+    // 让 JSON.parse 解析为非 object（数组 / 字符串 / 数字），快路径正则失配走 fallback
+    expect(parseAuthorityRaw('"just-a-string"')).toBe(null);
+    expect(parseAuthorityRaw('42')).toBe(null);
+    expect(parseAuthorityRaw('null')).toBe(null);
+    expect(parseAuthorityRaw('[1,2,3]')).toBe(null);
+  });
+
   test('snapshot 为合法 falsy 值（null / false / 0 / 空串）正常通过', () => {
     // snapshot 字段允许任意类型；关键是"键存在"而非"值真值"
     expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":null}')).toEqual({
@@ -221,8 +238,9 @@ describe('authority/extract — 性能快路径（大 snapshot 不解析）', ()
     const elapsed = performance.now() - start;
 
     expect(result).toBe(null);
-    // 快路径理论上 < 1ms，放宽到 10ms 避免 CI 抖动
-    expect(elapsed).toBeLessThan(10);
+    // 快路径理论上 < 1ms，放宽到 50ms 避免高并发 CI / 多 worker 同时运行时的抖动
+    // （单跑 < 1ms；与"完整 parse 1MB snapshot"的慢路径百毫秒级仍有数量级差距，足以校验快路径生效）
+    expect(elapsed).toBeLessThan(50);
   });
 
   test('大 snapshot + epoch 不一致时，快路径不解析 snapshot', () => {
@@ -234,6 +252,6 @@ describe('authority/extract — 性能快路径（大 snapshot 不解析）', ()
     const elapsed = performance.now() - start;
 
     expect(result).toBe(null);
-    expect(elapsed).toBeLessThan(10);
+    expect(elapsed).toBeLessThan(50);
   });
 });

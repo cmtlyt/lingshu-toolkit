@@ -53,6 +53,8 @@ interface MockBus {
   shouldConstructorThrow: boolean;
   /** 用于测试控制：让 postMessage 抛错 */
   shouldPostThrow: boolean;
+  /** 用于测试控制：让 close 抛错（罕见环境，如 Safari 旧版本对 close 的实现差异） */
+  shouldCloseThrow: boolean;
 }
 
 function createMockBus(): MockBus {
@@ -60,6 +62,7 @@ function createMockBus(): MockBus {
     registry: new Map(),
     shouldConstructorThrow: false,
     shouldPostThrow: false,
+    shouldCloseThrow: false,
   };
 }
 
@@ -117,6 +120,9 @@ function createMockBroadcastChannelCtor(bus: MockBus): MockChannelCtor {
     }
 
     close(): void {
+      if (bus.shouldCloseThrow) {
+        throw new Error('mock-close-failed');
+      }
       this._closed = true;
       const listeners = bus.registry.get(this.name);
       listeners?.delete(this._dispatch);
@@ -315,6 +321,19 @@ describe('adapters/channel (node, mocked BroadcastChannel)', () => {
       expect(
         logger.warnMock.mock.calls.some((call) => /subscribe on closed ChannelAdapter/u.test(String(call[0]))),
       ).toBe(true);
+    });
+
+    test('底层 BroadcastChannel.close 抛错时降级 logger.warn 不向外抛出', () => {
+      const logger = createLoggerSpy();
+      const adapter = createDefaultChannelAdapter({ id: 'close-throws', channel: 'session' }, { logger });
+      expect(adapter).not.toBeNull();
+
+      bus.shouldCloseThrow = true;
+
+      expect(() => adapter?.close()).not.toThrow();
+      expect(logger.warnMock.mock.calls.some((call) => /BroadcastChannel\.close failed/u.test(String(call[0])))).toBe(
+        true,
+      );
     });
   });
 

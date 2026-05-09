@@ -18,7 +18,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isString } from '@/shared/utils/verify';
+import { isFunction, isNumber, isString } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { ChannelAdapter, LockDriverContext, LockDriverHandle } from '../types';
@@ -220,4 +220,4 @@ function createBroadcastDriver(deps: LockDriverDeps): LockDriver {
   };
 }
 
-export { createBroadcastDriver };
+export { acquireBroadcastLock, buildWaiter, createBroadcastDriver };

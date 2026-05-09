@@ -19,7 +19,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isPromiseLike } from '@/shared/utils/verify';
+import { isFunction, isNumber, isPromiseLike } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDataAdapters, LockDriverContext, LockDriverHandle } from '../types';

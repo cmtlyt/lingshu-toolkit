@@ -100,3 +100,91 @@ describe('signalWithTimeout', () => {
     expect(signal.aborted).toBe(false);
   });
 });
+
+/**
+ * AbortSignal.any 缺失时的 polyfill 路径覆盖
+ *
+ * Node 20+ / 现代浏览器原生提供 AbortSignal.any，所以 anySignal 默认走快路径直接 return，
+ * polyfill 内部的 alreadyAborted / addEventListener / dispose 等分支无法被触达。
+ *
+ * 这里通过临时 stub `AbortSignal.any = undefined` 把 anySignal 的执行流强制切到 polyfill 分支，
+ * 用以覆盖 signal.ts L30-53 的全部分支
+ */
+describe('anySignal / polyfill 路径（AbortSignal.any 缺失环境）', () => {
+  let originalAny: ((signals: AbortSignal[]) => AbortSignal) | undefined;
+
+  beforeEach(() => {
+    originalAny = AbortSignal.any as unknown as (signals: AbortSignal[]) => AbortSignal;
+    Object.defineProperty(AbortSignal, 'any', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(AbortSignal, 'any', {
+      value: originalAny,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  test('polyfill 路径下任一输入 abort 会传播到派生 signal（命中 addEventListener 注册分支）', () => {
+    const controller1 = new AbortController();
+    const controller2 = new AbortController();
+    const { signal, dispose } = anySignal([controller1.signal, controller2.signal]);
+
+    expect(signal.aborted).toBe(false);
+    controller2.abort(new Error('boom'));
+    expect(signal.aborted).toBe(true);
+
+    dispose();
+  });
+
+  test('polyfill 路径下构造时已 aborted → 立即透传 reason 并返回 noop dispose', () => {
+    const controller = new AbortController();
+    const reason = new Error('pre-aborted');
+    controller.abort(reason);
+
+    const { signal, dispose } = anySignal([controller.signal]);
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe(reason);
+
+    // 早路径返回 noop dispose，调用不应抛错
+    expect(() => dispose()).not.toThrow();
+  });
+
+  test('polyfill 路径下 dispose 后再 abort 源 signal 不会再传播（监听已解绑）', () => {
+    const controller = new AbortController();
+    const { signal, dispose } = anySignal([controller.signal]);
+
+    dispose();
+    controller.abort();
+
+    // 监听已解绑，派生 signal 维持未 abort 状态
+    expect(signal.aborted).toBe(false);
+  });
+
+  test('polyfill 路径下混入 null / undefined 不影响合并行为', () => {
+    const controller = new AbortController();
+    const { signal, dispose } = anySignal([null, controller.signal, undefined]);
+
+    expect(signal.aborted).toBe(false);
+    controller.abort();
+    expect(signal.aborted).toBe(true);
+
+    dispose();
+  });
+
+  test('polyfill 路径下 abort reason 透传到派生 signal', () => {
+    const controller = new AbortController();
+    const reason = new Error('specific reason');
+
+    const { signal, dispose } = anySignal([controller.signal]);
+    controller.abort(reason);
+
+    expect(signal.reason).toBe(reason);
+    dispose();
+  });
+});

@@ -102,3 +102,55 @@ describe('createReadonlyView / 嵌套代理缓存', () => {
     expect(view.name).toBe('cmt');
   });
 });
+
+describe('createReadonlyView / 反射 trap 委托（has / ownKeys / getOwnPropertyDescriptor / getPrototypeOf）', () => {
+  test('"key in view" 命中 has trap 委托到 dataRef.current', () => {
+    const dataRef = makeRef<Record<string, unknown>>({ a: 1 });
+    const view = createReadonlyView(dataRef) as Record<string, unknown>;
+
+    expect('a' in view).toBe(true);
+    expect('missing' in view).toBe(false);
+
+    // dataRef.current 整体替换后 has trap 跟随最新值
+    dataRef.current = { b: 2 };
+    expect('a' in view).toBe(false);
+    expect('b' in view).toBe(true);
+  });
+
+  test('Object.keys / Object.values 命中 ownKeys + getOwnPropertyDescriptor trap', () => {
+    const view = createReadonlyView(makeRef({ a: 1, b: 'two', c: true }));
+    expect(Object.keys(view).sort()).toEqual(['a', 'b', 'c']);
+    expect(Object.values(view).sort()).toEqual([1, 'two', true].sort());
+  });
+
+  test('getOwnPropertyDescriptor 返回的描述符 writable=false / configurable=true', () => {
+    const view = createReadonlyView(makeRef({ key: 42 }));
+    const desc = Object.getOwnPropertyDescriptor(view, 'key');
+    expect(desc).toBeDefined();
+    expect(desc?.writable).toBe(false);
+    expect(desc?.configurable).toBe(true);
+    expect(desc?.value).toBe(42);
+  });
+
+  test('getOwnPropertyDescriptor 对不存在的 key 返回 undefined（命中早退分支）', () => {
+    const view = createReadonlyView(makeRef({ a: 1 }));
+    expect(Object.getOwnPropertyDescriptor(view, 'missing')).toBeUndefined();
+  });
+
+  test('Object.getPrototypeOf 命中 getPrototypeOf trap 委托', () => {
+    const view = createReadonlyView(makeRef({ x: 1 }));
+    expect(Object.getPrototypeOf(view)).toBe(Object.prototype);
+  });
+
+  test('JSON.stringify(view) 通过 ownKeys + get + getOwnPropertyDescriptor 完整路径正常工作', () => {
+    const view = createReadonlyView(makeRef({ name: 'cmt', list: [1, 2, 3], nested: { v: true } }));
+    const serialized = JSON.stringify(view);
+    expect(JSON.parse(serialized)).toEqual({ name: 'cmt', list: [1, 2, 3], nested: { v: true } });
+  });
+
+  test('解构语法（...view）经 ownKeys + getOwnPropertyDescriptor + get 完整流程', () => {
+    const view = createReadonlyView(makeRef({ a: 1, b: 2 }));
+    const spread = { ...view };
+    expect(spread).toEqual({ a: 1, b: 2 });
+  });
+});

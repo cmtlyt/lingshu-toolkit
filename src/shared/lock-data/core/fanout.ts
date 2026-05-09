@@ -14,7 +14,7 @@
  * - listener 未提供对应 hook 时跳过（不调用 undefined）
  */
 
-import { isFunction, isObject } from '@/shared/utils/verify';
+import { isFunction, isObject } from '@/shared/utils';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';
 import type { CommitEvent, LockDataListeners, LockStateChangeEvent, RevokeEvent, SyncEvent } from '../types';
 

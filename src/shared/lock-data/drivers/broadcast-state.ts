@@ -27,7 +27,7 @@
  */
 /** biome-ignore-all lint/nursery/noExcessiveLinesPerFile: ignore */
 
-import { isFunction } from '@/shared/utils/verify';
+import { isFunction } from '@/shared/utils';
 import type { ChannelAdapter, LockDriverHandle } from '../types';
 import {
   type AnnounceMessage,
@@ -667,5 +667,23 @@ function drainOnDestroy(state: BroadcastDriverState, buildAbortError: (token: st
   }
 }
 
-export type { BroadcastDriverState, Waiter };
-export { drainOnDestroy, handleMessage, pumpNextWaiter, removeWaiter, startAnnounceCampaign, startForceCampaign };
+export type { BroadcastDriverState, HoldingState, RemoteHeldState, Waiter };
+export {
+  abandonPendingAnnounce,
+  abandonPendingForce,
+  drainOnDestroy,
+  enterHolding,
+  enterRemoteHeld,
+  handleAnnounce,
+  handleForce,
+  handleHeartbeat,
+  handleMessage,
+  handleReject,
+  handleRelease,
+  handleRemoteDead,
+  pumpNextWaiter,
+  removeWaiter,
+  revokeHolding,
+  startAnnounceCampaign,
+  startForceCampaign,
+};

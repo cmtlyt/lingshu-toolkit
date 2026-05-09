@@ -35,7 +35,7 @@
  *   wrapper Proxy view 自动看到最新值
  */
 
-import { isObject, isString } from '@/shared/utils/verify';
+import { isObject, isString } from '@/shared/utils';
 import { pickDefaultAdapters, type ResolvedAdapters } from '../adapters/index';
 import { createStorageAuthority } from '../authority/index';
 import { DEFAULT_SESSION_PROBE_TIMEOUT } from '../constants';
@@ -84,7 +84,9 @@ function getDefaultRegistry(): InstanceRegistry {
 }
 
 /**
- * 仅用于测试：重置进程级 Registry
+ * @internal 仅供测试使用，不通过 index.ts 公开导出
+ *
+ * 重置进程级 Registry，用于测试间隔离（模拟"新 Tab / 新进程"场景）
  *
  * 注意：不会清理已有 Entry 的 teardown；调用者需自行确保没有活跃的 Entry 引用
  */
@@ -526,4 +528,13 @@ function finalizeResult<T extends object>(
 // exports
 // ---------------------------------------------------------------------------
 
-export { __resetDefaultRegistry, lockData };
+export type { FanoutGuard, MutableEntry };
+export {
+  __resetDefaultRegistry,
+  acquireStandalone,
+  attachAuthority,
+  buildEmitCommit,
+  buildEmitSync,
+  lockData,
+  mergeReadyPromises,
+};

@@ -208,4 +208,129 @@ describe('drivers/local (node)', () => {
       (driver as LockDriver).destroy();
     }).not.toThrow();
   });
+
+  test('revoke 回调抛错时降级 logger.error 不影响 driver 流转（force 抢锁触发 revoke）', async () => {
+    const errorMock = vi.fn();
+    const logger: LoggerAdapter = { warn: vi.fn(), error: errorMock, debug: vi.fn() };
+    // @ts-expect-error test
+    driver = createLocalLockDriver({ name: `${LOCK_PREFIX}:__revoke-throw__`, id: undefined, logger });
+
+    const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+    firstHandle.onRevokedByDriver(() => {
+      throw new Error('revoke-callback-throws');
+    });
+
+    // force 抢占触发原 holder 的 onRevokedByDriver；其内部抛错应被 catch 并 logger.error
+    const secondHandle = await driver.acquire(buildContext({ token: 'second', force: true }));
+
+    expect(errorMock).toHaveBeenCalled();
+    expect(errorMock.mock.calls.some((call) => /revoke callback threw/u.test(String(call[0])))).toBe(true);
+
+    // driver 自身仍然正常工作：第三个 waiter 应当能阻塞在 second 后面
+    let thirdSettled = false;
+    const thirdPromise = driver.acquire(buildContext({ token: 'third' })).then((h) => {
+      thirdSettled = true;
+      return h;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(thirdSettled).toBe(false);
+
+    secondHandle.release();
+    (await thirdPromise).release();
+  });
+
+  /**
+   * 残余分支补测（覆盖 local.ts 未触达点）
+   *
+   * 1. notifyRevoke 中 revokeCallback 未注册的早退分支（line 108：isFunction(revokeCallback)=false）
+   * 2. seizeLock 在无 holder 时的快路径（line 165：state.holder=null 跳过 prev.notifyRevoke）
+   * 3. waiter abort 后再触发 signal/timeout 的 settled=true 重入分支（line 200/208/216）
+   * 4. release 后再 release 的幂等分支（已被「handle.release 幂等」覆盖；这里不重复）
+   */
+  describe('残余分支：notifyRevoke / seizeLock / waiter settled 重入', () => {
+    test('force 抢锁但原 holder 没有注册 onRevokedByDriver → 命中 isFunction(revokeCallback)=false 早退', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      // 故意不调用 onRevokedByDriver，让 revokeCallback 保持 null
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      // force 抢占应当走 isFunction(revokeCallback)=false 早退分支，不抛错
+      const secondHandle = await driver.acquire(buildContext({ token: 'second', force: true }));
+      expect(secondHandle).toBeDefined();
+
+      firstHandle.release(); // 幂等 no-op
+      secondHandle.release();
+    });
+
+    test('force 抢锁但当前没有 holder（队列空闲）→ 命中 seizeLock state.holder=null 早退分支', async () => {
+      driver = createLocalLockDriver(buildDeps());
+
+      // 锁空闲时 force acquire 也应走 seizeLock，但跳过驱逐分支（line 165 if state.holder false）
+      const handle = await driver.acquire(buildContext({ token: 'lonely', force: true }));
+      expect(handle).toBeDefined();
+      handle.release();
+    });
+
+    test('waiter signal abort 后再触发 timeout → 命中 abort 内部 settled=true 早退（line 216-217）', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      const controller = new AbortController();
+      const p = driver.acquire(
+        buildContext({
+          token: 'second',
+          signal: controller.signal,
+          acquireTimeout: 30,
+        }),
+      );
+
+      // 等 waiter 入队
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // 先 abort（settled=true），再让 timeout 到期 —— timeout cb 内 waiter.abort 会再次进入 abort
+      // 此时 waiter 已被 removeWaiter 出队 → removeWaiter 内 for 循环找不到 target（命中 line 148 false 分支）
+      controller.abort();
+      await expect(p).rejects.toBeInstanceOf(LockAbortedError);
+
+      // 等 timeout cb 触发，验证不抛错（settled=true 直接 return）
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      firstHandle.release();
+    });
+
+    test('waiter resolve 后再触发 abort/signal → 命中 resolve / abort settled=true 早退分支', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      const controller = new AbortController();
+      const p = driver.acquire(buildContext({ token: 'second', signal: controller.signal }));
+
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // 释放第一个 → 第二个 waiter resolve（settled=true）
+      firstHandle.release();
+      const secondHandle = await p;
+      expect(secondHandle).toBeDefined();
+
+      // 此时 secondHandle 已被 grant，再 abort 不应影响（waiter 已 cleanup signal listener）
+      controller.abort();
+      // 验证 second 仍然可以 release，driver 流转正常
+      expect(() => secondHandle.release()).not.toThrow();
+    });
+
+    test('多个 waiter 等待 + 释放：pumpNextWaiter 出队列空时早退（line 132-133 + line 200 settled）', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      // 队列只有 1 个 waiter，释放后队列变空，pumpNextWaiter 第二次调用命中 waiters.length=0 早退
+      const p2 = driver.acquire(buildContext({ token: 'second' }));
+      firstHandle.release();
+      const secondHandle = await p2;
+
+      // 此时再 release，pumpNextWaiter 触发但队列已空 → 命中 line 132 next=undefined 早退
+      secondHandle.release();
+
+      // driver 仍然正常
+      const handle = await driver.acquire(buildContext({ token: 'third' }));
+      expect(handle).toBeDefined();
+      handle.release();
+    });
+  });
 });

@@ -18,7 +18,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isObject, isString } from '@/shared/utils/verify';
+import { isFunction, isObject, isString } from '@/shared/utils';
 import type { ResolvedAdapters } from '../adapters/index';
 import { ERROR_FN_NAME, LOCK_PREFIX } from '../constants';
 import type { LockDataOptions } from '../types';

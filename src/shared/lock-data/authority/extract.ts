@@ -15,7 +15,7 @@
  * 快路径开销恒为 O(首部长度)，与 snapshot 总长无关；MB 级 value 下仍稳定在亚微秒
  */
 
-import { isNumber, isObject, isString } from '@/shared/utils/verify';
+import { isNumber, isObject, isString } from '@/shared/utils';
 
 /**
  * 快路径提取 rev

@@ -32,6 +32,9 @@ import { throwError } from '@/shared/throw-error';
 import { ERROR_FN_NAME } from '../constants';
 import { LockRevokedError } from '../errors';
 import type { LockDataMutation } from '../types';
+// Draft 写入路径与 utils/json-safe 共享同一份 JSON 安全契约：
+// 复用统一实现，避免逻辑分叉（历史上两处独立实现完全一致 / 差异仅在错误信息 subject 字符串）
+import { assertJsonSafe } from '../utils/json-safe';
 
 /** Draft 自身的有效性开关；置 false 后写入立即抛错 */
 interface DraftValidity {
@@ -74,159 +77,6 @@ interface DraftSession<T extends object> {
 
 function isPlainAccessible(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
-}
-
-/**
- * 判定某个对象是否为「plain object」：
- * - prototype 是 `Object.prototype`（普通字面量 / `new Object()`）
- * - prototype 是 `null`（`Object.create(null)`）
- *
- * 不使用 `instanceof Object`：跨 realm（iframe / worker）会失败
- *
- * 用 type predicate 收窄返回类型，匹配 biome `noMisleadingReturnType` 规则
- */
-function isPlainObject(value: object): value is Record<string, unknown> {
-  const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
-}
-
-/**
- * 把路径片段格式化为 `'a.b[0].c'` 风格的字符串，用于错误信息
- *
- * 顶层时返回 `'<root>'` 以避免空字符串歧义
- */
-function formatPath(path: readonly PropertyKey[]): string {
-  if (path.length === 0) {
-    return '<root>';
-  }
-  let formatted = '';
-  for (let i = 0; i < path.length; i++) {
-    const segment = path[i];
-    if (typeof segment === 'number' || (typeof segment === 'string' && /^\d+$/u.test(segment))) {
-      formatted += `[${String(segment)}]`;
-      continue;
-    }
-    formatted += i === 0 ? String(segment) : `.${String(segment)}`;
-  }
-  return formatted;
-}
-
-/**
- * 描述非 JSON 值的具体类型，用于错误信息
- *
- * 例：`Set` / `Map` / `Date` / `class instance (Foo)` / `function` / `bigint` / `NaN`
- */
-function describeNonJsonValue(value: unknown): string {
-  if (value === undefined) {
-    return 'undefined';
-  }
-  if (typeof value === 'number') {
-    if (Number.isNaN(value)) {
-      return 'NaN';
-    }
-    if (!Number.isFinite(value)) {
-      return value > 0 ? 'Infinity' : '-Infinity';
-    }
-  }
-  const primitiveType = typeof value;
-  if (primitiveType !== 'object') {
-    // bigint / symbol / function
-    return primitiveType;
-  }
-  if (value === null) {
-    return 'null';
-  }
-  // toString tag 形如 `[object Map]` → `Map`
-  const tag = Object.prototype.toString.call(value).slice(8, -1);
-  if (tag !== 'Object') {
-    return tag;
-  }
-  const ctor = (value as object).constructor;
-  if (ctor && ctor !== Object && typeof ctor.name === 'string' && ctor.name.length > 0) {
-    return `class instance (${ctor.name})`;
-  }
-  return 'non-plain object';
-}
-
-/**
- * 校验值是否为 JSON 安全类型；遇到非法值 / 循环引用立即抛 `TypeError`
- *
- * 允许：string / number（不含 NaN/Infinity）/ boolean / null / plain object / array
- * 禁止：undefined / bigint / symbol / function / Set / Map / Date / RegExp / class 实例 /
- *       TypedArray / WeakMap / WeakSet / 循环引用 等
- *
- * `seen` 仅跟踪当前路径上访问过的容器（递归回溯时 `delete`），保证「同一兄弟节点的相同
- * 引用」不会被误判为环。
- */
-function assertJsonSafe(value: unknown, path: readonly PropertyKey[], seen: WeakSet<object>): void {
-  if (value === null) {
-    return;
-  }
-  if (value === undefined) {
-    throwError(
-      ERROR_FN_NAME,
-      `draft only supports JSON-safe values, got "undefined" at "${formatPath(path)}" (use "null" instead)`,
-      TypeError,
-    );
-  }
-  const valueType = typeof value;
-  if (valueType === 'string' || valueType === 'boolean') {
-    return;
-  }
-  if (valueType === 'number') {
-    if (!Number.isFinite(value as number)) {
-      throwError(
-        ERROR_FN_NAME,
-        `draft only supports JSON-safe values, got "${describeNonJsonValue(value)}" at "${formatPath(path)}"`,
-        TypeError,
-      );
-    }
-    return;
-  }
-  if (valueType !== 'object') {
-    // bigint / symbol / function
-    throwError(
-      ERROR_FN_NAME,
-      `draft only supports JSON-safe values, got "${describeNonJsonValue(value)}" at "${formatPath(path)}"`,
-      TypeError,
-    );
-  }
-  // 此处 value 必为非 null object
-  const obj = value as object;
-  if (seen.has(obj)) {
-    throwError(ERROR_FN_NAME, `draft detected cyclic reference at "${formatPath(path)}"`, TypeError);
-  }
-  if (Array.isArray(obj)) {
-    seen.add(obj);
-    for (let i = 0; i < obj.length; i++) {
-      assertJsonSafe((obj as unknown[])[i], [...path, i], seen);
-    }
-    seen.delete(obj);
-    return;
-  }
-  if (!isPlainObject(obj)) {
-    throwError(
-      ERROR_FN_NAME,
-      `draft only supports JSON-safe values (plain object / array / string / number / boolean / null), got "${describeNonJsonValue(obj)}" at "${formatPath(path)}"`,
-      TypeError,
-    );
-  }
-  seen.add(obj);
-  // 仅校验自身可枚举字符串键（与 JSON.stringify 行为一致；symbol 键被 JSON 忽略此处直接拒绝）
-  const symbolKeys = Object.getOwnPropertySymbols(obj);
-  if (symbolKeys.length > 0) {
-    throwError(
-      ERROR_FN_NAME,
-      `draft only supports JSON-safe values, got symbol-keyed property at "${formatPath(path)}"`,
-      TypeError,
-    );
-  }
-  const keys = Object.keys(obj);
-  for (let i = 0; i < keys.length; i++) {
-    const key = keys[i];
-    assertJsonSafe((obj as Record<string, unknown>)[key], [...path, key], seen);
-  }
-  seen.delete(obj);
 }
 
 /**
@@ -282,7 +132,7 @@ function createDraftProxy<T extends object>(
       ensureWritable(ctx.validity);
       // 入口已校验过 target，但 recipe 内的赋值 value 可能是任意类型，必须重新校验。
       // 在写入前抛错可保证 target / mutations / snapshot 不被污染（fail-fast）
-      assertJsonSafe(value, [...parentPath, key], new WeakSet());
+      assertJsonSafe(value, [...parentPath, key], new WeakSet(), 'draft');
       capturePropertySnapshotOnce(ctx.snapshot, obj, key, targetId);
       ctx.mutations.push({ path: [...parentPath, key], op: 'set', value });
       return Reflect.set(obj, key, value);
@@ -339,7 +189,7 @@ function freezeMutations(mutations: LockDataMutation[]): readonly LockDataMutati
  */
 function createDraftSession<T extends object>(target: T): DraftSession<T> {
   // 入口校验：fail-fast 拒绝非 JSON 数据，避免后续操作产生不可回滚的副作用
-  assertJsonSafe(target, [], new WeakSet());
+  assertJsonSafe(target, [], new WeakSet(), 'draft');
   const ctx: DraftContext = {
     validity: { isValid: true },
     mutations: [],

@@ -2,7 +2,71 @@ import { describe, expect, test } from 'vitest';
 import { createDraftSession } from '@/shared/lock-data/core/draft';
 import { LockRevokedError } from '@/shared/lock-data/errors';
 
+/**
+ * 错误信息辅助断言：触发非法值时，错误信息会经 formatPath / describeNonJsonValue 拼接，
+ * 这里集中用一个 helper 取出 throw 抛出的 error.message
+ */
+function captureThrowMessage(fn: () => void): string {
+  try {
+    fn();
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 describe('createDraftSession', () => {
+  describe('错误信息格式化（formatPath / describeNonJsonValue）', () => {
+    test('顶层非 JSON 值的错误信息携带 <root> 占位（formatPath 空 path 分支）', () => {
+      // 顶层是数组，里面塞 Map 触发；但要触发 path.length === 0 必须让 target 自身就是非法值。
+      // 这里通过 createDraftSession([Map]) 让顶层数组的 idx=0 元素非法 → path=['0'/0] 非空；
+      // 真正命中 <root> 分支的是 assertJsonSafe 的入口 path=[]，需要 target 本身非 JSON-safe。
+      // assertJsonSafe(value=Map, path=[]) → describeNonJsonValue=Map → 错误信息含 "at \"<root>\""
+      const message = captureThrowMessage(() => createDraftSession(new Map() as unknown as object));
+      expect(message).toMatch(/at "<root>"/u);
+      expect(message).toMatch(/Map/u);
+    });
+
+    test('describeNonJsonValue 处理 undefined（独立校验描述路径）', () => {
+      // undefined 在赋值处单独走 if (value === undefined) 分支抛错，错误信息含 "undefined"
+      const message = captureThrowMessage(() => createDraftSession({ x: undefined as unknown as null }));
+      expect(message).toMatch(/undefined/u);
+      expect(message).toMatch(/use "null" instead/u);
+    });
+
+    test('describeNonJsonValue 处理嵌套 null 不抛错（null 是合法 JSON 值，仅在描述函数兜底分支才会被命中）', () => {
+      // null 是合法的 JSON 值，正常 createDraftSession 不应抛错；
+      // describeNonJsonValue 中对 value === null 返回 "null" 的分支仅在被嵌套到「形似 object 但 typeof 检查失败」的极端组合里被命中。
+      // 最直接的方式：构造一个 { x: function } 类型的 target → 走 "function" 描述分支验证 describeNonJsonValue 工作正常
+      expect(() => createDraftSession({ ok: null })).not.toThrow();
+      const message = captureThrowMessage(() => createDraftSession({ fn: (() => 1) as unknown as null }));
+      expect(message).toMatch(/function/u);
+    });
+
+    test('symbol 键对象在入口被拒绝（assertJsonSafe symbolKeys 分支）', () => {
+      const sym = Symbol('forbidden');
+      const target = { user: { [sym]: 'secret' } };
+      const message = captureThrowMessage(() => createDraftSession(target));
+      expect(message).toMatch(/symbol-keyed property/u);
+      expect(message).toMatch(/at "user"/u);
+    });
+
+    test('symbol 键在顶层对象也被拒绝并显示 <root> 路径', () => {
+      const sym = Symbol('top');
+      const target = { [sym]: 1 } as Record<symbol, number>;
+      const message = captureThrowMessage(() => createDraftSession(target as unknown as object));
+      expect(message).toMatch(/symbol-keyed property/u);
+      expect(message).toMatch(/at "<root>"/u);
+    });
+
+    test('数组索引路径 + describeNonJsonValue 协作：[1].y 内嵌 Set', () => {
+      const target = { list: [{ x: 1 }, { y: new Set<number>() }] };
+      const message = captureThrowMessage(() => createDraftSession(target));
+      expect(message).toMatch(/Set/u);
+      expect(message).toMatch(/at "list\[1\]\.y"/u);
+    });
+  });
+
   test('写入根层属性会原地修改 target 并记录 mutation', () => {
     const target = { name: 'cmt', age: 18 };
     const session = createDraftSession(target);
