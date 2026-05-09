@@ -138,6 +138,13 @@ function buildWaiter(
 }
 
 function acquireBroadcastLock(state: BroadcastDriverState, ctx: LockDriverContext): Promise<LockDriverHandle> {
+  // 已 abort 的请求不参与竞选，直接 reject（零副作用：不创建 waiter、不注册监听、不发协议消息）
+  if (ctx.signal.aborted) {
+    return Promise.reject(
+      new LockAbortedError(`[@cmtlyt/lingshu-toolkit#${ERROR_FN_NAME}]: acquire aborted (token=${ctx.token})`),
+    );
+  }
+
   // driver.acquire 的返回类型是 Promise —— destroyed 必须以 rejection 形式返回，
   // 不能同步 throw（破坏 Promise 契约，调用方 .catch 拿不到）
   if (state.destroyed) {

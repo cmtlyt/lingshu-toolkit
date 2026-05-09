@@ -305,3 +305,57 @@ describe('drivers/broadcast — acquireBroadcastLock destroyed reject', () => {
     await expect(promise).rejects.toThrow(/broadcast driver has been destroyed/u);
   });
 });
+
+describe('drivers/broadcast — buildWaiter signal.aborted microtask 分支', () => {
+  test('signal 已 abort → queueMicrotask 触发 waiter.abort → reject', async () => {
+    const state = createFakeState();
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = createCtx({ token: 'token-microtask-abort', signal: controller.signal });
+
+    const resolve = vi.fn<(handle: LockDriverHandle) => void>();
+    const reject = vi.fn<(error: Error) => void>();
+
+    const waiter = buildWaiter(ctx, state, resolve, reject);
+
+    // buildWaiter 在 signal.aborted 时提前 return，不注册 addEventListener
+    // microtask 尚未执行，reject 还没被调用
+    expect(reject).not.toHaveBeenCalled();
+    expect(waiter).toBeDefined();
+
+    // flush microtask：让 queueMicrotask(() => onSignalAbort()) 执行
+    await Promise.resolve();
+
+    expect(reject).toHaveBeenCalledTimes(1);
+    expect(reject.mock.calls[0][0].message).toMatch(/acquire aborted/u);
+    expect(resolve).not.toHaveBeenCalled();
+  });
+});
+
+describe('drivers/broadcast — acquireBroadcastLock signal.aborted early return', () => {
+  test('signal 已 abort → 直接 reject，不创建 waiter、不发协议消息', async () => {
+    const state = createFakeState();
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = createCtx({ token: 'token-pre-aborted', signal: controller.signal });
+
+    const promise = acquireBroadcastLock(state, ctx);
+    await expect(promise).rejects.toThrow(/acquire aborted/u);
+
+    // 验证零副作用：不入队、不竞选
+    expect(state.waiters).toHaveLength(0);
+    expect(state.pendingAnnounce).toBeNull();
+    expect(state.pendingForce).toBeNull();
+    expect(state.channel.postMessage).not.toHaveBeenCalled();
+  });
+
+  test('signal 已 abort 时 reject 的错误是 LockAbortedError 并包含 token', async () => {
+    const state = createFakeState();
+    const controller = new AbortController();
+    controller.abort();
+    const ctx = createCtx({ token: 'my-unique-token', signal: controller.signal });
+
+    const promise = acquireBroadcastLock(state, ctx);
+    await expect(promise).rejects.toThrow(/my-unique-token/u);
+  });
+});
