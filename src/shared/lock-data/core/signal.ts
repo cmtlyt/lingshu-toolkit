@@ -35,20 +35,23 @@ function anySignal(signals: readonly SignalLike[]): { signal: AbortSignal; dispo
   }
 
   const listeners: Array<() => void> = [];
-  // 数组遍历优先使用索引 for 循环（见 IMPLEMENTATION.md 开发守则「代码风格 - 循环形式」）
-  for (let i = 0; i < validSignals.length; i++) {
-    const source = validSignals[i];
-    const onAbort = (): void => controller.abort(source.reason);
-    source.addEventListener('abort', onAbort, { once: true });
-    listeners.push(() => source.removeEventListener('abort', onAbort));
-  }
-
   const dispose = (): void => {
     for (let i = 0; i < listeners.length; i++) {
       listeners[i]();
     }
     listeners.length = 0;
   };
+
+  // 数组遍历优先使用索引 for 循环（见 IMPLEMENTATION.md 开发守则「代码风格 - 循环形式」）
+  for (let i = 0; i < validSignals.length; i++) {
+    const source = validSignals[i];
+    const onAbort = (): void => {
+      controller.abort(source.reason);
+      dispose();
+    };
+    source.addEventListener('abort', onAbort, { once: true });
+    listeners.push(() => source.removeEventListener('abort', onAbort));
+  }
 
   return { signal: controller.signal, dispose };
 }

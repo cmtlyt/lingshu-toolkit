@@ -187,4 +187,24 @@ describe('anySignal / polyfill 路径（AbortSignal.any 缺失环境）', () => 
     expect(signal.reason).toBe(reason);
     dispose();
   });
+
+  test('polyfill 路径下首次 abort 后自动解绑剩余 source 的监听', () => {
+    const controller1 = new AbortController();
+    const controller2 = new AbortController();
+    const controller3 = new AbortController();
+
+    const removeSpy2 = vi.spyOn(controller2.signal, 'removeEventListener');
+    const removeSpy3 = vi.spyOn(controller3.signal, 'removeEventListener');
+
+    anySignal([controller1.signal, controller2.signal, controller3.signal]);
+
+    // controller1 abort → 应自动解绑 controller2、controller3 上的监听
+    controller1.abort(new Error('first'));
+
+    expect(removeSpy2).toHaveBeenCalledWith('abort', expect.any(Function));
+    expect(removeSpy3).toHaveBeenCalledWith('abort', expect.any(Function));
+
+    removeSpy2.mockRestore();
+    removeSpy3.mockRestore();
+  });
 });
