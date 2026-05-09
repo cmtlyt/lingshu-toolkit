@@ -70,10 +70,20 @@ function signalWithTimeout(baseSignal: SignalLike, timeoutMs: number): { signal:
   const timer = setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), timeoutMs);
   const merged = anySignal([baseSignal, controller.signal]);
 
+  function onAbort(): void {
+    dispose();
+  }
+
   const dispose = (): void => {
     clearTimeout(timer);
     merged.dispose();
+    merged.signal.removeEventListener('abort', onAbort);
   };
+  if (merged.signal.aborted) {
+    dispose();
+  } else {
+    merged.signal.addEventListener('abort', onAbort, { once: true });
+  }
   return { signal: merged.signal, dispose };
 }
 

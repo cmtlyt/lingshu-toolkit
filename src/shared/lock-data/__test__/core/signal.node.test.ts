@@ -99,6 +99,48 @@ describe('signalWithTimeout', () => {
     vi.advanceTimersByTime(100);
     expect(signal.aborted).toBe(false);
   });
+
+  test('base signal 提前 abort 后自动清掉 timeout 定时器', () => {
+    const controller = new AbortController();
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    signalWithTimeout(controller.signal, 5000);
+
+    // base signal abort → 应自动触发 dispose，清掉 timeout
+    controller.abort(new Error('early cancel'));
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+
+    clearTimeoutSpy.mockRestore();
+  });
+
+  test('构造时 base signal 已 aborted 则立即清掉 timeout', () => {
+    const controller = new AbortController();
+    controller.abort(new Error('pre-aborted'));
+
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
+
+    const { signal } = signalWithTimeout(controller.signal, 5000);
+
+    expect(signal.aborted).toBe(true);
+    expect(clearTimeoutSpy).toHaveBeenCalled();
+
+    // 推进时间确认定时器确实已被清理
+    vi.advanceTimersByTime(10_000);
+
+    clearTimeoutSpy.mockRestore();
+  });
+
+  test('外部 dispose 后 abort 监听不残留', () => {
+    const removeListenerSpy = vi.spyOn(AbortSignal.prototype, 'removeEventListener');
+
+    const { dispose } = signalWithTimeout(undefined, 1000);
+
+    dispose();
+    // dispose 应调用 removeEventListener 清掉 onAbort 监听
+    expect(removeListenerSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+
+    removeListenerSpy.mockRestore();
+  });
 });
 
 /**
