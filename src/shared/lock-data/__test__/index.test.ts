@@ -8,7 +8,7 @@ import {
   lockData,
   NEVER_TIMEOUT,
   ReadonlyMutationError,
-} from './index';
+} from '../index';
 
 describe('lockData 主入口 / 公开契约', () => {
   describe('常量导出', () => {

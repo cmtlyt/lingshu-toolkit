@@ -20,8 +20,8 @@
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { __resetDefaultRegistry } from '../../core/entry';
-import type { LockDataAdapters, LockDriverContext, LockDriverHandle } from '../../index';
 import { lockData } from '../../index';
+import type { LockDataAdapters, LockDriverContext, LockDriverHandle } from '../../types';
 import { createMemoryAdapters, createSharedMemoryEnv, type SharedMemoryEnv } from '../_helpers/memory-adapters';
 
 // ---------------------------------------------------------------------------

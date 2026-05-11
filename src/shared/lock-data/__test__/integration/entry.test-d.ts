@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, test } from 'vitest';
-import type { LockDataTuple, ReadonlyView } from '../../index';
 import { lockData } from '../../index';
+import type { LockDataTuple, ReadonlyView } from '../../types';
 
 /**
  * lockData 集成层类型契约（仅做编译期类型断言，与 runtime 行为对应的测试在 entry.node.test.ts）
