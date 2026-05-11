@@ -324,8 +324,8 @@ describe('actions-helpers / applyInPlace', () => {
   test('对象→对象：next 含 undefined 值（合法 JSON-safe 入口已拦截，但本函数本身不校验）', () => {
     // 本函数不做 JSON-safe 校验；调用方 actions.replace 才走 assertJsonSafeInput
     const target = { a: 1 };
-    applyInPlace(target as unknown as Record<string, unknown>, { a: 'str' } as unknown as Record<string, unknown>);
-    expect(target).toEqual({ a: 'str' });
+    applyInPlace(target as unknown as Record<string, unknown>, { a: undefined } as unknown as Record<string, unknown>);
+    expect(target).toEqual({ a: undefined });
   });
 });
 

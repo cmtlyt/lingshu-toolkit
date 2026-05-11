@@ -267,13 +267,16 @@ describe('drivers/storage — acquireForceLock 防御分支', () => {
     acquireForceLock(state, waiter);
     await new Promise((r) => setTimeout(r, 0));
 
-    // 应该 resolve（force 覆盖成功）；如果未 resolve 也至少触发 revokeHolding 分支
-    expect(state.status.kind).not.toBe('holding-old');
+    // force 覆盖自己应成功 resolve，并将 status 切换为新的 holding（token=force-self）
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(reject).not.toHaveBeenCalled();
+    expect(state.status.kind).toBe('holding');
+    expect((state.status as any).token).toBe('force-self');
   });
 });
 
 describe('drivers/storage — handleFastPathGrant 防御分支', () => {
-  test('destroyed=true → 释放 + abort（命中 L199-206）', () => {
+  test('destroyed=true → 释放  abort（命中 L199-206）', () => {
     const state = createFakeState({ destroyed: true });
     const resolve = vi.fn<(handle: LockDriverHandle) => void>();
     const reject = vi.fn<(error: Error) => void>();

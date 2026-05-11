@@ -123,9 +123,12 @@ describe('signalWithTimeout', () => {
 
     expect(signal.aborted).toBe(true);
     expect(clearTimeoutSpy).toHaveBeenCalled();
+    const callsBeforeAdvance = clearTimeoutSpy.mock.calls.length;
 
     // 推进时间确认定时器确实已被清理
     vi.advanceTimersByTime(10_000);
+    // 若定时器已被清掉，则不应再有新的 clearTimeout 调用，且 signal 状态不变
+    expect(clearTimeoutSpy.mock.calls.length).toBe(callsBeforeAdvance);
 
     clearTimeoutSpy.mockRestore();
   });

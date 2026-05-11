@@ -300,7 +300,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
     expect(driverCtl.releaseCount).toBe(2);
   });
 
-  test('update + getLock 交叉：getLock 串行排队后保留锁，driver.acquire 只调一次', async () => {
+  test('update + getLock 交叉：getLock 串行排队后保留锁，driver.acquire 调用两次', async () => {
     const driverCtl = createStubDriver();
     const { actions } = buildActions<{ v: number }>({
       data: { v: 0 },
