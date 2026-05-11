@@ -188,7 +188,9 @@ describe('authority/extract — parseAuthorityRaw (safe parse)', () => {
   });
 
   test('snapshot 为合法 falsy 值（null / false / 0 / 空串）正常通过', () => {
-    // snapshot 字段允许任意类型；关键是"键存在"而非"值真值"
+    // snapshot 字段允许任意类型；关键是"键存在"（Reflect.has）而非"值真值"
+    // 契约：JSON.parse 产物中 snapshot 只有两种形态——key 缺失（返回 null，已由上方用例覆盖）
+    // 或 key 存在 + 任意 JSON 值（通过，本用例覆盖）
     expect(parseAuthorityRaw('{"rev":1,"epoch":"e","snapshot":null}')).toEqual({
       rev: 1,
       ts: 0,
@@ -213,16 +215,6 @@ describe('authority/extract — parseAuthorityRaw (safe parse)', () => {
       epoch: 'e',
       snapshot: '',
     });
-  });
-
-  test('snapshot 为显式 undefined（JSON 中无法直接表达，以 key 存在但值缺失的等价形式校验）', () => {
-    // 标准 JSON 不支持 undefined 字面量；"key 存在但值是 undefined"在 JSON.parse 产物中
-    // 唯一可能出现的形式是 key 在源串中显式出现 —— 这种用 in / Reflect.has 仍判定为 true
-    // 为了让脏数据无法绕过校验，构造一个 Object.create(null) 形式的对象走非 JSON 路径已不可达
-    // （parseAuthorityRaw 入口必经 JSON.parse），此处仅做契约说明：JSON.parse 产物只会出现两种形态
-    //   1. snapshot key 完全不出现 → Reflect.has = false → 返回 null（上一用例已覆盖）
-    //   2. snapshot key 出现 + 任意 JSON 值 → Reflect.has = true → 通过（本用例已覆盖）
-    expect(true).toBe(true);
   });
 });
 
