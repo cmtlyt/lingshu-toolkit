@@ -28,8 +28,8 @@ RFC 版本独立维护，不跟随包版本。语义：
 | 0.1.2 | 2026/04/28 | 目录结构调整（无 RFC 字段 / 协议级变更）。核心代码不再平铺根目录，按职责分 4 个子目录：`core/`（协调层：`registry` / `actions` / `readonly-view` / `draft` / `signal`）、`authority/`（拆分为 `index`（StorageAuthority 主类 / initAuthority / applyAuthorityIfNewer / onCommitSuccess / 生命周期订阅）+ `serialize`（固化字段顺序 rev→ts→epoch→snapshot）+ `extract`（extractRev / extractEpoch / readIfNewer 快路径过时判定）+ `epoch`（resolveEpoch A~F 六分支 / session-probe / session-reply））、`drivers/`（不变）、`adapters/`（文件名简化：`authority.ts` / `channel.ts` / `session-store.ts` / `logger.ts` / `clone.ts`）；根目录仅保留 `index.ts` / `index.mdx` / `types.ts` / `constants.ts` / `errors.ts` + `RFC.md`。测试目录按源码镜像为 `__test__/{core,adapters,drivers,authority,integration}/`，跨模块集成测试归入 `integration/`。同步更新「目录与文件规划」「依赖倒置与适配器」「测试策略」「风险与取舍」「公开决策记录 #14」等章节的路径引用 |
 | 0.1.3 | 2026/04/28 | API 表面扩展（非 breaking）：`LockDataActions` 新增 `release(): void` 方法，拆分原 `dispose` 过载的"还锁 + 销毁实例"双重职责。`release` 仅处理还锁（release 底层锁 + 清理 `holdTimeout` + state 回 `idle`），不碰引用计数 / 订阅解绑，actions 仍可继续使用；`dispose` 语义不变。同步更新：① 正文「API 设计 / LockDataActions」签名 + JSDoc；② 正文「调用语义要点」新增 `release` vs `dispose` 职责分工说明 + 长生命周期用法示例；③ 正文「Actions 实现要点」拆分 `release` / `dispose` 流程；④ 使用示例「多步事务」新增长生命周期场景（场景 B：用 `release` 还锁、实例复用）；⑤ 附录 A 接口索引同步（共用定义，随正文变更）；⑥ 新增公开决策记录 #31；⑦ 新增风险表「`release` / `dispose` 语义混淆」条目 |
 | 0.1.4 | 2026/04/29 | 架构备忘（无 API / 协议变更）：记录"事务式 Draft 暂不外部化为 `shared/transactional-draft`"的决议（方向 A）。实施阶段 `core/draft.ts` 保持 self-contained 实现，源文件顶部加迁移注释指向 RFC；RFC 正文「事务式 Draft」章节新增「外部化前瞻（可选迁移路径）」小节，预留通用化 API 骨架（`createTransaction` / `Transaction` / `Mutation`）+ 需补齐的通用化能力清单 + 明确的抽离触发条件。新增公开决策记录 #32 |
-| 0.1.6 | 2026/05/08 | 测试组织形式优化（无 API / 协议变更）：参考仓库内 `src/shared/condition-merge/index.test-d.ts` 模式，把 `lockData` 的编译期类型断言（`expectTypeOf`）从 runtime 测试中抽离到独立的 `.test-d.ts` 文件 —— 新建 `src/shared/lock-data/index.test-d.ts`（覆盖 lockData 同步路径精确 `LockDataTuple<T>` / 异步路径精确 `Promise<LockDataTuple<T>>` / `syncMode='storage-authority'` 强制 id 的 4 项类型契约 + `ReadonlyView<T>` 加 `readonly`）+ `src/shared/lock-data/__test__/integration/entry.test-d.ts`（覆盖三条初始化路径类型契约 + `ReadonlyView<T>` 嵌套递归 + 函数类型透传不递归）；从 `index.test.ts` / `__test__/integration/entry.node.test.ts` 移除全部 11 处 `expectTypeOf` 断言及未使用的类型导入（`LockDataTuple` / `ReadonlyView`）。配套：`vitest.project.config.ts` 的 `typecheck.include = ['src/${namespace}/**/*.test-d.ts']` 已支持自动收口（CI 环境 `enabled=!CI_TEST` 跳过省时间，本地 / `tsc --noEmit` 仍能强制校验）。收益：① runtime 测试聚焦 runtime 行为、类型测试聚焦编译期契约，关注点分离；② 风格与仓库其它工具（如 `condition-merge`）保持一致；③ 不再混入"无 runtime expect"的纯类型断言用例，测试报告列表更清晰 |
 | 0.1.5 | 2026/05/08 | **协议级 breaking 重构**：① **API 单参数化**：`lockData(initial, options)` 三重载 → `lockData(options)` 单签名 + 条件类型推断；`getValue` 升为必传，独立 `initial` 入参彻底删除；② **`actions.read()` → `actions.snapshot()`**：语义对齐「独立于 readonly view 的数据快照」，配合 wrapper Proxy 解决 `structuredClone(view)` 浏览器硬限制；③ **顶层数组双重禁止**：类型层 `LockDataValueShape<T> = T extends readonly unknown[] ? never : T`（覆盖 `string[]` / `ReadonlyArray<X>` / 元组等所有数组形态）+ 运行时 `Array.isArray(awaited)` fail-fast 抛 `InvalidOptionsError`；④ **wrapper Proxy 方案**：废弃旧「`entry.data` 引用稳定 + `applyInPlace` 原地覆写」契约，改为 `entry.dataRef: { current: T }` + `view` Proxy trap 重定向到 `dataRef.current`；commit / `host.applyRemote` 通过整体重新赋值 `dataRef.current` 触发更新，新契约下 view 引用稳定但 `Object.isFrozen(view)` 永远 `false`（已知瑕疵，决策接受）；⑤ **JSON 拷贝隔离契约**：所有进入 `dataRef.current` 的值（getValue / replace / commit / applyRemote / snapshot）统一走 `JSON.parse(JSON.stringify(...))`；新增 `utils/json-safe.ts`（`assertJsonSafe` / `assertJsonSafeInput` / `assertNotTopLevelArray` / `cloneByJson`）在 getValue / replace 入口 fail-fast；删除 `adapters.clone` / `CloneFn` / `createSafeCloneFn` / `adapters/clone.ts`；⑥ **dataReadyState 状态机半极简化**：删除 `Entry.dataReadyState` / `Entry.dataReadyError` 字段，仅保留 `Entry.dataReadyPromise` 单标志位；同步抛错路径不构造 Entry（直接抛出），异步 reject 走 `dataReadyPromise` 透传；⑦ **authority 钩子重构**：`StorageAuthorityHost.data` 字段 + `applySnapshot` 钩子 → `StorageAuthorityHost.applyRemote(next: T): void` 方法；`StorageAuthorityDeps` 删除 `clone` / `applySnapshot` 注入。同步更新：API 设计 / 总览 / 签名 / 顶层数组禁止 / readonly view 引用稳定契约 / actions.snapshot 章节 / storage-authority Promise resolve 三步流程 / 附录 A 接口索引；新增决策 #33；`actions.ts` 拆分为 `actions.ts` + `actions-helpers.ts` 满足 biome `noExcessiveLinesPerFile` |
+| 0.1.6 | 2026/05/08 | 测试组织形式优化（无 API / 协议变更）：参考仓库内 `src/shared/condition-merge/index.test-d.ts` 模式，把 `lockData` 的编译期类型断言（`expectTypeOf`）从 runtime 测试中抽离到独立的 `.test-d.ts` 文件 —— 新建 `src/shared/lock-data/index.test-d.ts`（覆盖 lockData 同步路径精确 `LockDataTuple<T>` / 异步路径精确 `Promise<LockDataTuple<T>>` / `syncMode='storage-authority'` 强制 id 的 4 项类型契约 + `ReadonlyView<T>` 加 `readonly`）+ `src/shared/lock-data/__test__/integration/entry.test-d.ts`（覆盖三条初始化路径类型契约 + `ReadonlyView<T>` 嵌套递归 + 函数类型透传不递归）；从 `index.test.ts` / `__test__/integration/entry.node.test.ts` 移除全部 11 处 `expectTypeOf` 断言及未使用的类型导入（`LockDataTuple` / `ReadonlyView`）。配套：`vitest.project.config.ts` 的 `typecheck.include = ['src/${namespace}/**/*.test-d.ts']` 已支持自动收口（CI 环境 `enabled=!CI_TEST` 跳过省时间，本地 / `tsc --noEmit` 仍能强制校验）。收益：① runtime 测试聚焦 runtime 行为、类型测试聚焦编译期契约，关注点分离；② 风格与仓库其它工具（如 `condition-merge`）保持一致；③ 不再混入"无 runtime expect"的纯类型断言用例，测试报告列表更清晰 |
 | X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名；对应的决策追加到「公开决策记录」并引用决策编号（如 #31） |
 
 ## 背景与动机
@@ -814,8 +814,11 @@ pickDefaultAdapters(userAdapters, ctx):
 
 ### LocalLockDriver
 
-- 进程内单例的 `Map<id, Holder>`；由于 id 不存在，这里退化为"每次调用都直接获得锁"
-- 排队语义不启用，`force`、`timeout` 在此模式下被忽略（由 dataHandler 校验时给出 warn）
+- 进程内维护 FIFO 等待队列；`acquire` 产生的 `LockHandle` 在 `release` 调用时把下一个 waiter 从队首取出并 resolve
+- `force: true` 立即抢占：当前持有者的 `onRevokedByDriver` 以 `'force'` 回调，新请求跳过队列直接持锁
+- `acquireTimeout` 用本地 `setTimeout` 计时；`signal.aborted` 或 timeout 触发时把对应 waiter 从队列中移除并 reject
+- `destroy`：把所有等待者 reject 为 `LockAbortedError`，并清空队列；当前持有者 `onRevokedByDriver('force')` 并让 release 变成幂等 no-op
+- 无 id 场景下同一 driver 实例内仍维护互斥语义（由 InstanceRegistry 按 id 唯一化 driver 保证"同 id 共享同一 driver"）
 
 ### WebLocksDriver（首选）
 
@@ -1213,12 +1216,12 @@ LockDriver                                StorageAuthority
 #### 存储格式（固化契约）
 
 ```ts
-// localStorage value 必须为 JSON 字符串，字段顺序固化为：rev → ts → snapshot
+// localStorage value 必须为 JSON 字符串，字段顺序固化为：rev → ts → epoch → snapshot
 // rev 必须在首位，便于 lazy parse 时的快路径提取
-type AuthorityRaw = string // `{"rev":42,"ts":1714198800123,"snapshot":{...}}`
+type AuthorityRaw = string // `{"rev":42,"ts":1714198800123,"epoch":"ab12...","snapshot":{...}}`
 
-function serialize(rev: number, ts: number, snapshot: unknown): string {
-  return `{"rev":${rev},"ts":${ts},"snapshot":${JSON.stringify(snapshot)}}`
+function serialize(rev: number, ts: number, epoch: string, snapshot: unknown): string {
+  return `{"rev":${rev},"ts":${ts},"epoch":${JSON.stringify(epoch)},"snapshot":${JSON.stringify(snapshot)}}`
 }
 ```
 
@@ -1490,8 +1493,8 @@ src/shared/lock-data/
 │
 ├── core/                       # 核心协调层（与底层能力解耦，跑纯逻辑测试即可覆盖）
 │   ├── registry.ts             # InstanceRegistry（同 id 单例池 / 引用计数 / listeners fanout / listener 异常隔离 / signal.aborted 自动 dispose）
-│   ├── actions.ts              # LockDataActions 实现（update / replace / read / dispose / getLock 五个方法 + 参数校验 + Draft 衔接 + 事件派发）
-│   ├── readonly-view.ts        # ReadonlyView 代理实现（深只读 Proxy / Set/Map mutation 拦截 / 代理身份稳定）
+│   ├── actions.ts              # LockDataActions 实现（update / replace / snapshot / dispose / getLock / release 六个方法 + 参数校验 + Draft 衔接 + 事件派发）
+│   ├── readonly-view.ts        # ReadonlyView 代理实现（深只读 wrapper Proxy / 嵌套惰性递归 / 代理身份稳定）
 │   ├── draft.ts                # 事务式 Draft：validityRef / mutationLog / rollback / 嵌套 draft 合并
 │   └── signal.ts               # AbortSignal.any 兼容封装（两路 signal "与"组合 + 老环境 polyfill）
 │
@@ -1503,7 +1506,7 @@ src/shared/lock-data/
 │
 ├── drivers/                    # 锁驱动（底层能力层，按能力检测选择）
 │   ├── index.ts                # pickDriver 能力检测（优先级：CustomDriver → LocalLockDriver（无 id） → WebLocksDriver → BroadcastDriver → StorageDriver；首次创建 Entry 时调用一次，后续复用）
-│   ├── local.ts                # LocalLockDriver：进程内单例 Map<id, Holder>；无 id 时退化为直接获得锁，force / timeout / 排队语义不启用（由 dataHandler 校验时 warn）
+│   ├── local.ts                # LocalLockDriver：进程内 FIFO 排队 + force 抢占 + acquireTimeout / holdTimeout 超时 + signal abort + destroy 全量 reject
 │   ├── web-locks.ts            # WebLocksDriver（首选）：navigator.locks.request(name, { mode: 'exclusive', steal, signal }, cb)；force → steal: true + onRevoked('force')；timeout → AbortController.abort；dispose → resolve holdPromise 释放锁
 │   ├── broadcast.ts            # BroadcastDriver（降级）：BroadcastChannel + 随机 token + 200ms alive 心跳 + 3 次丢失判死 + 队列 FIFO 晋升 + force 抢占去重
 │   ├── storage.ts              # StorageDriver（兜底降级）：localStorage key `${LOCK_PREFIX}:${id}`、value `{ token, heartbeat, queue }`；setInterval 心跳；storage 事件跨 Tab；已知局限「同 Tab 多实例不触发 storage 事件」由本地补发排队 + token 重试兜底

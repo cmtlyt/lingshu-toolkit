@@ -192,12 +192,14 @@ Phase 7 文档与测试收口
 - [x] 实现默认 `LoggerAdapter`：委托到 `shared/logger` → [RFC#默认实现](./RFC.md#默认实现)（L1047）
 - [x] 验收：`warn` / `error` / `debug` 三个方法齐全（`__test__/adapters/logger.node.test.ts`，6 用例全通）
 
-### 2.2 `adapters/clone.ts` ✅
+### 2.2 ~~`adapters/clone.ts`~~ ❌ 已废弃（RFC 0.1.5 删除）
 
-- [x] 实现 `createSafeCloneFn(logger?)`：`structuredClone` 优先 + JSON fallback + `logger.warn/error` → [RFC#默认实现](./RFC.md#默认实现)
-- [x] 三层降级：原生 `structuredClone` → JSON.parse/stringify → 返回原值（最后一道防线）
-- [x] 工厂构造阶段一次性探测 `structuredClone` 可用性，避免每次 clone 重复探测
-- [x] 验收：`__test__/adapters/clone.node.test.ts` 覆盖 structuredClone 可用 / 不可用 / 对单个 value 失败（function）/ JSON 失败（循环引用）/ 探测抛错 / logger 未注入 六类分支（8 用例全通）
+> **废弃说明**：RFC 0.1.5 引入 JSON 拷贝隔离契约后，所有快照派生统一走 `JSON.parse(JSON.stringify(...))`，不再需要 `CloneFn` / `createSafeCloneFn` / `adapters/clone.ts`。原有实现已删除，相关测试文件 `__test__/adapters/clone.node.test.ts` 已移除。
+
+- ~~[x] 实现 `createSafeCloneFn(logger?)`~~
+- ~~[x] 三层降级~~
+- ~~[x] 工厂构造阶段一次性探测~~
+- ~~[x] 验收~~
 
 ### 2.3 `adapters/authority.ts`（默认 localStorage 实现） ✅
 

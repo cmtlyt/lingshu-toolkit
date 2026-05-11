@@ -6,7 +6,7 @@
 >
 > author: cmtlyt
 >
-> update time: 2026/05/01 09:10:00
+> update time: 2026/05/11 13:46:00
 
 ## install
 
@@ -33,7 +33,7 @@ import { lockData } from '@cmtlyt/lingshu-toolkit/shared/lock-data'
 - **跨模块共享**：同一 `id` 的多次调用复用同一份数据，天然适合模块边界解耦
 - **跨 Tab 同步**：开启 `syncMode: 'storage-authority'` 后自动在同源 Tab 间同步，无需手动编排
 - **声明式会话语义**：`persistence: 'session'` 下所有 Tab 关闭即重置；`'persistent'` 跨浏览器重启保留
-- **可插拔适配器**：锁驱动、权威副本、通道、会话存储、日志、克隆函数全部可注入，便于测试和定制
+- **可插拔适配器**：锁驱动、权威副本、通道、会话存储、日志全部可注入，便于测试和定制
 - **严格超时控制**：抢锁 / 持锁超时独立控制，`NEVER_TIMEOUT` 显式表达"永不超时"意图
 - **类型安全**：同步 / 异步分支在类型层明确区分，无 `any`，无隐式 Promise
 
@@ -41,7 +41,7 @@ import { lockData } from '@cmtlyt/lingshu-toolkit/shared/lock-data'
 
 ### 同步初始化
 
-无 `getValue` 且 `syncMode` 为 `'none'`（默认）时，`lockData` 直接返回元组：
+`getValue` 同步返回且 `syncMode` 为 `'none'`（默认）时，`lockData` 直接返回元组：
 
 ```ts
 import { lockData } from '@cmtlyt/lingshu-toolkit/shared';
@@ -51,7 +51,7 @@ interface Counter {
   label: string;
 }
 
-const [view, actions] = lockData<Counter>({ count: 0, label: 'init' });
+const [view, actions] = lockData({ getValue: () => ({ count: 0, label: 'init' }) });
 
 // view 是深只读视图
 console.log(view.count); // 0
@@ -72,7 +72,7 @@ await actions.dispose();
 ```ts
 import { lockData, ReadonlyMutationError } from '@cmtlyt/lingshu-toolkit/shared';
 
-const [view, actions] = lockData({ count: 0 });
+const [view, actions] = lockData({ getValue: () => ({ count: 0 }) });
 
 // ❌ 运行时抛 ReadonlyMutationError
 try {
@@ -92,7 +92,7 @@ await actions.dispose();
 ### 整体替换
 
 ```ts
-const [view, actions] = lockData<Counter>({ count: 0, label: 'init' });
+const [view, actions] = lockData({ getValue: () => ({ count: 0, label: 'init' }) });
 
 // replace 相当于一次隐式事务：整体替换成新对象
 await actions.replace({ count: 100, label: 'reset' });
@@ -112,8 +112,8 @@ interface User {
   name: string;
 }
 
-const [view, actions] = await lockData<User>(undefined, {
-  getValue: () => fetch('/api/user').then((res) => res.json()),
+const [view, actions] = await lockData({
+  getValue: () => fetch('/api/user').then((res) => res.json()) as Promise<User>,
 });
 
 console.log(view.name); // 从 /api/user 拉到的值
@@ -123,18 +123,18 @@ await actions.dispose();
 
 ### 跨模块共享（同 id 复用）
 
-传入 `id` 后，同一进程内多次 `lockData(id)` 会复用同一份数据：
+传入 `id` 后，同一进程内多次 `lockData` 会复用同一份数据：
 
 ```ts
 // moduleA.ts
-const [viewA, actionsA] = lockData({ counter: 0 }, { id: 'shared-counter' });
+const [viewA, actionsA] = lockData({ id: 'shared-counter', getValue: () => ({ counter: 0 }) });
 await actionsA.update((draft) => {
   draft.counter = 5;
 });
 
 // moduleB.ts（同一进程）
-const [viewB, actionsB] = lockData({ counter: 0 }, { id: 'shared-counter' });
-// 注意：第二次调用的初始值会被忽略，viewB 读到的是已有数据
+const [viewB, actionsB] = lockData({ id: 'shared-counter', getValue: () => ({ counter: 0 }) });
+// 注意：第二次调用的 getValue 不会被执行，viewB 读到的是已有数据
 console.log(viewB.counter); // 5
 
 // 两边都 dispose 后，底层数据才真正释放
@@ -149,13 +149,11 @@ await actionsB.dispose();
 开启 `syncMode: 'storage-authority'` 后，`lockData` 返回 `Promise<元组>`，同源 Tab 间自动同步：
 
 ```ts
-const [view, actions] = await lockData(
-  { count: 0 },
-  {
-    id: 'cross-tab-counter',
-    syncMode: 'storage-authority',
-  },
-);
+const [view, actions] = await lockData({
+  id: 'cross-tab-counter',
+  syncMode: 'storage-authority',
+  getValue: () => ({ count: 0 }),
+});
 
 // Tab A 写入
 await actions.update((draft) => {
@@ -168,23 +166,21 @@ await actions.update((draft) => {
 ### 监听数据变更
 
 ```ts
-const [view, actions] = lockData(
-  { count: 0 },
-  {
-    listeners: {
-      onCommit: (event) => {
-        // event.source: 'update' | 'replace'
-        // event.rev: 本次提交后的版本号（单调递增）
-        // event.snapshot: 提交成功时的最新快照
-        console.log(`commit #${event.rev} by ${event.source}`);
-      },
-      onRevoked: (event) => {
-        // 锁被撤销（抢占 / 超时 / dispose）时触发
-        console.log(`revoked: ${event.reason}`);
-      },
+const [view, actions] = lockData({
+  getValue: () => ({ count: 0 }),
+  listeners: {
+    onCommit: (event) => {
+      // event.source: 'update' | 'replace'
+      // event.rev: 本次提交后的版本号（单调递增）
+      // event.snapshot: 提交成功时的最新快照
+      console.log(`commit #${event.rev} by ${event.source}`);
+    },
+    onRevoked: (event) => {
+      // 锁被撤销（抢占 / 超时 / dispose）时触发
+      console.log(`revoked: ${event.reason}`);
     },
   },
-);
+});
 
 await actions.update((draft) => {
   draft.count = 1;
@@ -200,7 +196,7 @@ await actions.dispose();
 `getLock` + 多次 `update` + `release` 可以把多个写操作合并到同一把锁内：
 
 ```ts
-const [view, actions] = lockData({ balance: 100, pending: 0 });
+const [view, actions] = lockData({ getValue: () => ({ balance: 100, pending: 0 }) });
 
 // 手动抢锁；获取后 isHolding === true
 await actions.getLock();
@@ -224,12 +220,10 @@ await actions.dispose();
 ```ts
 import { lockData, NEVER_TIMEOUT } from '@cmtlyt/lingshu-toolkit/shared';
 
-const [view, actions] = lockData(
-  { count: 0 },
-  {
-    timeout: 3000, // 默认 5000ms；本实例默认改为 3000ms
-  },
-);
+const [view, actions] = lockData({
+  getValue: () => ({ count: 0 }),
+  timeout: 3000, // 默认 5000ms；本实例默认改为 3000ms
+});
 
 // 单次调用覆盖
 await actions.update(
@@ -255,7 +249,7 @@ await actions.dispose();
 ```ts
 const controller = new AbortController();
 
-const [view, actions] = lockData({ count: 0 }, { signal: controller.signal });
+const [view, actions] = lockData({ getValue: () => ({ count: 0 }), signal: controller.signal });
 
 // abort 等价于自动 dispose
 controller.abort();
@@ -287,7 +281,7 @@ import {
   InvalidOptionsError,
 } from '@cmtlyt/lingshu-toolkit/shared';
 
-const [view, actions] = lockData({ count: 0 });
+const [view, actions] = lockData({ getValue: () => ({ count: 0 }) });
 
 try {
   await actions.update(
@@ -315,41 +309,24 @@ await actions.dispose();
 
 ### lockData
 
-根据 `options` 的组合决定同步或异步返回：
+单参数 API，返回类型由 `options` 的组合自动推断（条件类型）：
 
 ```ts
-// 分支 A：同步初始化
-function lockData<T extends object>(
-  data: T,
-  options?: LockDataOptions<T> & { getValue?: undefined; syncMode?: 'none' },
-): LockDataTuple<T>;
-
-// 分支 B：异步 getValue
-function lockData<T extends object>(
-  data: T | undefined,
-  options: LockDataOptions<T> & { getValue: () => Promise<T> },
-): Promise<LockDataTuple<T>>;
-
-// 分支 C：storage-authority 同步模式
-function lockData<T extends object>(
-  data: T,
-  options: LockDataOptions<T> & { syncMode: 'storage-authority' },
-): Promise<LockDataTuple<T>>;
+function lockData<const O extends LockDataOptions<unknown>>(options: O): LockDataResolveReturn<O>
 ```
 
-#### 参数
+返回类型判定规则：
 
-| 参数 | 类型 | 必填 | 默认值 | 描述 |
-|------|------|------|--------|------|
-| `data` | `T \| undefined` | 否 | `undefined` | 初始数据；分支 B 下可为 `undefined`（由 `getValue` 提供） |
-| `options` | `LockDataOptions<T>` | 否 | `{}` | 配置项，见下表 |
+- `syncMode === 'storage-authority'`（需配 `id: string`）→ `Promise<LockDataTuple<T>>`
+- `getValue` 返回 `Promise<T>` → `Promise<LockDataTuple<T>>`
+- 其他 → `LockDataTuple<T>`（同步返回）
 
 #### LockDataOptions
 
 | 属性 | 类型 | 必填 | 默认值 | 描述 |
 |------|------|------|--------|------|
+| `getValue` | `() => T \| Promise<T>` | **是** | — | 数据来源唯一入口；返回 Promise 时 `lockData` 整体返回 Promise |
 | `id` | `string` | 否 | `undefined` | 锁 id；未传视为"纯本地只读锁"，不参与跨模块共享 |
-| `getValue` | `() => T \| Promise<T>` | 否 | `undefined` | 同步 / 异步初始化器；返回 Promise 时 `lockData` 整体返回 Promise |
 | `timeout` | `number \| typeof NEVER_TIMEOUT` | 否 | `5000` | 默认抢锁 + 持锁超时（毫秒） |
 | `mode` | `'auto' \| 'web-locks' \| 'broadcast' \| 'storage'` | 否 | `'auto'` | 锁驱动选择；`'auto'` 按能力降级 |
 | `syncMode` | `'none' \| 'storage-authority'` | 否 | `'none'` | 跨进程同步模式 |
@@ -363,31 +340,35 @@ function lockData<T extends object>(
 
 返回深只读视图与 actions 的元组 `[ReadonlyView<T>, LockDataActions<T>]`：
 
-- 分支 A 同步返回元组
-- 分支 B / C 返回 `Promise<元组>`
+- `getValue` 同步返回且 `syncMode` 为 `'none'` → 同步返回元组
+- `getValue` 返回 Promise 或 `syncMode: 'storage-authority'` → 返回 `Promise<元组>`
 
-初始化失败时：分支 A 抛 `LockDisposedError`；分支 B / C 返回的 Promise reject `LockDisposedError`（`cause` 字段携带原始错误）。
+TypeScript 条件类型会从 `options` 自动推断返回类型，调用方无需显式传任何泛型或手动断言。
+
+初始化失败时：同步路径直接抛 `LockDisposedError`；异步路径返回的 Promise reject `LockDisposedError`（`cause` 字段携带原始错误）。
 
 ### LockDataActions
 
 ```ts
 interface LockDataActions<T extends object> {
   readonly isHolding: boolean;
-  update: (recipe: (draft: T) => void | Promise<void>, callOptions?: ActionCallOptions) => Promise<void>;
-  replace: (next: T, callOptions?: ActionCallOptions) => Promise<void>;
-  read: () => T;
-  getLock: (callOptions?: ActionCallOptions) => Promise<void>;
+  readonly token: string;
+  update: (recipe: (draft: T) => void | Promise<void>, callOptions?: ActionCallOptions) => void | Promise<void>;
+  replace: (next: T, callOptions?: ActionCallOptions) => void | Promise<void>;
+  snapshot: () => T;
+  getLock: (callOptions?: ActionCallOptions) => void | Promise<void>;
   release: () => void;
-  dispose: () => Promise<void>;
+  dispose: () => Promise<void> | void;
 }
 ```
 
 | 方法 | 描述 |
 |------|------|
 | `isHolding` | 当前是否持有锁（只读） |
+| `token` | 本实例唯一标识（只读） |
 | `update(recipe, callOptions?)` | 事务式写入；recipe 抛错 / 被撤销时整体回滚 |
 | `replace(next, callOptions?)` | 整体替换为 `next`；与 `update` 相同的事务语义 |
-| `read()` | 不抢锁的深克隆读取，返回快照 |
+| `snapshot()` | 不抢锁的 JSON 拷贝隔离读取，返回快照（解决 `structuredClone(view)` 抛错问题） |
 | `getLock(callOptions?)` | 手动抢锁，后续 `update` 不会重复抢 |
 | `release()` | 只还锁，不销毁实例；actions 仍可继续使用 |
 | `dispose()` | 还锁 + 销毁实例；后续 `update` / `replace` / `getLock` 全部抛 `LockDisposedError`；幂等 |
@@ -418,7 +399,7 @@ interface LockDataActions<T extends object> {
 |--------|---------|
 | `InvalidOptionsError` | `options` 结构非法（如 `listeners` 不是对象） |
 | `LockAbortedError` | `callOptions.signal` 被 abort |
-| `LockDisposedError` | `dispose` 之后调用 `update` / `replace` / `getLock` / `read`，或异步初始化失败 |
+| `LockDisposedError` | `dispose` 之后调用 `update` / `replace` / `getLock` / `snapshot`，或异步初始化失败 |
 | `LockRevokedError` | 被 `force: true` 的调用抢占 |
 | `LockTimeoutError` | 抢锁 / 持锁超时 |
 | `ReadonlyMutationError` | 直接对 `view` 写入属性 |
@@ -435,16 +416,16 @@ interface LockDataActions<T extends object> {
 
 `view` 是深只读代理，任何直接赋值（`view.count = 1`、`delete view.count`）都会抛 `ReadonlyMutationError`。写入必须经 `actions.update` 或 `actions.replace`。
 
-### ⚠️ 同 id 的后续初始值会被忽略
+### ⚠️ 同 id 的后续 getValue 不会被执行
 
-相同 `id` 的第二次及之后调用 `lockData` 会复用已有数据，新传入的初始值被忽略。如需重置数据，请先让所有持有者 `dispose`，或主动 `replace`。
+相同 `id` 的第二次及之后调用 `lockData` 会复用已有数据，新传入的 `getValue` 不会被调用。如需重置数据，请先让所有持有者 `dispose`，或主动 `replace`。
 
-### ⚠️ 分支判断决定同步 / 异步返回
+### ⚠️ 条件类型决定同步 / 异步返回
 
-- 无 `getValue` 且 `syncMode` 为 `'none'`（默认）→ 同步返回元组
-- 有 `getValue` 返回 Promise 或 `syncMode: 'storage-authority'` → 返回 `Promise<元组>`
+- `getValue` 同步返回且 `syncMode` 为 `'none'`（默认）→ 同步返回元组
+- `getValue` 返回 Promise 或 `syncMode: 'storage-authority'` → 返回 `Promise<元组>`
 
-请根据自己的配置决定是否 `await`，TypeScript 类型层已精确标注。
+TypeScript 条件类型会从 `options` 自动推断返回类型，无需手动断言。
 
 ### ⚠️ recipe 内避免同步抛错
 
@@ -452,7 +433,7 @@ interface LockDataActions<T extends object> {
 
 ### ⚠️ dispose 后的 actions 不可复用
 
-`dispose` 是终态：之后调用 `update` / `replace` / `getLock` / `read` 都会抛 `LockDisposedError`。如需重用，请重新 `lockData`。
+`dispose` 是终态：之后调用 `update` / `replace` / `getLock` / `snapshot` 都会抛 `LockDisposedError`。如需重用，请重新 `lockData`。
 
 ### ⚠️ storage-authority 的会话语义
 
