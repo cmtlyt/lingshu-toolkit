@@ -281,6 +281,33 @@ describe('drivers/custom (node)', () => {
     expect(passedCtx.signal.aborted).toBe(true);
   });
 
+  test('handle 形状校验：getLock 返回 null → 抛 TypeError', async () => {
+    driver = createCustomLockDriver(buildDeps(() => null as unknown as LockDriverHandle));
+    await expect(driver.acquire(buildContext({ token: 'shape-null' }))).rejects.toThrow(TypeError);
+    await expect(driver.acquire(buildContext({ token: 'shape-null' }))).rejects.toThrow(
+      /adapters\.getLock must return an object with a "release" function.*got null/u,
+    );
+  });
+
+  test('handle 形状校验：getLock 返回 undefined → 抛 TypeError', async () => {
+    driver = createCustomLockDriver(buildDeps(() => undefined as unknown as LockDriverHandle));
+    await expect(driver.acquire(buildContext({ token: 'shape-undef' }))).rejects.toThrow(TypeError);
+    await expect(driver.acquire(buildContext({ token: 'shape-undef' }))).rejects.toThrow(/got undefined/u);
+  });
+
+  test('handle 形状校验：getLock 返回 release 非函数的对象 → 抛 TypeError', async () => {
+    const badHandle = { release: 'not-a-function' } as unknown as LockDriverHandle;
+    driver = createCustomLockDriver(buildDeps(() => badHandle));
+    await expect(driver.acquire(buildContext({ token: 'shape-bad' }))).rejects.toThrow(TypeError);
+    await expect(driver.acquire(buildContext({ token: 'shape-bad' }))).rejects.toThrow(/got string/u);
+  });
+
+  test('handle 形状校验：getLock 异步返回非法 handle → 抛 TypeError', async () => {
+    driver = createCustomLockDriver(buildDeps(async () => ({ release: 42 }) as unknown as LockDriverHandle));
+    await expect(driver.acquire(buildContext({ token: 'shape-async' }))).rejects.toThrow(TypeError);
+    await expect(driver.acquire(buildContext({ token: 'shape-async' }))).rejects.toThrow(/got number/u);
+  });
+
   test('用户 release 返回 reject Promise → catch 回调命中 logger.error（line 125-127）', async () => {
     const logger = createLoggerSpy();
     const releaseRejection = new Error('release rejected');

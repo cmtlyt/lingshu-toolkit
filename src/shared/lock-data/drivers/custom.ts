@@ -19,7 +19,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isPromiseLike } from '@/shared/utils';
+import { isFunction, isNullOrUndef, isNumber, isPromiseLike } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDataAdapters, LockDriverContext, LockDriverHandle } from '../types';
@@ -87,6 +87,21 @@ function mergeSignalWithTimeout(
     cleanup,
     getTimeoutFired: () => timeoutFired,
   };
+}
+
+/**
+ * 校验用户 getLock 返回的 handle 是否满足 LockDriverHandle 最小契约（release 必须为函数）。
+ * 校验失败时抛出 TypeError，错误消息包含实际拿到的类型和 token，方便定位。
+ */
+function validateHandle(handle: unknown, token: string): asserts handle is LockDriverHandle {
+  if (!(handle && isFunction((handle as LockDriverHandle).release))) {
+    const actualType = isNullOrUndef(handle) ? String(handle) : typeof (handle as LockDriverHandle).release;
+    throwError(
+      ERROR_FN_NAME,
+      `adapters.getLock must return an object with a "release" function, got ${actualType} (token=${token})`,
+      TypeError,
+    );
+  }
 }
 
 /**
@@ -172,6 +187,10 @@ function createCustomLockDriver(deps: LockDriverDeps): LockDriver {
     try {
       const result = getLock(userCtx);
       const handle = await Promise.resolve(result);
+
+      // 运行时形状校验：release 是 LockDriverHandle 的必要契约
+      validateHandle(handle, ctx.token);
+
       cleanup();
       logger.debug(`[${name}] custom driver: grant token=${ctx.token}`);
       return wrapUserHandle(handle, deps, ctx.token);
