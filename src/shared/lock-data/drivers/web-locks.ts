@@ -282,6 +282,20 @@ function createWebLocksDriver(deps: LockDriverDeps): LockDriver {
     try {
       const settled = await granted.promise;
       cleanup();
+
+      // 二次检查：grant 期间 driver 可能已被 destroy（pending request 不在 holdings 中，
+      // destroy 释放当前持有者后浏览器会将锁授予排队 waiter，此时 destroyed 已为 true）
+      if (destroyed) {
+        settled.released = true;
+        holdings.delete(settled);
+        settled.resolveHold();
+        throwError(
+          ERROR_FN_NAME,
+          `web-locks driver destroyed during acquire (token=${ctx.token})`,
+          LockAbortedError as unknown as ErrorConstructor,
+        );
+      }
+
       return buildHandleFor(settled);
     } catch (error) {
       cleanup();

@@ -180,6 +180,33 @@ describe('drivers/web-locks (browser, real navigator.locks)', () => {
     driver2.destroy();
   });
 
+  test('destroy 期间 pending waiter 被 grant 后应回收并抛 LockAbortedError', async () => {
+    const lockName = makeLockName();
+    driver = createWebLocksDriver(buildDeps(lockName));
+    const firstHandle = await driver.acquire(buildContext(lockName, { token: 'first' }));
+
+    // 第二个 acquire 排队等待（尚未 grant）
+    const secondPromise = driver.acquire(buildContext(lockName, { token: 'second' }));
+
+    // 等待 second 确实进入 navigator.locks 排队
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // destroy 释放 first → 浏览器将锁授予 second → 二次检查命中 destroyed → reject
+    driver.destroy();
+    driver = null;
+
+    await expect(secondPromise).rejects.toBeInstanceOf(LockAbortedError);
+
+    // 验证锁资源已被回收：新 driver 实例能立即拿到同名锁
+    const driver2 = createWebLocksDriver(buildDeps(lockName));
+    const h2 = await driver2.acquire(buildContext(lockName));
+    expect(h2).toBeDefined();
+    h2.release();
+    driver2.destroy();
+
+    firstHandle.release(); // 幂等 no-op
+  });
+
   test('destroy 后 acquire 抛 LockAbortedError + destroy 幂等', async () => {
     const lockName = makeLockName();
     driver = createWebLocksDriver(buildDeps(lockName));
