@@ -14,7 +14,7 @@
  * 10. destroy 幂等
  */
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { resolveLoggerAdapter } from '@/shared/lock-data/adapters/logger';
 import { LOCK_PREFIX, NEVER_TIMEOUT } from '@/shared/lock-data/constants';
 import { createLocalLockDriver } from '@/shared/lock-data/drivers/local';
@@ -54,7 +54,12 @@ function buildContext(overrides: Partial<LockDriverContext> = {}): LockDriverCon
 describe('drivers/local (node)', () => {
   let driver: LockDriver | null = null;
 
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
   afterEach(() => {
+    vi.useRealTimers();
     driver?.destroy();
     driver = null;
   });
@@ -98,9 +103,11 @@ describe('drivers/local (node)', () => {
     driver = createLocalLockDriver(buildDeps());
     const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
 
-    await expect(driver.acquire(buildContext({ token: 'second', acquireTimeout: 30 }))).rejects.toBeInstanceOf(
-      LockTimeoutError,
-    );
+    const pendingAcquire = driver.acquire(buildContext({ token: 'second', acquireTimeout: 30 }));
+    // 先注册 rejection handler 防止 unhandled rejection，再推进 fake timer
+    const assertion = expect(pendingAcquire).rejects.toBeInstanceOf(LockTimeoutError);
+    await vi.advanceTimersByTimeAsync(30);
+    await assertion;
 
     firstHandle.release();
   });
@@ -111,8 +118,8 @@ describe('drivers/local (node)', () => {
 
     const controller = new AbortController();
     const p = driver.acquire(buildContext({ token: 'second', signal: controller.signal }));
-    // 等待 p 进入队列
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // 刷微任务：waiter 入队是同步的，仅需让 Promise executor 执行完成
+    await vi.advanceTimersByTimeAsync(0);
     controller.abort();
 
     await expect(p).rejects.toBeInstanceOf(LockAbortedError);
@@ -150,7 +157,7 @@ describe('drivers/local (node)', () => {
       thirdSettled = true;
       return h;
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(0);
     expect(thirdSettled).toBe(false);
 
     secondHandle.release();
@@ -181,7 +188,7 @@ describe('drivers/local (node)', () => {
 
     const p2 = driver.acquire(buildContext({ token: 'second' }));
     const p3 = driver.acquire(buildContext({ token: 'third' }));
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(0);
 
     driver.destroy();
 
@@ -232,7 +239,7 @@ describe('drivers/local (node)', () => {
       thirdSettled = true;
       return h;
     });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await vi.advanceTimersByTimeAsync(0);
     expect(thirdSettled).toBe(false);
 
     secondHandle.release();
@@ -283,15 +290,15 @@ describe('drivers/local (node)', () => {
         }),
       );
 
-      // 等 waiter 入队
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      // 刷微任务：waiter 入队是同步的，仅需让 Promise executor 执行完成
+      await vi.advanceTimersByTimeAsync(0);
       // 先 abort（settled=true），再让 timeout 到期 —— timeout cb 内 waiter.abort 会再次进入 abort
       // 此时 waiter 已被 removeWaiter 出队 → removeWaiter 内 for 循环找不到 target（命中 line 148 false 分支）
       controller.abort();
       await expect(p).rejects.toBeInstanceOf(LockAbortedError);
 
-      // 等 timeout cb 触发，验证不抛错（settled=true 直接 return）
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // 推进 fake timer 使 acquireTimeout:30 的定时器触发，验证不抛错（settled=true 直接 return）
+      await vi.advanceTimersByTimeAsync(30);
 
       firstHandle.release();
     });
@@ -303,7 +310,7 @@ describe('drivers/local (node)', () => {
       const controller = new AbortController();
       const p = driver.acquire(buildContext({ token: 'second', signal: controller.signal }));
 
-      await new Promise((resolve) => setTimeout(resolve, 5));
+      await vi.advanceTimersByTimeAsync(0);
       // 释放第一个 → 第二个 waiter resolve（settled=true）
       firstHandle.release();
       const secondHandle = await p;

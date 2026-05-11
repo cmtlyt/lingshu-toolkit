@@ -10,11 +10,11 @@
  *
  * 测试场景（5 组）：
  *   1. acquiring 期间重入 update：driver.acquire 被暂停 → 同时发 update#1 + update#2
- *      → 断言两次都成功 commit、commit 顺序严格 #1→#2、不出现伪 onRevoked、driver.acquire 仅调一次
+ *      → 断言两次都成功 commit、commit 顺序严格 `#1`→#2、不出现伪 onRevoked、driver.acquire 调用两次
  *   2. committing 期间重入 update：第一个 update 的 recipe 是 async 阻塞 → 重入第二个 update
  *      → 断言两次都成功、driver.release 调用次数正确（无 handle 泄漏）、entry.rev 自增两次
  *   3. update + replace 交叉：data 最终值是 replace 的值，串行顺序正确
- *   4. update + getLock 交叉：getLock 让 actions 持锁不释放，driver.acquire 只调一次
+ *   4. update + getLock 交叉：getLock 串行排队并保留锁，driver.acquire 调用两次
  *   5. 排队期间 dispose：update#1 还在 acquiring → update#2 排队 → dispose()
  *      → 断言 update#2 被 reject LockDisposedError（不是 abort/timeout，符合终态契约）
  *

@@ -91,6 +91,7 @@ describe('drivers/web-locks (browser, real navigator.locks)', () => {
       return h;
     });
 
+    // 反向断言（证明状态未变化）：无可观测的中间状态可轮询，必须用固定等待
     await new Promise((resolve) => setTimeout(resolve, 30));
     expect(secondSettled).toBe(false);
 
@@ -119,6 +120,7 @@ describe('drivers/web-locks (browser, real navigator.locks)', () => {
 
     const controller = new AbortController();
     const p = driver.acquire(buildContext(lockName, { token: 'second', signal: controller.signal }));
+    // navigator.locks.request 排队是异步的且无可观测中间状态，需固定等待确保 waiter 入队
     await new Promise((resolve) => setTimeout(resolve, 20));
     controller.abort();
 
@@ -139,10 +141,10 @@ describe('drivers/web-locks (browser, real navigator.locks)', () => {
     const secondHandle = await driver.acquire(buildContext(lockName, { token: 'second', force: true }));
 
     // steal 后 navigator.locks 以 AbortError reject 原 request，driver 捕获后触发 revoke
-    // 真实浏览器下该路径是异步的，给一点时间让回调执行
-    await new Promise((resolve) => setTimeout(resolve, 30));
-
-    expect(revokeReasons).toEqual(['force']);
+    // 真实浏览器下该路径是异步的，用条件驱动等待代替固定 sleep
+    await vi.waitFor(() => {
+      expect(revokeReasons).toEqual(['force']);
+    });
 
     firstHandle.release(); // 幂等 no-op
     secondHandle.release();
@@ -188,7 +190,7 @@ describe('drivers/web-locks (browser, real navigator.locks)', () => {
     // 第二个 acquire 排队等待（尚未 grant）
     const secondPromise = driver.acquire(buildContext(lockName, { token: 'second' }));
 
-    // 等待 second 确实进入 navigator.locks 排队
+    // navigator.locks.request 排队是异步的且无可观测中间状态，需固定等待确保 waiter 入队
     await new Promise((resolve) => setTimeout(resolve, 30));
 
     // destroy 释放 first → 浏览器将锁授予 second → 二次检查命中 destroyed → reject
