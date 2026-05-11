@@ -1,0 +1,15 @@
+[
+  "index.mdx",
+  {
+    "id": "shared@lockData#RFC",
+    "type": "file",
+    "label": "RFC",
+    "name": "./RFC.md"
+  },
+  {
+    "id": "shared@lockData#IMPLEMENTATION",
+    "type": "file",
+    "label": "IMPLEMENTATION",
+    "name": "./IMPLEMENTATION.md"
+  }
+]

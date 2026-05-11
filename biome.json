@@ -841,9 +841,11 @@
           },
           "suspicious": {
             "noEmptyBlockStatements": "off",
-            "noConstantBinaryExpressions": "off"
+            "noConstantBinaryExpressions": "off",
+            "noThenProperty": "off"
           },
           "nursery": {
+            "noExcessiveLinesPerFile": "off",
             "useExplicitReturnType": "off",
             "noJsxPropsBind": "off",
             "useDestructuring": "off",

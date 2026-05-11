@@ -5,6 +5,7 @@ export * from './condition-merge';
 export * from './create-storage-handler';
 export * from './data-handler';
 export * from './data-mixed-manager';
+export * from './lock-data';
 export * from './priority-queue';
 export * from './throw-error';
 export * from './try-call';

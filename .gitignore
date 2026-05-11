@@ -19,6 +19,7 @@ src/public/r
 
 .claude/skills/*
 !.claude/skills/lingshu-*/
+.aone_copilot/*
 
 # vitest
 __screenshots__/
