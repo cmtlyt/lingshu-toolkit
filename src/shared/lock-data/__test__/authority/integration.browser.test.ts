@@ -438,11 +438,8 @@ describe('authority/index — 跨 Tab 推送（两 Tab end-to-end）', () => {
 
     // 模拟远端写入 rev=3（小于 lastAppliedRev=5）
     const raw = serializeAuthority(3, Date.now(), PERSISTENT_EPOCH, { count: 99 });
-    paired.tabA._dispatch(raw); // 手动派发给 Tab A 侧 listeners —— 不对，这测的是 Tab B
-
-    // 正确路径：从 Tab A 写入会 push 给 Tab B 的 listeners
-    paired.tabB.write(raw);
-    paired.tabA._dispatch(raw); // 真正 push 给 Tab A（本测试实际是让 Tab A 的 listeners 收到）
+    // Tab A 写入 → 推给 Tab B 的 subscribe 回调，命中 rev<=lastAppliedRev 快路径
+    paired.tabA.write(raw);
 
     // 由于我们监听的是 Tab B，应该没任何 onSync
     expect(emitSyncB).toHaveBeenCalledTimes(0);
