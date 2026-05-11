@@ -82,6 +82,9 @@ function buildLocalHandle(
   const { name, logger } = state;
   // 持有者订阅的 revoke 回调；最多订阅一次（新回调覆盖旧回调，与 WebLocks/Broadcast 一致）
   let revokeCallback: ((reason: 'force' | 'timeout') => void) | null = null;
+  // 缓存 revoke 原因：若 notifyRevoke 在 onRevokedByDriver 注册前触发，reason 暂存于此，
+  // 待回调注册时立即回放（见 local-driver-revoke-replay.md）
+  let revokeReason: 'force' | 'timeout' | null = null;
 
   const handle: LockDriverHandle = {
     release: () => {
@@ -99,12 +102,21 @@ function buildLocalHandle(
     },
     onRevokedByDriver: (callback) => {
       revokeCallback = callback;
+      // 回放：注册时若已被 revoke 过，立即补发
+      if (revokeReason !== null) {
+        try {
+          revokeCallback(revokeReason);
+        } catch (error) {
+          logger.error(`[${name}] local driver: revoke callback threw`, error);
+        }
+      }
     },
   };
 
   return {
     handle,
     notifyRevoke: (reason) => {
+      revokeReason = reason;
       if (isFunction(revokeCallback)) {
         try {
           revokeCallback(reason);

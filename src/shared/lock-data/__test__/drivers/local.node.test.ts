@@ -315,6 +315,79 @@ describe('drivers/local (node)', () => {
       expect(() => secondHandle.release()).not.toThrow();
     });
 
+    test('revoke 回放：force 抢占发生在 onRevokedByDriver 注册前 → 注册时立即补发', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      // 排队第二个 waiter
+      const p2 = driver.acquire(buildContext({ token: 'second' }));
+
+      // 释放 first → second 被 grant（通过 pumpNextWaiter → next.resolve(handle)）
+      firstHandle.release();
+      const secondHandle = await p2;
+
+      // 此时 secondHandle 已拿到，但还没注册 onRevokedByDriver
+      // 立即 force 抢占 → notifyRevoke('force') 触发时 revokeCallback 为 null
+      const thirdHandle = await driver.acquire(buildContext({ token: 'third', force: true }));
+
+      // 现在才注册回调 → 应当立即回放缓存的 'force'
+      const revokeReasons: string[] = [];
+      secondHandle.onRevokedByDriver((reason) => {
+        revokeReasons.push(reason);
+      });
+
+      expect(revokeReasons).toEqual(['force']);
+
+      thirdHandle.release();
+    });
+
+    test('revoke 回放：destroy 发生在 onRevokedByDriver 注册前 → 注册时立即补发', async () => {
+      driver = createLocalLockDriver(buildDeps());
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+
+      // 排队第二个 waiter
+      const p2 = driver.acquire(buildContext({ token: 'second' }));
+      firstHandle.release();
+      const secondHandle = await p2;
+
+      // destroy 触发 notifyRevoke('force')，但此时回调未注册
+      driver.destroy();
+      driver = null;
+
+      // 后注册回调 → 回放
+      const revokeReasons: string[] = [];
+      secondHandle.onRevokedByDriver((reason) => {
+        revokeReasons.push(reason);
+      });
+
+      expect(revokeReasons).toEqual(['force']);
+    });
+
+    test('revoke 回放：回调抛错时降级 logger.error', async () => {
+      const errorMock = vi.fn();
+      const logger: LoggerAdapter = { warn: vi.fn(), error: errorMock, debug: vi.fn() };
+      // @ts-expect-error test
+      driver = createLocalLockDriver({ name: `${LOCK_PREFIX}:__replay-throw__`, id: undefined, logger });
+
+      const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
+      const p2 = driver.acquire(buildContext({ token: 'second' }));
+      firstHandle.release();
+      const secondHandle = await p2;
+
+      // force 抢占，此时回调未注册
+      const thirdHandle = await driver.acquire(buildContext({ token: 'third', force: true }));
+
+      // 注册一个会抛错的回调 → 回放时应 catch 并 logger.error
+      secondHandle.onRevokedByDriver(() => {
+        throw new Error('replay-callback-throws');
+      });
+
+      expect(errorMock).toHaveBeenCalled();
+      expect(errorMock.mock.calls.some((call) => /revoke callback threw/u.test(String(call[0])))).toBe(true);
+
+      thirdHandle.release();
+    });
+
     test('多个 waiter 等待 + 释放：pumpNextWaiter 出队列空时早退（line 132-133 + line 200 settled）', async () => {
       driver = createLocalLockDriver(buildDeps());
       const firstHandle = await driver.acquire(buildContext({ token: 'first' }));
