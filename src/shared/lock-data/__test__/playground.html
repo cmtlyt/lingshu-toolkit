@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>lockData Playground</title>
+  <style>
+    :root {
+          --bg: #0f172a;
+          --surface: #1e293b;
+          --border: #334155;
+          --text: #e2e8f0;
+          --text-muted: #94a3b8;
+          --accent: #38bdf8;
+          --green: #4ade80;
+          --red: #f87171;
+          --yellow: #fbbf24;
+          --orange: #fb923c;
+          --radius: 8px;
+        }
+        * { box-sizing: border-box; padding: 0; margin: 0; }
+        body {
+          padding: 24px;
+          font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+          line-height: 1.6;
+          color: var(--text);
+          background: var(--bg);
+        }
+        h1 {
+          margin-bottom: 8px;
+          font-size: 1.5rem;
+          color: var(--accent);
+        }
+        .subtitle {
+          margin-bottom: 24px;
+          font-size: 0.85rem;
+          color: var(--text-muted);
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 16px;
+          margin-bottom: 16px;
+        }
+        .card {
+          padding: 16px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+        }
+        .card h2 {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          margin-bottom: 12px;
+          font-size: 0.9rem;
+          color: var(--accent);
+        }
+        .card h2::before {
+          color: var(--green);
+          content: '▸';
+        }
+        .btn-group {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+        button {
+          padding: 6px 14px;
+          font-family: inherit;
+          font-size: 0.8rem;
+          color: var(--text);
+          cursor: pointer;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          transition: all 0.15s;
+        }
+        button:hover {
+          color: var(--accent);
+          border-color: var(--accent);
+        }
+        button:active {
+          transform: scale(0.97);
+        }
+        button.danger { color: var(--red); border-color: var(--red); }
+        button.danger:hover { color: var(--bg); background: var(--red); }
+        button.success { color: var(--green); border-color: var(--green); }
+        button.success:hover { color: var(--bg); background: var(--green); }
+        .state-display {
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          min-height: 36px;
+          padding: 10px 14px;
+          font-size: 0.8rem;
+          background: var(--bg);
+          border-radius: 4px;
+        }
+        .state-display .label {
+          color: var(--text-muted);
+        }
+        .state-display .value {
+          font-weight: bold;
+          color: var(--green);
+        }
+        #log-container {
+          padding: 16px;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius);
+        }
+        #log-container h2 {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 12px;
+          font-size: 0.9rem;
+          color: var(--accent);
+        }
+        #log {
+          max-height: 360px;
+          padding: 12px;
+          overflow-y: auto;
+          font-size: 0.75rem;
+          line-height: 1.8;
+          background: var(--bg);
+          border-radius: 4px;
+        }
+        .log-entry {
+          padding: 2px 0;
+          border-bottom: 1px solid var(--border);
+        }
+        .log-entry:last-child {
+          border-bottom: none;
+        }
+        .log-time { color: var(--text-muted); }
+        .log-info { color: var(--accent); }
+        .log-success { color: var(--green); }
+        .log-error { color: var(--red); }
+        .log-warn { color: var(--yellow); }
+        .log-event { color: var(--orange); }
+        .tag {
+          display: inline-block;
+          padding: 1px 6px;
+          margin-left: 4px;
+          font-size: 0.7rem;
+          border-radius: 3px;
+        }
+        .tag-rev { color: var(--accent); background: #1e3a5f; }
+        .tag-phase { color: var(--green); background: #1a3320; }
+        .error-text { color: var(--red); }
+        .btn-clear { padding: 3px 10px; font-size: 0.7rem; }
+  </style>
+</head>
+<body>
+  <h1>🔒 lockData Playground</h1>
+  <p class="subtitle">在浏览器中交互式测试 lock-data 模块的各项功能</p>
+
+  <div class="grid">
+    <!-- 基础读写 -->
+    <div class="card">
+      <h2>基础读写</h2>
+      <div class="btn-group">
+        <button type="button" onclick="doIncrement()">count +1</button>
+        <button type="button" onclick="doDecrement()">count -1</button>
+        <button type="button" onclick="doReplace()">replace 整体替换</button>
+        <button type="button" onclick="doSnapshot()">snapshot 快照</button>
+      </div>
+      <div class="state-display">
+        <span class="label">view.count =</span>
+        <span class="value" id="view-count">-</span>
+        <span class="label">view.label =</span>
+        <span class="value" id="view-label">-</span>
+      </div>
+    </div>
+
+    <!-- 只读保护 -->
+    <div class="card">
+      <h2>只读保护 & 错误</h2>
+      <div class="btn-group">
+        <button type="button" class="danger" onclick="doWriteView()">直接写 view（触发 ReadonlyMutationError）</button>
+        <button type="button" class="danger" onclick="doDeleteView()">delete view.count</button>
+        <button type="button" class="danger" onclick="doUseAfterDispose()">dispose 后 update</button>
+      </div>
+      <div class="state-display">
+        <span class="label">最新错误:</span>
+        <span class="value error-text" id="last-error">无</span>
+      </div>
+    </div>
+
+    <!-- 手动持锁 -->
+    <div class="card">
+      <h2>手动持锁（getLock / release）</h2>
+      <div class="btn-group">
+        <button type="button" class="success" onclick="doGetLock()">getLock 抢锁</button>
+        <button type="button" onclick="doUpdateWhileHolding()">持锁 update</button>
+        <button type="button" class="danger" onclick="doRelease()">release 还锁</button>
+      </div>
+      <div class="state-display">
+        <span class="label">isHolding =</span>
+        <span class="value" id="is-holding">false</span>
+      </div>
+    </div>
+
+    <!-- 跨模块共享 -->
+    <div class="card">
+      <h2>跨模块共享（同 id）</h2>
+      <div class="btn-group">
+        <button type="button" onclick="doCreateShared()">创建 shared 实例</button>
+        <button type="button" onclick="doSharedUpdate()">shared update</button>
+        <button type="button" onclick="doSharedRead()">读取 shared view</button>
+        <button type="button" class="danger" onclick="doSharedDispose()">dispose shared</button>
+      </div>
+      <div class="state-display">
+        <span class="label">shared.counter =</span>
+        <span class="value" id="shared-counter">-</span>
+      </div>
+    </div>
+
+    <!-- 跨 Tab 同步 -->
+    <div class="card">
+      <h2>跨 Tab 同步（storage-authority）</h2>
+      <div class="btn-group">
+        <button type="button" class="success" onclick="doInitCrossTab()">初始化跨 Tab 实例</button>
+        <button type="button" onclick="doCrossTabUpdate()">update +1</button>
+        <button type="button" onclick="doCrossTabRead()">读取 view</button>
+        <button type="button" class="success" onclick="doCrossTabGetLock()">getLock 抢锁</button>
+        <button type="button" onclick="doCrossTabUpdateWhileHolding()">持锁 update +10</button>
+        <button type="button" class="danger" onclick="doCrossTabRelease()">release 还锁</button>
+        <button type="button" class="danger" onclick="doCrossTabDispose()">dispose</button>
+      </div>
+      <div class="state-display">
+        <span class="label">value =</span>
+        <span class="value" id="cross-tab-value">-</span>
+        <span class="label">rev =</span>
+        <span class="value" id="cross-tab-rev">-</span>
+        <span class="label">isHolding =</span>
+        <span class="value" id="cross-tab-holding">-</span>
+      </div>
+    </div>
+
+    <!-- AbortSignal -->
+    <div class="card">
+      <h2>AbortSignal 控制</h2>
+      <div class="btn-group">
+        <button type="button" class="success" onclick="doCreateAbortable()">创建可取消实例</button>
+        <button type="button" onclick="doAbortableUpdate()">update</button>
+        <button type="button" class="danger" onclick="doAbort()">abort（等价 dispose）</button>
+        <button type="button" class="danger" onclick="doAbortableUpdateAfterAbort()">abort 后 update</button>
+      </div>
+      <div class="state-display">
+        <span class="label">abortable.count =</span>
+        <span class="value" id="abortable-count">-</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- 日志 -->
+  <div id="log-container">
+    <h2>
+      <span>📋 事件日志</span>
+      <button type="button" class="btn-clear" onclick="clearLog()">清空</button>
+    </h2>
+    <div id="log"></div>
+  </div>
+
+  <script type="module" src="./playground.ts"></script>
+</body>
+</html>

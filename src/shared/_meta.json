@@ -61,9 +61,10 @@
   },
   {
     "id": "shared@apiController",
-    "type": "file",
+    "type": "dir",
     "label": "apiController",
-    "name": "api-controller/index.mdx"
+    "name": "api-controller",
+    "collapsed": true
   },
   {
     "id": "shared@tryCall",
@@ -79,8 +80,9 @@
   },
   {
     "id": "shared@lockData",
-    "type": "file",
+    "type": "dir",
     "label": "lockData",
-    "name": "lock-data/index.mdx"
+    "name": "lock-data",
+    "collapsed": true
   }
 ]

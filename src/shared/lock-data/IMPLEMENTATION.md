@@ -867,5 +867,5 @@ src/shared/lock-data/
 ## 相关文档
 
 - **设计源头**：[`./RFC.md`](./RFC.md) (0.1.5, accepted on 2026/05/08)
-- **编码规范**：[`../../../AGENTS.md`](../../../AGENTS.md)（报错走 `shared/throw-error`）
-- **项目测试约定**：[`../../../vitest.config.ts`](../../../vitest.config.ts)
+- **编码规范**：`../../../AGENTS.md`（报错走 `shared/throw-error`）
+- **项目测试约定** `../../../vitest.config.ts`
