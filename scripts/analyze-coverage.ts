@@ -18,7 +18,7 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { argv, cwd, exit } from 'node:process';
 
 // ---------------------------------------------------------------------------
@@ -234,9 +234,12 @@ function buildSummary(
 } {
   let totalFiles = 0;
   const summary: FileSummary[] = [];
+  const normalizePath = (input: string): string => input.replaceAll('\\', '/');
+  const normalizedModuleFilter = normalizePath(moduleFilter);
 
   for (const [absPath, fileData] of Object.entries(report)) {
-    if (!absPath.includes(moduleFilter)) {
+    const normalizedAbsPath = normalizePath(absPath);
+    if (!normalizedAbsPath.includes(normalizedModuleFilter)) {
       continue;
     }
     totalFiles += 1;
@@ -250,7 +253,7 @@ function buildSummary(
     }
 
     summary.push({
-      file: absPath.replace(`${repoRoot}/`, ''),
+      file: normalizePath(relative(repoRoot, absPath)),
       statements: { total: Object.keys(fileData.s).length, uncovered: uncoveredStatements },
       functions: { total: Object.keys(fileData.f).length, uncovered: uncoveredFunctions },
       branches: { total: countTotalBranches(fileData), uncovered: uncoveredBranches },
