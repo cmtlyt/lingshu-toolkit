@@ -82,16 +82,12 @@ describe('createRtcController 集成测试', () => {
 
     await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
 
-    // 等待 B 侧 data-channel-ready
+    // 等待 B 侧 data-channel-ready（事件驱动，无需 setTimeout）
     await new Promise<void>((resolve) => {
-      if (controllerB!.phase === 'connected') {
-        const off = controllerB!.on('data-channel-ready', () => {
-          off();
-          resolve();
-        });
-        // 如果 channel 已经 ready，也需要处理
-        setTimeout(() => resolve(), 500);
-      }
+      const off = controllerB!.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
     });
 
     const received = new Promise<unknown>((resolve) => {
@@ -117,8 +113,13 @@ describe('createRtcController 集成测试', () => {
 
     await Promise.all([_controllerA.connect(), waitForPhase(_controllerB, 'connected')]);
 
-    // 等待双方 data channel 就绪
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    // 等待 B 侧 data-channel-ready（事件驱动，无需 setTimeout）
+    await new Promise<void>((resolve) => {
+      const off = _controllerB.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
+    });
 
     const received = new Promise<{ message: string }>((resolve) => {
       _controllerB!.on('greeting', (greetingPayload) => resolve(greetingPayload));
@@ -255,8 +256,13 @@ describe('createRtcController 集成测试', () => {
 
     await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
 
-    // 等待 data channel 就绪
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+    // 等待 data channel 就绪（事件驱动）
+    await new Promise<void>((resolve) => {
+      const off = controllerA!.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
+    });
 
     // 不应该抛错，只是被忽略并 logger.warn
     // @ts-expect-error
