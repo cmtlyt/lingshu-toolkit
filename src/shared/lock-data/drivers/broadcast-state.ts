@@ -27,6 +27,7 @@
  */
 /** biome-ignore-all lint/nursery/noExcessiveLinesPerFile: ignore */
 
+import { createError } from '@/shared/throw-error';
 import { isFunction } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError } from '../errors';
@@ -556,8 +557,10 @@ function startForceCampaign(state: BroadcastDriverState, waiter: Waiter): void {
   }
   if (state.pendingAnnounce !== null || state.pendingForce !== null) {
     waiter.abort(
-      new LockAbortedError(
-        `[@cmtlyt/lingshu-toolkit#${ERROR_FN_NAME}]: force acquire already in progress (token=${waiter.token})`,
+      createError(
+        ERROR_FN_NAME,
+        `force acquire already in progress (token=${waiter.token})`,
+        LockAbortedError as unknown as ErrorConstructor,
       ),
     );
     return;

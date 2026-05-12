@@ -24,11 +24,13 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { ResolvedAdapters } from '@/shared/lock-data/adapters/index';
 import { resolveLoggerAdapter } from '@/shared/lock-data/adapters/logger';
+import { ERROR_FN_NAME } from '@/shared/lock-data/constants';
 import { createActions } from '@/shared/lock-data/core/actions';
 import type { Entry } from '@/shared/lock-data/core/registry';
 import type { LockDriver } from '@/shared/lock-data/drivers/index';
 import { LockDisposedError } from '@/shared/lock-data/errors';
 import type { LockDataListeners, LockDataOptions, LockDriverContext, LockDriverHandle } from '@/shared/lock-data/types';
+import { createError } from '@/shared/throw-error';
 
 // ---------------------------------------------------------------------------
 // stub 构造（支持 pauseNextAcquire / async release 计数）
@@ -278,7 +280,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
 
   test('authority commit 抛错时仍自动释放当前锁', async () => {
     const driverCtl = createStubDriver();
-    const authorityError = new Error('authority-write-failed');
+    const authorityError = createError(ERROR_FN_NAME, 'authority-write-failed');
     const authorityInitResult = {
       epoch: 'persistent',
       effectivePersistence: 'persistent' as const,
@@ -317,7 +319,7 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
 
   test('手动持锁时 authority commit 抛错后仍可复用同一把锁继续 update', async () => {
     const driverCtl = createStubDriver();
-    const authorityError = new Error('authority-write-failed');
+    const authorityError = createError(ERROR_FN_NAME, 'authority-write-failed');
     const authorityInitResult = {
       epoch: 'persistent',
       effectivePersistence: 'persistent' as const,
