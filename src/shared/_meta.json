@@ -84,5 +84,11 @@
     "label": "lockData",
     "name": "lock-data",
     "collapsed": true
+  },
+  {
+    "id": "shared@rtcController",
+    "type": "file",
+    "label": "rtcController",
+    "name": "rtc-controller/index.mdx"
   }
 ]

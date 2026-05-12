@@ -7,6 +7,7 @@ export * from './data-handler';
 export * from './data-mixed-manager';
 export * from './lock-data';
 export * from './priority-queue';
+export * from './rtc-controller';
 export * from './throw-error';
 export * from './try-call';
 export * from './types';
