@@ -128,6 +128,7 @@ function createStubAdapters<T>(): ResolvedAdapters<T> {
 interface StubEntryOptions<T extends object> {
   readonly data: T;
   readonly driver: LockDriver;
+  readonly authority?: Entry<T>['authority'];
 }
 
 function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> {
@@ -142,7 +143,7 @@ function createStubEntry<T extends object>(opts: StubEntryOptions<T>): Entry<T> 
     },
     driver: opts.driver,
     adapters: createStubAdapters<T>(),
-    authority: null,
+    authority: opts.authority ?? null,
     listenersSet,
     initOptions: Object.freeze({
       timeout: undefined,
@@ -273,6 +274,90 @@ describe('actions / 并发写操作必须串行化（修复回归）', () => {
     // （只调用过 handle#B.release，handle#A 永远悬挂）
     expect(driverCtl.acquireCount).toBe(2);
     expect(driverCtl.releaseCount).toBe(2);
+  });
+
+  test('authority commit 抛错时仍自动释放当前锁', async () => {
+    const driverCtl = createStubDriver();
+    const authorityError = new Error('authority-write-failed');
+    const authorityInitResult = {
+      epoch: 'persistent',
+      effectivePersistence: 'persistent' as const,
+      authorityCleared: false,
+    };
+    const authority: Entry<{ v: number }>['authority'] = {
+      init: vi.fn(async () => authorityInitResult),
+      pullOnAcquire: vi.fn(),
+      onCommitSuccess: vi.fn().mockImplementationOnce(() => {
+        throw authorityError;
+      }),
+      dispose: vi.fn(),
+    };
+    const { entry, actions } = buildActions<{ v: number }>({
+      data: { v: 0 },
+      driver: driverCtl.driver,
+      authority,
+    });
+
+    await expect(
+      actions.update((draft) => {
+        draft.v = 1;
+      }),
+    ).rejects.toBe(authorityError);
+
+    expect(driverCtl.releaseCount).toBe(1);
+    expect(actions.isHolding).toBe(false);
+
+    await actions.update((draft) => {
+      draft.v = 2;
+    });
+    expect(driverCtl.acquireCount).toBe(2);
+    expect(driverCtl.releaseCount).toBe(2);
+    expect(entry.dataRef.current.v).toBe(2);
+  });
+
+  test('手动持锁时 authority commit 抛错后仍可复用同一把锁继续 update', async () => {
+    const driverCtl = createStubDriver();
+    const authorityError = new Error('authority-write-failed');
+    const authorityInitResult = {
+      epoch: 'persistent',
+      effectivePersistence: 'persistent' as const,
+      authorityCleared: false,
+    };
+    const authority: Entry<{ v: number }>['authority'] = {
+      init: vi.fn(async () => authorityInitResult),
+      pullOnAcquire: vi.fn(),
+      onCommitSuccess: vi.fn().mockImplementationOnce(() => {
+        throw authorityError;
+      }),
+      dispose: vi.fn(),
+    };
+    const { entry, actions } = buildActions<{ v: number }>({
+      data: { v: 0 },
+      driver: driverCtl.driver,
+      authority,
+    });
+
+    await actions.getLock();
+    await expect(
+      actions.update((draft) => {
+        draft.v = 1;
+      }),
+    ).rejects.toBe(authorityError);
+
+    expect(actions.isHolding).toBe(true);
+    expect(driverCtl.acquireCount).toBe(1);
+    expect(driverCtl.releaseCount).toBe(0);
+
+    await actions.update((draft) => {
+      draft.v = 2;
+    });
+    expect(driverCtl.acquireCount).toBe(1);
+    expect(driverCtl.releaseCount).toBe(0);
+    expect(entry.dataRef.current.v).toBe(2);
+
+    actions.release();
+    expect(actions.isHolding).toBe(false);
+    expect(driverCtl.releaseCount).toBe(1);
   });
 
   test('update + replace 交叉：串行执行，data 最终值是 replace 的值', async () => {

@@ -266,6 +266,12 @@ function enqueueSlowPath(state: StorageDriverState, waiter: Waiter): void {
 }
 
 function acquireStorageLock(state: StorageDriverState, ctx: LockDriverContext): Promise<LockDriverHandle> {
+  if (ctx.signal.aborted) {
+    return Promise.reject(
+      new LockAbortedError(`[@cmtlyt/lingshu-toolkit#${ERROR_FN_NAME}]: acquire aborted (token=${ctx.token})`),
+    );
+  }
+
   // driver.acquire 的返回类型是 Promise —— destroyed 必须以 rejection 形式返回，
   // 不能同步 throw（破坏 Promise 契约，调用方 .catch 拿不到）
   if (state.destroyed) {

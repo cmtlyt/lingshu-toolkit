@@ -127,6 +127,26 @@ describe('drivers/storage — hasUsableLocalStorage 防御分支', () => {
   });
 });
 
+describe('drivers/storage — acquireStorageLock abort 入口', () => {
+  test('signal 已 abort 时直接 reject 且不写 localStorage', async () => {
+    const state = createFakeState();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      acquireStorageLock(
+        state,
+        createCtx({
+          signal: controller.signal,
+          token: 'already-aborted',
+          force: true,
+        }),
+      ),
+    ).rejects.toThrow('acquire aborted');
+    expect(state.storage.getItem(state.key)).toBeNull();
+  });
+});
+
 describe('drivers/storage — buildWaiter settled 互斥', () => {
   test('resolve 后再次 resolve / reject / abort 全部早退（命中 L93/L101/L109）', () => {
     const state = createFakeState();

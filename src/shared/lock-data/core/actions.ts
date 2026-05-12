@@ -316,6 +316,9 @@ async function runTransaction<T extends object>(
     if (!committed) {
       session.rollback();
     }
+    if (state.aliveToken === token && state.phase === 'committing') {
+      transitionTo(deps, state, 'holding', token);
+    }
     session.dispose();
   }
 }
@@ -459,7 +462,7 @@ function createActions<T extends object>(deps: ActionsDeps<T>): LockDataActions<
     if (alreadyHeld || state.acquiredByGetLock) {
       return;
     }
-    if (state.phase !== 'holding') {
+    if (state.phase !== 'holding' && state.phase !== 'committing') {
       return;
     }
     performRelease(deps, state);
