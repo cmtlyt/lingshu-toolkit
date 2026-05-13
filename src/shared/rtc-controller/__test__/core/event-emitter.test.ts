@@ -243,4 +243,22 @@ describe('event-emitter', () => {
     expect(handlerA).toHaveBeenCalledOnce();
     expect(handlerB).toHaveBeenCalledOnce();
   });
+
+  test('once handler 在 dispatch 遍历中被 off 移除后，indexOf 返回 -1 不 splice', () => {
+    const { emitter } = createTestEmitter();
+    let unsub: () => void;
+
+    const handler = vi.fn(() => {
+      // handler 执行时主动 off 自己，dispatch 内部再次 indexOf 会返回 -1
+      unsub();
+    });
+
+    unsub = emitter.once('chat', handler);
+    emitter.dispatch('chat', { text: 'hello' });
+
+    expect(handler).toHaveBeenCalledOnce();
+    // 第二次 dispatch 不再触发（once 语义 + 已被 off）
+    emitter.dispatch('chat', { text: 'world' });
+    expect(handler).toHaveBeenCalledOnce();
+  });
 });

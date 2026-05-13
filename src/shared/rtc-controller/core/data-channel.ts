@@ -115,4 +115,11 @@ function encodeEventMessage(event: string, payload: unknown): string {
   return JSON.stringify(message);
 }
 
-export { BUILTIN_EVENT_NAMES, encodeEventMessage, isEventMessage, wireDataChannelEvents };
+export {
+  BUILTIN_EVENT_NAMES,
+  dispatchParsedEvent,
+  encodeEventMessage,
+  isEventMessage,
+  parseEventData,
+  wireDataChannelEvents,
+};

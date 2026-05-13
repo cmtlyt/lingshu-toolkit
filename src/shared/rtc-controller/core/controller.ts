@@ -66,6 +66,14 @@ function callSafely(fn: () => void): void {
   }
 }
 
+/** 创建 logger + emitter 基础设施（纯 return 以规避 V8 const-split instrumentation） */
+function createEventInfra<UserEvents extends EventMap>(userLogger?: RtcControllerInternalOptions['logger']) {
+  return {
+    logger: resolveLoggerAdapter(userLogger),
+    emitter: createEventEmitter<UserEvents>(resolveLoggerAdapter(userLogger)),
+  };
+}
+
 /** 执行 dispose 清理逻辑（拆出以降低主函数复杂度） */
 function performDispose<UserEvents extends EventMap>(
   ctx: ControllerContext<UserEvents>,
@@ -296,8 +304,7 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
     connectTimeout: userConnectTimeout || DEFAULT_CONNECT_TIMEOUT,
   };
 
-  const logger = resolveLoggerAdapter(userLogger);
-  const emitter = createEventEmitter<UserEvents>(logger);
+  const { logger, emitter } = createEventInfra<UserEvents>(userLogger);
   const cleanupFns: Array<() => void> = [];
   const deferred = createConnectionDeferred();
   let disposed = false;
@@ -387,4 +394,4 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
   };
 }
 
-export { createRtcController };
+export { createRtcController, performConnect, performDispose, routeSignalingMessage };

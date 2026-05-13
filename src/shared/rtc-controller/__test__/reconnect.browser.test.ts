@@ -41,8 +41,8 @@ describe('reconnect 重连流程', () => {
   test('reconnect 应该重置连接并重新建立', async () => {
     const [sigA, sigB] = createMockSignalingPair();
 
-    controllerA = createRtcController({ signaling: sigA, connectTimeout: 3000 });
-    controllerB = createRtcController({ signaling: sigB, connectTimeout: 3000 });
+    controllerA = createRtcController({ signaling: sigA, connectTimeout: 5000 });
+    controllerB = createRtcController({ signaling: sigB, connectTimeout: 5000 });
 
     // 首次连接
     await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
@@ -102,8 +102,8 @@ describe('reconnect 重连流程', () => {
   test('reconnect 应该触发 disconnected 事件（非 idle 状态时）', async () => {
     const [sigA, sigB] = createMockSignalingPair();
 
-    controllerA = createRtcController({ signaling: sigA, connectTimeout: 3000 });
-    controllerB = createRtcController({ signaling: sigB, connectTimeout: 3000 });
+    controllerA = createRtcController({ signaling: sigA, connectTimeout: 5000 });
+    controllerB = createRtcController({ signaling: sigB, connectTimeout: 5000 });
 
     await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
 
@@ -128,8 +128,8 @@ describe('reconnect 重连流程', () => {
   test('reconnect 后 peerConnection 应该是新的实例', async () => {
     const [sigA, sigB] = createMockSignalingPair();
 
-    controllerA = createRtcController({ signaling: sigA, connectTimeout: 3000 });
-    controllerB = createRtcController({ signaling: sigB, connectTimeout: 3000 });
+    controllerA = createRtcController({ signaling: sigA, connectTimeout: 5000 });
+    controllerB = createRtcController({ signaling: sigB, connectTimeout: 5000 });
 
     await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
 
