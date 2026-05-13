@@ -4,6 +4,8 @@
  * 对应 RFC.md「API设计」+「附录A：完整接口索引」
  */
 
+import type { LoggerAdapter } from '@/shared/logger';
+
 // ── 基础类型 ──
 
 /** 控制器连接状态机阶段 */
@@ -72,18 +74,6 @@ interface DataChannelEventMessage {
 }
 
 // ── 配置 ──
-
-/** 用户可传入的 logger：warn / error 必选，debug 可选 */
-interface LoggerAdapter {
-  warn: (message: string, ...extras: unknown[]) => void;
-  error: (message: string, ...extras: unknown[]) => void;
-  debug?: (message: string, ...extras: unknown[]) => void;
-}
-
-/** 内部流转的 logger：三方法齐全，由 resolveLoggerAdapter 产出 */
-interface ResolvedLoggerAdapter extends LoggerAdapter {
-  debug: NonNullable<LoggerAdapter['debug']>;
-}
 
 /** createRtcController 的配置项 */
 interface RtcControllerOptions {
@@ -161,14 +151,13 @@ interface RtcController<UserEvents extends EventMap = BuiltinEvents> extends Rtc
   getStats: () => Promise<RTCStatsReport>;
 }
 
+export type { LoggerAdapter, ResolvedLoggerAdapter } from '@/shared/logger';
 export type {
   AllEvents,
   BuiltinEvents,
   DataChannelEventMessage,
   EventHandler,
   EventMap,
-  LoggerAdapter,
-  ResolvedLoggerAdapter,
   RtcController,
   RtcControllerInternalOptions,
   RtcControllerOptions,
