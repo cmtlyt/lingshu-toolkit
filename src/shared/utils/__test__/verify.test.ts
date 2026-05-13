@@ -59,9 +59,7 @@ describe('utils-verify', () => {
     expect(isPromiseLike({})).toBe(false);
     expect(isPromiseLike([])).toBe(false);
     expect(isPromiseLike(new Promise(() => {}))).toBe(true);
-    // biome-ignore lint/suspicious/noThenProperty: test
     expect(isPromiseLike({ then: () => {} })).toBe(true);
-    // biome-ignore lint/suspicious/noThenProperty: test
     const func = Object.assign(() => {}, { then: () => {} });
     expect(isPromiseLike(func)).toBe(true);
   });

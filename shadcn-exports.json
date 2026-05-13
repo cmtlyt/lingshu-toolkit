@@ -67,6 +67,11 @@
       "path": "src/shared/priority-queue/index.ts"
     },
     {
+      "name": "sharedLockData",
+      "author": "cmtlyt",
+      "path": "src/shared/lock-data/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
       "path": "src/react/use-controllable-value/index.ts"

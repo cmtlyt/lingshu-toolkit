@@ -2,6 +2,16 @@
 
 This reference contains detailed documentation guidelines for the lingshu-toolkit.
 
+## Table of Contents
+
+- [Critical Rule](#critical-rule) — 禁止修改脚本生成内容
+- [Script-Generated Content Structure](#script-generated-content-structure)
+- [Additional Documentation Format](#additional-documentation-format)
+- [Documentation Sections](#documentation-sections) — API / Examples / Notes
+- [Documentation Best Practices](#documentation-best-practices)
+- [Common Documentation Patterns](#common-documentation-patterns) — Utility / React Hook / Vue Hook
+- [Documentation Checklist](#documentation-checklist)
+
 ## Critical Rule
 
 **The script-generated content in `index.mdx` MUST NOT be modified.** All additional documentation should be appended to the END of the file.
