@@ -15,7 +15,7 @@
  * - `./storage-state`：状态机 + CAS 读写 + 队列 + 心跳 + drain
  */
 
-import { throwError } from '@/shared/throw-error';
+import { createError, throwError } from '@/shared/throw-error';
 import { isNumber, isString } from '@/shared/utils';
 import { ERROR_FN_NAME, LOCK_PREFIX } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
@@ -268,7 +268,11 @@ function enqueueSlowPath(state: StorageDriverState, waiter: Waiter): void {
 function acquireStorageLock(state: StorageDriverState, ctx: LockDriverContext): Promise<LockDriverHandle> {
   if (ctx.signal.aborted) {
     return Promise.reject(
-      new LockAbortedError(`[@cmtlyt/lingshu-toolkit#${ERROR_FN_NAME}]: acquire aborted (token=${ctx.token})`),
+      createError(
+        ERROR_FN_NAME,
+        `acquire aborted (token=${ctx.token})`,
+        LockAbortedError as unknown as ErrorConstructor,
+      ),
     );
   }
 
