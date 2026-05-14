@@ -27,7 +27,10 @@
  */
 /** biome-ignore-all lint/nursery/noExcessiveLinesPerFile: ignore */
 
+import { createError } from '@/shared/throw-error';
 import { isFunction } from '@/shared/utils';
+import { ERROR_FN_NAME } from '../constants';
+import { LockAbortedError } from '../errors';
 import type { ChannelAdapter, LockDriverHandle } from '../types';
 import {
   type AnnounceMessage,
@@ -550,6 +553,16 @@ function startForceCampaign(state: BroadcastDriverState, waiter: Waiter): void {
 
   if (state.destroyed) {
     logger.error(`[${name}] broadcast driver: startForceCampaign called after destroyed`);
+    return;
+  }
+  if (state.pendingAnnounce !== null || state.pendingForce !== null) {
+    waiter.abort(
+      createError(
+        ERROR_FN_NAME,
+        `force acquire already in progress (token=${waiter.token})`,
+        LockAbortedError as unknown as ErrorConstructor,
+      ),
+    );
     return;
   }
 

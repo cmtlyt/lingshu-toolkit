@@ -1092,6 +1092,47 @@ describe('drivers/broadcast-state — startForceCampaign', () => {
     );
   });
 
+  test('已有 pendingForce 时拒绝新的 force，避免覆盖旧 pending timer', () => {
+    const existing = makeWaiter({ token: 'existing' });
+    const state = createFakeState({
+      pendingForce: {
+        token: 'existing',
+        ts: 1,
+        waiter: existing,
+        abandoned: false,
+        timer: null,
+      },
+    });
+    const next = makeWaiter({ token: 'next' });
+
+    startForceCampaign(state, next);
+
+    expect(next.abort).toHaveBeenCalledTimes(1);
+    expect(state.pendingForce?.waiter).toBe(existing);
+    expect((state.channel as FakeChannel).sent).toHaveLength(0);
+  });
+
+  test('已有 pendingAnnounce 时拒绝 force，避免竞选 timer 并发授锁', () => {
+    const existing = makeWaiter({ token: 'existing' });
+    const state = createFakeState({
+      pendingAnnounce: {
+        requestId: 'req-existing',
+        ts: 1,
+        waiter: existing,
+        abandoned: false,
+        timer: null,
+      },
+    });
+    const next = makeWaiter({ token: 'next' });
+
+    startForceCampaign(state, next);
+
+    expect(next.abort).toHaveBeenCalledTimes(1);
+    expect(state.pendingAnnounce?.waiter).toBe(existing);
+    expect(state.pendingForce).toBeNull();
+    expect((state.channel as FakeChannel).sent).toHaveLength(0);
+  });
+
   test('本方持锁中 → 先 revoke 自己再抢', () => {
     const state = createFakeState();
     const cb = vi.fn();

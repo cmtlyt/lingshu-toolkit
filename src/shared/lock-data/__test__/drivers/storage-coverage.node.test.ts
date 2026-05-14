@@ -127,6 +127,26 @@ describe('drivers/storage — hasUsableLocalStorage 防御分支', () => {
   });
 });
 
+describe('drivers/storage — acquireStorageLock abort 入口', () => {
+  test('signal 已 abort 时直接 reject 且不写 localStorage', async () => {
+    const state = createFakeState();
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      acquireStorageLock(
+        state,
+        createCtx({
+          signal: controller.signal,
+          token: 'already-aborted',
+          force: true,
+        }),
+      ),
+    ).rejects.toThrow('acquire aborted');
+    expect(state.storage.getItem(state.key)).toBeNull();
+  });
+});
+
 describe('drivers/storage — buildWaiter settled 互斥', () => {
   test('resolve 后再次 resolve / reject / abort 全部早退（命中 L93/L101/L109）', () => {
     const state = createFakeState();
@@ -164,6 +184,29 @@ describe('drivers/storage — buildWaiter settled 互斥', () => {
     expect(reject).toHaveBeenCalledTimes(1);
     waiter.reject(new Error('second'));
     expect(reject).toHaveBeenCalledTimes(1);
+  });
+
+  test('signal 已 abort 时通过 microtask 触发 abort', async () => {
+    const state = createFakeState();
+    const resolve = vi.fn<(handle: LockDriverHandle) => void>();
+    const reject = vi.fn<(error: Error) => void>();
+    const controller = new AbortController();
+    controller.abort();
+
+    const waiter = buildWaiter(
+      createCtx({ signal: controller.signal, token: 'already-aborted-waiter' }),
+      state,
+      resolve,
+      reject,
+    );
+
+    expect(waiter.isSettled()).toBe(false);
+    await Promise.resolve();
+
+    expect(resolve).not.toHaveBeenCalled();
+    expect(reject).toHaveBeenCalledTimes(1);
+    expect(reject.mock.calls[0]?.[0]).toMatchObject({ message: expect.stringContaining('acquire aborted') });
+    expect(waiter.isSettled()).toBe(true);
   });
 
   test('abort 后再次 abort 早退', () => {
