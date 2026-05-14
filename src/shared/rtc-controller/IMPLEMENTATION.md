@@ -65,4 +65,6 @@
 
 - [x] 4.1 更新 `index.mdx` 文档 → RFC#附录B使用示例
 - [x] 4.2 `pnpm run check` + `pnpm run build` 全通过
-- [ ] 4.3 覆盖率检查（可选，后续执行）：`pnpm test:ci src/shared/rtc-controller/__test__/ --coverage.enabled` + `pnpm exec esno scripts/analyze-coverage.ts rtc-controller`
+- [x] 4.3 覆盖率攻坚：`pnpm test:ci src/shared/rtc-controller --coverage.enabled` + `pnpm exec esno scripts/analyze-coverage.ts src/shared/rtc-controller` → `Files dirty: 0`
+- [x] 4.4 测试时间优化：将 `coverage-attack.browser.test.ts` 中 7 处真实 `setTimeout` 等待替换为 `vi.waitFor` 事件驱动轮询
+- [x] 4.5 创建 `__test__/index.html` 手动测试面板：跨标签页 BroadcastChannel 信令 + 双端均可发起连接
