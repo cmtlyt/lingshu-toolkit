@@ -373,7 +373,7 @@ type RtcPhase =
 
 状态流转图：
 
-```
+```text
                         ┌──────────────────────────────────────┐
                         │                                      ▼
   idle ──► signaling ──► connecting ──► connected ──► disconnected
@@ -984,7 +984,7 @@ if (options.signal) {
 
 ## 目录与文件规划
 
-```
+```text
 src/shared/rtc-controller/
 ├── index.ts                  # 公开导出入口
 ├── index.mdx                 # 文档（自动生成 + 手动追加）

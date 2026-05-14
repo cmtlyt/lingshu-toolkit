@@ -904,12 +904,17 @@ function addTrack(track: MediaStreamTrack, ...streams: MediaStream[]): string {
   const trackId = `local-track-${++trackIdCounter}`
   localTracks.push({ trackId, track, streams })
 
-  // 添加到所有已连接的 peer controller
+  // 添加到所有活跃的 peer controller（idle/signaling/connecting/connected 均可）
+  // - idle/signaling 阶段添加：轨道信息会包含在后续 offer/answer SDP 中
+  // - connected 阶段添加：触发 renegotiation
+  // - disconnected/failed/closed 阶段跳过：无效连接不再处理
   for (const [remotePeerId, entry] of peers) {
-    if (entry.controller.phase === 'connected') {
-      const sender = entry.controller.addTrack(track, ...streams)
-      entry.trackSenders.set(trackId, sender)
+    const { phase } = entry.controller
+    if (phase === 'disconnected' || phase === 'failed' || phase === 'closed') {
+      continue
     }
+    const sender = entry.controller.addTrack(track, ...streams)
+    entry.trackSenders.set(trackId, sender)
   }
 
   return trackId
@@ -932,7 +937,13 @@ function removeTrack(trackId: string): void {
   }
 }
 
-/** 将当前已有的本地轨道添加到新创建的 controller */
+/**
+ * 将当前已有的本地轨道添加到新创建的 controller
+ *
+ * 调用时机：controller 创建后、connect() 调用前（controller 处于 idle 阶段）。
+ * 这确保轨道信息在 offer/answer SDP 生成时已包含在 m-line 中，
+ * 无需 connected 后再 renegotiation。
+ */
 function applyLocalTracks(
   controller: RtcController<UserEvents>,
   trackSenders: Map<string, RTCRtpSender>,
@@ -1293,7 +1304,7 @@ function createMockRoomSignaling(): {
 | 成员加入时序竞争 | 两个成员几乎同时加入，可能出现双向同时发起 offer（glare） | Offerer 决定规则：joiner 始终为 Offerer；`peer-signal` 中 `from` 字段兜底去重 |
 | 单个 peer 连接失败影响体验 | 某个成员网络差导致连接失败，用户不确定状态 | `peer-failed` 事件通知 + `reconnectPeer()` API；join 时单 peer 失败不阻塞整体 |
 | 自定义事件桥接依赖 controller 内部钩子 | `__onUserEvent` 是非公开 API，controller 实现可能遗漏 | 在 rtc-controller 实施清单中明确标注此依赖；类型约束保证编译期可见 |
-| 本地轨道添加时机与连接状态耦合 | `addTrack` 在 controller 非 connected 状态可能抛错 | Room 层在 `applyLocalTracks` 中仅对 idle 状态的 controller 添加（连接建立前即可 addTrack）；对已 failed 的 controller 跳过 |
+| 本地轨道添加时机与连接状态耦合 | `addTrack` 在 controller 已终态（failed/closed）时无意义 | Room 层 `applyLocalTracks` 在 controller 创建后、`connect()` 调用前执行（idle 阶段，SDP 生成时已包含轨道）；运行时 `addTrack` 对 idle/signaling/connecting/connected 均添加（connected 时触发 renegotiation）；仅 disconnected/failed/closed 跳过 |
 | 房间信令适配器实现质量 | 外部实现可能有 bug（成员列表不一致 / 消息丢失） | 提供示例实现 + 测试用 mock；文档标注契约要求 |
 | `leave` 后重新 `join` 的状态重置 | 残留的事件监听器、轨道列表可能导致状态泄漏 | `leave` 时完整清理所有内部状态；`join` 前置守卫检查 phase |
 | BroadcastChannel 房间信令无服务端成员发现 | 纯客户端广播，首个加入的标签页无法发现后续标签页 | BroadcastChannel 示例实现中使用延迟探测（500ms 等待响应）；文档标注局限性 |

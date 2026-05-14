@@ -26,6 +26,20 @@ interface HandlerEntry<P = unknown> {
 function createEventEmitter<UserEvents extends EventMap>(logger: ResolvedLoggerAdapter) {
   const listeners = new Map<string, HandlerEntry[]>();
 
+  function removeEntry(key: string, target: HandlerEntry): void {
+    const entries = listeners.get(key);
+    if (!entries) {
+      return;
+    }
+    const idx = entries.indexOf(target);
+    if (idx >= 0) {
+      entries.splice(idx, 1);
+    }
+    if (entries.length === 0) {
+      listeners.delete(key);
+    }
+  }
+
   function on<K extends keyof AllEvents<UserEvents>>(
     event: K,
     handler: EventHandler<AllEvents<UserEvents>[K]>,
@@ -38,7 +52,7 @@ function createEventEmitter<UserEvents extends EventMap>(logger: ResolvedLoggerA
     }
     const entry: HandlerEntry = { handler: handler as EventHandler<unknown>, once: false };
     entries.push(entry);
-    return () => off(event, handler);
+    return () => removeEntry(key, entry);
   }
 
   function once<K extends keyof AllEvents<UserEvents>>(
@@ -53,7 +67,7 @@ function createEventEmitter<UserEvents extends EventMap>(logger: ResolvedLoggerA
     }
     const entry: HandlerEntry = { handler: handler as EventHandler<unknown>, once: true };
     entries.push(entry);
-    return () => off(event, handler);
+    return () => removeEntry(key, entry);
   }
 
   function off<K extends keyof AllEvents<UserEvents>>(event: K, handler: EventHandler<AllEvents<UserEvents>[K]>): void {
@@ -65,6 +79,9 @@ function createEventEmitter<UserEvents extends EventMap>(logger: ResolvedLoggerA
     for (let i = 0; i < entries.length; i++) {
       if (entries[i].handler === handler) {
         entries.splice(i, 1);
+        if (entries.length === 0) {
+          listeners.delete(key);
+        }
         return;
       }
     }

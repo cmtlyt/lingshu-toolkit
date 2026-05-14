@@ -24,7 +24,7 @@ import { dispatchParsedEvent, parseEventData } from '../core/data-channel';
 import { createEventEmitter } from '../core/event-emitter';
 import { getRemoteStreams } from '../core/media';
 import { createRtcController } from '../index';
-import type { RtcController, SignalingAdapter } from '../types';
+import type { RtcController, SignalingAdapter, SignalingMessage } from '../types';
 import { createMockSignalingPair } from './helpers/mock-signaling';
 
 /** 等待控制器进入指定 phase，超时 5s 防止挂死 */
@@ -214,7 +214,8 @@ describe('data-channel.ts 防御分支覆盖', () => {
     });
 
     const eventHandler = vi.fn();
-    controllerB.on('greeting' as never, eventHandler);
+    // @ts-expect-error
+    controllerB.on('greeting', eventHandler);
 
     (controllerA as RtcController<TestEvents>).emit('greeting', { message: 'hello' });
 
@@ -324,7 +325,7 @@ describe('controller.ts 覆盖', () => {
     });
 
     const received = new Promise<unknown>((resolve) => {
-      _controllerB.on('ping', (payload) => resolve(payload));
+      _controllerB.on('ping', () => resolve(undefined));
     });
 
     // emit 不传 payload，触发 args.length > 0 ? args[0] : undefined 的 else 分支
@@ -351,7 +352,7 @@ describe('controller.ts 覆盖', () => {
     const disposeSpy = vi.fn();
     const [sigA] = createMockSignalingPair();
     // 给信令添加 dispose 方法
-    (sigA as Record<string, unknown>).dispose = disposeSpy;
+    (sigA as SignalingAdapter & { dispose?: () => void }).dispose = disposeSpy;
     controllerA = createRtcController({ signaling: sigA });
     controllerA.dispose();
 
@@ -623,7 +624,7 @@ describe('connection.ts 内部函数覆盖', () => {
     expect(trackHandler).toHaveBeenCalledOnce();
 
     // 触发 track.onended
-    fakeTrack.onended!();
+    fakeTrack.onended!(new Event('ended'));
     expect(trackRemovedHandler).toHaveBeenCalledOnce();
 
     fakePc.close();
@@ -862,7 +863,7 @@ describe('controller.ts 间接覆盖', () => {
 
   test('routeSignalingMessage offer catch — processOffer 失败触发 error 事件', async () => {
     // 手动构建可单向推送消息给 B 的信令对
-    const bListeners: Array<(msg: Record<string, unknown>) => void> = [];
+    const bListeners: Array<(msg: SignalingMessage) => void> = [];
     const sigBCustom: SignalingAdapter = {
       send: () => Promise.reject(new Error('signaling send failed')),
       onMessage: (callback) => {
@@ -1045,5 +1046,121 @@ describe('controller.ts 导出内部函数覆盖', () => {
 
     // wasClosed=true → 不应触发 closed 事件
     expect(closedHandler).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────
+// CR 修复后新增防御分支覆盖
+// ─────────────────────────────────────────────
+
+describe('controller.ts 信令消息字段校验防御分支', () => {
+  test('routeSignalingMessage offer 缺少 sdp 时触发 error 事件', () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const ctx = createFakeContext({ phase: 'idle', emitter });
+    const errorHandler = vi.fn();
+    ctx.emitter.on('error', errorHandler);
+
+    // offer 消息缺少 sdp 字段，onOffer 不应被调用
+    const onOffer = vi.fn().mockResolvedValue(undefined);
+    routeSignalingMessage(ctx, { type: 'offer' } as SignalingMessage, onOffer);
+
+    expect(onOffer).not.toHaveBeenCalled();
+    expect(errorHandler).toHaveBeenCalledOnce();
+    expect(errorHandler.mock.calls[0][0].context).toBe('signaling:offer');
+    expect(errorHandler.mock.calls[0][0].error.message).toContain('invalid offer');
+  });
+
+  test('routeSignalingMessage answer 缺少 sdp 时触发 error 事件', () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const ctx = createFakeContext({ phase: 'connecting', emitter });
+    const errorHandler = vi.fn();
+    ctx.emitter.on('error', errorHandler);
+
+    // answer 消息缺少 sdp 字段
+    const onOffer = vi.fn().mockResolvedValue(undefined);
+    routeSignalingMessage(ctx, { type: 'answer' } as SignalingMessage, onOffer);
+
+    expect(errorHandler).toHaveBeenCalledOnce();
+    expect(errorHandler.mock.calls[0][0].context).toBe('signaling:answer');
+    expect(errorHandler.mock.calls[0][0].error.message).toContain('invalid answer');
+  });
+
+  test('routeSignalingMessage ice-candidate 缺少 candidate 时触发 error 事件', () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const ctx = createFakeContext({ phase: 'connecting', emitter });
+    const errorHandler = vi.fn();
+    ctx.emitter.on('error', errorHandler);
+
+    // ice-candidate 消息缺少 candidate 字段
+    const onOffer = vi.fn().mockResolvedValue(undefined);
+    routeSignalingMessage(ctx, { type: 'ice-candidate' } as SignalingMessage, onOffer);
+
+    expect(errorHandler).toHaveBeenCalledOnce();
+    expect(errorHandler.mock.calls[0][0].context).toBe('signaling:ice-candidate');
+    expect(errorHandler.mock.calls[0][0].error.message).toContain('invalid ice-candidate');
+  });
+});
+
+describe('event-emitter.ts 清理分支覆盖', () => {
+  test('removeEntry: entries 已被 off 清除后，取消订阅函数调用不报错', () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const handler = vi.fn();
+
+    // on 注册 → 拿到取消函数
+    const unsubscribe = emitter.on('test-event' as never, handler);
+    // 通过 off 移除同一个 handler → entries 被清空 → Map 中 key 被 delete
+    emitter.off('test-event' as never, handler);
+    // 再调用取消函数 → removeEntry 中 listeners.get(key) 为 undefined → 命中 !entries 分支
+    expect(() => unsubscribe()).not.toThrow();
+  });
+
+  test('off: 移除唯一 handler 后 listeners Map 清理 key', () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const handler = vi.fn();
+
+    emitter.on('solo-event' as never, handler);
+    // dispatch 前先验证 handler 能被调用
+    emitter.dispatch('solo-event' as never, undefined);
+    expect(handler).toHaveBeenCalledOnce();
+
+    // off 移除唯一 handler → entries.length === 0 → listeners.delete(key)
+    emitter.off('solo-event' as never, handler);
+
+    // 再 dispatch 不应再调用 handler（Map 中 key 已不存在）
+    handler.mockClear();
+    emitter.dispatch('solo-event' as never, undefined);
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
+
+describe('connection.ts waitForConnection phase 守卫', () => {
+  test('waitForConnection: connectionPromise resolve 时 phase 已非 connected → 调用 setPhase', async () => {
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    // 模拟 answerer 场景：processOffer 已经将 phase 设为 connecting，
+    // waitForConnection 开始前 phase 还是 connecting
+    let resolveConnection!: () => void;
+    const connectionPromise = new Promise<void>((resolve) => {
+      resolveConnection = resolve;
+    });
+
+    const ctx = createFakeContext({
+      phase: 'connecting',
+      emitter,
+      peerConnection: {} as RTCPeerConnection,
+    });
+    ctx.connectionPromise = connectionPromise;
+
+    const phaseChangeHandler = vi.fn();
+    ctx.emitter.on('phase-change', phaseChangeHandler);
+
+    // 启动 waitForConnection（不 await，先让 promise pending）
+    const waitPromise = waitForConnection(ctx, 10_000);
+
+    // resolve connectionPromise → ctx.phase 仍是 connecting → 命中 setPhase('connected')
+    resolveConnection();
+    await waitPromise;
+
+    expect(ctx.phase).toBe('connected');
+    expect(phaseChangeHandler).toHaveBeenCalled();
   });
 });

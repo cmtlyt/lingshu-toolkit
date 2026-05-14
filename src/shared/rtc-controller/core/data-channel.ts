@@ -10,6 +10,7 @@
  * - 自定义事件与内置事件命名冲突的运行时检测
  */
 
+import { isString } from '@/shared/utils';
 import { RTC_EVENT_MARKER } from '../constants';
 import type { BuiltinEvents, DataChannelEventMessage, EventMap } from '../types';
 import type { ControllerContext } from './controller-context';
@@ -37,7 +38,8 @@ function isEventMessage(data: unknown): data is DataChannelEventMessage {
   if (typeof data !== 'object' || data === null) {
     return false;
   }
-  return (data as Record<string, unknown>)[RTC_EVENT_MARKER] === true;
+  const obj = data as Record<string, unknown>;
+  return obj[RTC_EVENT_MARKER] === true && isString(obj.event);
 }
 
 /** 尝试将 DataChannel 原始数据解析为 JSON，失败返回 null */

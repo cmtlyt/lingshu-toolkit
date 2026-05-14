@@ -46,9 +46,9 @@ function flushPendingCandidates(ctx: ControllerContext): void {
   if (!ctx.peerConnection) {
     return;
   }
-  for (let i = 0; i < ctx.pendingCandidates.length; i++) {
-    ctx.peerConnection.addIceCandidate(new RTCIceCandidate(ctx.pendingCandidates[i]));
-  }
+  void Promise.all(
+    ctx.pendingCandidates.map((candidate) => ctx.peerConnection!.addIceCandidate(new RTCIceCandidate(candidate))),
+  );
   ctx.pendingCandidates.length = 0;
 }
 
@@ -173,7 +173,9 @@ async function waitForConnection(ctx: ControllerContext, connectTimeout: number)
 
   try {
     await ctx.connectionPromise;
-    setPhase(ctx, 'connected');
+    if (ctx.phase !== 'connected') {
+      setPhase(ctx, 'connected');
+    }
   } catch (error) {
     if (error instanceof RtcTimeoutError) {
       ctx.disposeFn();

@@ -8,6 +8,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
+import { isString } from '@/shared/utils';
 import { resolveLoggerAdapter } from '../adapters/logger';
 import {
   DEFAULT_CONNECT_TIMEOUT,
@@ -116,17 +117,32 @@ function routeSignalingMessage<UserEvents extends EventMap>(
 
   switch (message.type) {
     case 'offer':
-      onOffer(message.sdp!).catch((error) => {
+      if (!isString(message.sdp)) {
+        ctx.emitter.dispatch('error', { error: new Error('invalid offer: missing sdp'), context: 'signaling:offer' });
+        return;
+      }
+      onOffer(message.sdp).catch((error) => {
         ctx.emitter.dispatch('error', { error: error as Error, context: 'signaling:offer' });
       });
       break;
     case 'answer':
-      handleAnswer(ctx, message.sdp!).catch((error) => {
+      if (!isString(message.sdp)) {
+        ctx.emitter.dispatch('error', { error: new Error('invalid answer: missing sdp'), context: 'signaling:answer' });
+        return;
+      }
+      handleAnswer(ctx, message.sdp).catch((error) => {
         ctx.emitter.dispatch('error', { error: error as Error, context: 'signaling:answer' });
       });
       break;
     case 'ice-candidate':
-      handleIceCandidate(ctx, message.candidate!);
+      if (!message.candidate) {
+        ctx.emitter.dispatch('error', {
+          error: new Error('invalid ice-candidate: missing candidate'),
+          context: 'signaling:ice-candidate',
+        });
+        return;
+      }
+      handleIceCandidate(ctx, message.candidate);
       break;
     default:
       break;

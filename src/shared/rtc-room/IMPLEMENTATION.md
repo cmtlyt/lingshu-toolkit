@@ -102,7 +102,7 @@
   - `removePeerEntry(peerId)`：dispose 对应 controller + 从 `peers` Map 移除 + 分发 `member-left: { peerId }` 事件
 - [ ] 2.3 实现 `core/media-manager.ts`：本地轨道管理 → RFC#本地轨道管理
   - 内部维护 `localTracks: LocalTrackEntry[]` + `trackIdCounter` 自增计数器
-  - `addTrack(track, ...streams)`：守卫 `assertNotDisposed` + `assertJoined`；生成 `trackId = 'local-track-${++trackIdCounter}'`；遍历所有 peer entry，对 `controller.phase === 'connected'` 的调用 `controller.addTrack(track, ...streams)` 并存入 `entry.trackSenders`；返回 trackId → RFC#决策记录#6
+  - `addTrack(track, ...streams)`：守卫 `assertNotDisposed` + `assertJoined`；生成 `trackId = 'local-track-${++trackIdCounter}'`；遍历所有 peer entry，跳过 `phase` 为 `disconnected` / `failed` / `closed` 的 controller，对其余（idle/signaling/connecting/connected）调用 `controller.addTrack(track, ...streams)` 并存入 `entry.trackSenders`；返回 trackId → RFC#决策记录#6
   - `removeTrack(trackId)`：守卫 `assertNotDisposed`；从 `localTracks` 移除；遍历所有 peer entry，通过 `trackSenders` 查找对应 `RTCRtpSender` 调用 `controller.removeTrack(sender)` 并清理映射
   - `applyLocalTracks(controller, trackSenders)`：将当前已有的所有本地轨道添加到新创建的 controller（保证后加入的 peer 能收到已有轨道）→ RFC#内部实现要点
 - [ ] 2.4 实现 `core/room-state.ts`：房间状态机 → RFC#RoomPhase状态机

@@ -17,7 +17,7 @@
 - **完整生命周期管理**：7 阶段状态机（idle → signaling → connecting → connected → disconnected → failed → closed）
 - **事件驱动**：14 种内置事件覆盖连接、ICE、媒体、数据通道等所有关键节点
 - **媒体流支持**：addTrack / removeTrack / getRemoteStreams 一站式媒体操作
-- **自动重连**：reconnect() 一键重置并重建连接
+- **手动重连能力**：reconnect() 一键重置并重建连接
 - **AbortSignal 支持**：通过 signal 选项实现外部生命周期控制
 
 ## 安装
@@ -144,7 +144,7 @@ await controller.reconnect();
 ### createRtcController
 
 ```ts
-function createRtcController<UserEvents extends EventMap = EmptyEventMap>(
+function createRtcController<UserEvents extends EventMap = EventMap>(
   options: RtcControllerOptions,
 ): RtcController<UserEvents>
 ```
