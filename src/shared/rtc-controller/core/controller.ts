@@ -394,4 +394,4 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
   };
 }
 
-export { createRtcController, performConnect, performDispose, routeSignalingMessage };
+export { createRtcController, performConnect, performDispose, processOffer, routeSignalingMessage };

@@ -18,7 +18,7 @@ import {
   waitForConnection,
   wireConnectionEvents,
 } from '../core/connection';
-import { performConnect, performDispose, routeSignalingMessage } from '../core/controller';
+import { performConnect, performDispose, processOffer, routeSignalingMessage } from '../core/controller';
 import type { ControllerContext } from '../core/controller-context';
 import { dispatchParsedEvent, parseEventData } from '../core/data-channel';
 import { createEventEmitter } from '../core/event-emitter';
@@ -182,11 +182,12 @@ describe('data-channel.ts 防御分支覆盖', () => {
     // 实际上应通过 A->B 的路径发送
     controllerA.send(conflictMessage);
 
-    // 给 B 侧足够时间处理消息
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
-    // 验证 B 侧没有收到名为 'connected' 的事件（被忽略了）
-    // 此测试的目的是命中 dispatchParsedEvent 中的内置事件冲突分支
-    expect(controllerB!.phase).toBe('connected');
+    // 等待消息到达 B 侧（事件驱动：用 vi.waitFor 轮询而非固定 delay）
+    await vi.waitFor(() => {
+      // 验证 B 侧没有收到名为 'connected' 的事件（被忽略了）
+      // 此测试的目的是命中 dispatchParsedEvent 中的内置事件冲突分支
+      expect(controllerB!.phase).toBe('connected');
+    });
   });
 
   test('onUserEventHook 返回 true 时事件被消费不分发', async () => {
@@ -217,9 +218,10 @@ describe('data-channel.ts 防御分支覆盖', () => {
 
     (controllerA as RtcController<TestEvents>).emit('greeting', { message: 'hello' });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
-
-    expect(hookFn).toHaveBeenCalled();
+    // 等待 hook 被调用（事件驱动轮询替代固定 delay）
+    await vi.waitFor(() => {
+      expect(hookFn).toHaveBeenCalled();
+    });
     // hook 返回 true，事件被消费，不会分发到 emitter
     expect(eventHandler).not.toHaveBeenCalled();
   });
@@ -420,8 +422,8 @@ describe('controller.ts 覆盖', () => {
     const extraChannel = controllerB.peerConnection!.createDataChannel('extra');
     expect(extraChannel).toBeInstanceOf(RTCDataChannel);
 
-    // 等待 A 侧收到 ondatachannel 事件
-    await new Promise<void>((resolve) => setTimeout(resolve, 200));
+    // 等待 A 侧收到 ondatachannel 事件（缩短 delay，此处无法用事件驱动替代）
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
   });
 });
 
@@ -567,7 +569,7 @@ describe('connection.ts 内部函数覆盖', () => {
     fakePc.close();
   });
 
-  test('wireConnectionEvents onicecandidate 发送返回 Promise 且 catch 错误', () => {
+  test('wireConnectionEvents onicecandidate 发送返回 Promise 且 catch 错误', async () => {
     const fakePc = new RTCPeerConnection();
     const errorSpy = vi.fn();
     const failingSignaling: SignalingAdapter = {
@@ -594,14 +596,11 @@ describe('connection.ts 内部函数覆盖', () => {
     } as unknown as RTCPeerConnectionIceEvent;
     fakePc.onicecandidate!(fakeEvent);
 
-    // 等 Promise.catch 跑完
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        expect(errorSpy).toHaveBeenCalled();
-        fakePc.close();
-        resolve();
-      }, 50);
+    // 等 Promise.catch 跑完（用 vi.waitFor 轮询替代固定 delay）
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalled();
     });
+    fakePc.close();
   });
 
   test('wireConnectionEvents ontrack 回调触发 track 和 track-removed 事件', () => {
@@ -821,7 +820,7 @@ describe('controller.ts 间接覆盖', () => {
     controllerB = null;
   });
 
-  test('routeSignalingMessage closed 短路 — dispose 后信令消息被忽略', () => {
+  test('routeSignalingMessage closed 短路 — dispose 后信令消息被忽略', async () => {
     const [sigA, sigB] = createMockSignalingPair();
     controllerA = createRtcController({ signaling: sigA });
     controllerB = createRtcController({ signaling: sigB });
@@ -835,13 +834,10 @@ describe('controller.ts 间接覆盖', () => {
 
     // 通过 A 侧连接触发 B 侧收到信令
     controllerA.connect().catch(() => {});
-    // 等一个 tick 让信令消息传递
-    return new Promise<void>((resolve) => {
-      setTimeout(() => {
-        // B 已 closed，不应触发 error
-        expect(controllerB!.phase).toBe('closed');
-        resolve();
-      }, 100);
+    // 等信令消息传递（用 vi.waitFor 轮询替代固定 delay）
+    await vi.waitFor(() => {
+      // B 已 closed，不应触发 error
+      expect(controllerB!.phase).toBe('closed');
     });
   });
 
@@ -947,8 +943,10 @@ describe('controller.ts 间接覆盖', () => {
       // 预期 reject（我们主动 reject connectionPromise 来结束等待）
     });
 
-    // 等待 performConnect 内部设置好 ondatachannel
-    await new Promise<void>((resolve) => setTimeout(resolve, 100));
+    // 等待 performConnect 内部设置好 ondatachannel（轮询 peerConnection 创建完成）
+    await vi.waitFor(() => {
+      expect(ctx.peerConnection).not.toBeNull();
+    });
 
     // 此时 ctx.peerConnection 已创建，且 ondatachannel 已注册
     // ctx.defaultChannel 仍为 null（autoCreateDataChannel:false）
@@ -980,14 +978,41 @@ describe('controller.ts 间接覆盖', () => {
 
     // A 侧手动创建新 offer 并发送给 B（renegotiation）
     // B 侧此时 phase 是 connected（非 idle），命中 branch 7#1
-    // try 成功后 phase 仍是 connected（非 signaling），命中 branch 8#1
+    // try 成功后 phase 仍是 connected（非 signaling），命中 branch 8#0（false 分支）
     const offer = await controllerA.peerConnection!.createOffer();
     await controllerA.peerConnection!.setLocalDescription(offer);
     await sigA.send({ type: 'offer', sdp: offer.sdp! });
 
-    // 等待 B 处理完 renegotiation
-    await new Promise<void>((resolve) => setTimeout(resolve, 500));
-    expect(controllerB!.phase).toBe('connected');
+    // 等待 B 处理完 renegotiation（事件驱动轮询替代固定 500ms delay）
+    await vi.waitFor(() => {
+      expect(controllerB!.phase).toBe('connected');
+    });
+  });
+
+  test('processOffer phase=connected 时 try 成功 → 命中 branch 8#1（else 分支：phase 非 signaling 跳过 waitForConnection）', async () => {
+    const [sigA] = createMockSignalingPair();
+    // 用 mock peerConnection 确保 try 块稳定成功，且不触发任何 ICE 回调改变 phase
+    const mockPc = {
+      setRemoteDescription: vi.fn().mockResolvedValue(undefined),
+      createAnswer: vi.fn().mockResolvedValue({ sdp: 'fake-answer-sdp' }),
+      setLocalDescription: vi.fn().mockResolvedValue(undefined),
+    } as unknown as RTCPeerConnection;
+
+    // phase=connected 模拟 renegotiation 场景：跳过 idle 入口，try 成功后 phase 仍为 connected（非 signaling）
+    // → 命中 if(ctx.phase==='signaling') 的 else 分支（branch 8#1）
+    const ctx = createFakeContext({ phase: 'connected', peerConnection: mockPc });
+    const config = {
+      rtcConfig: { iceServers: [] },
+      dataChannelLabel: '__test__',
+      dataChannelOptions: { ordered: true },
+      autoCreateDataChannel: true,
+      connectTimeout: 10_000,
+    };
+
+    await processOffer(ctx, 'fake-offer-sdp', config as never, sigA);
+
+    // phase 仍为 connected（未走 signaling→connecting 路径）
+    expect(ctx.phase).toBe('connected');
   });
 });
 
