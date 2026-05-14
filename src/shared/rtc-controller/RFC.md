@@ -705,7 +705,7 @@ connect() / reconnect() / 收到远端 offer（内部自动路由）
 > | `waitForConnection()` | 内部 Promise 封装：等待 ICE 连接状态变为 `connected` / `completed`，受 `connectTimeout` 保护（超时抛 `RtcTimeoutError`） |
 > | `resetConnectionPromise()` | 重置 `connectionEstablished` 内部 Promise（reconnect 清理旧连接后需要新的 Promise 来等待新连接建立） |
 > | `abortToPromise(signal, onAbort)` | 将 `AbortSignal` 包装为 Promise：signal aborted 时执行 `onAbort` 回调并 reject |
-> | `flushPendingCandidates()` | 将 ICE candidate 缓冲队列中暂存的候选批量添加到 `RTCPeerConnection`（待 `remoteDescription` 设置后调用） |
+> | `flushPendingCandidates()` | 异步函数，将 ICE candidate 缓冲队列中暂存的候选通过 `Promise.all` 批量并行添加到 `RTCPeerConnection`（待 `remoteDescription` 设置后 `await` 调用） |
 
 ### 连接建立流程（connect）
 
@@ -791,7 +791,7 @@ async function handleOffer(offer: RTCSessionDescriptionInit): Promise<void> {
   // 3. 设置远端描述 + 创建 answer
   try {
     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
-    flushPendingCandidates()
+    await flushPendingCandidates()
     const answer = await peerConnection.createAnswer()
     await peerConnection.setLocalDescription(answer)
     await signaling.send({ type: 'answer', sdp: answer.sdp! })
@@ -869,10 +869,11 @@ function handleIceCandidate(candidate: RTCIceCandidateInit): void {
   }
 }
 
-function flushPendingCandidates(): void {
-  for (let i = 0; i < pendingCandidates.length; i++) {
-    peerConnection.addIceCandidate(new RTCIceCandidate(pendingCandidates[i]))
-  }
+async function flushPendingCandidates(): Promise<void> {
+  if (!peerConnection) return
+  await Promise.all(
+    pendingCandidates.map((candidate) => peerConnection.addIceCandidate(new RTCIceCandidate(candidate)))
+  )
   pendingCandidates.length = 0
 }
 ```
@@ -988,31 +989,39 @@ if (options.signal) {
 src/shared/rtc-controller/
 ├── index.ts                  # 公开导出入口
 ├── index.mdx                 # 文档（自动生成 + 手动追加）
-├── _meta.json                # 文档元信息
 ├── RFC.md                    # 本 RFC 文档
 ├── IMPLEMENTATION.md         # 实施清单（独立文件）
 ├── types.ts                  # 公开类型定义
-├── errors.ts                 # 错误类型
 ├── constants.ts              # 常量
 ├── adapters/
 │   └── logger.ts             # resolveLoggerAdapter 字段级混合兜底
 ├── core/
-│   ├── controller.ts         # RtcController 主体实现
+│   ├── controller.ts         # RtcController 主体实现（信令路由 + 生命周期编排）
+│   ├── controller-context.ts # 控制器内部共享状态（ControllerContext 类型）
 │   ├── event-emitter.ts      # 泛型事件系统
 │   ├── connection.ts         # RTCPeerConnection 生命周期管理
 │   ├── data-channel.ts       # DataChannel 管理
 │   └── media.ts              # 媒体轨道管理
+├── errors/
+│   ├── index.ts                      # 错误类型统一导出
+│   ├── rtc-channel-not-ready-error.ts
+│   ├── rtc-disposed-error.ts
+│   ├── rtc-invalid-state-error.ts
+│   ├── rtc-signaling-error.ts
+│   └── rtc-timeout-error.ts
 └── __test__/
-    ├── index.test.ts             # 节点环境单元测试（入口聚合层）
-    ├── index.browser.test.ts     # 浏览器环境测试（完整 offer/answer 流程）
-    ├── index.test-d.ts           # 类型测试（泛型事件系统推断）
+    ├── index.test.ts                     # 节点环境单元测试（入口聚合层）
+    ├── index.browser.test.ts             # 浏览器环境集成测试（完整 offer/answer 流程）
+    ├── index.test-d.ts                   # 类型测试（泛型事件系统推断）
+    ├── index.html                        # 手动测试面板（跨标签页 BroadcastChannel 信令）
+    ├── coverage-attack.browser.test.ts   # 覆盖率攻坚测试（防御分支命中）
+    ├── reconnect.browser.test.ts         # reconnect 流程测试
+    ├── adapters/
+    │   └── logger.test.ts
     ├── core/
-    │   ├── event-emitter.test.ts
-    │   ├── connection.browser.test.ts
-    │   └── data-channel.browser.test.ts
-    ├── reconnect.browser.test.ts # reconnect 流程测试
+    │   └── event-emitter.test.ts
     └── helpers/
-        └── mock-signaling.ts     # 测试用 mock 信令适配器
+        └── mock-signaling.ts             # 测试用 mock 信令适配器
 ```
 
 ## 测试策略
@@ -1117,6 +1126,10 @@ function createMockSignalingPair(): [SignalingAdapter, SignalingAdapter] {
 - 内置事件（`connected` / `failed` 等）由控制器内部状态机驱动，外部伪造会破坏状态一致性
 - 自定义事件通过 DataChannel 传输到对端，是"用户空间"的通信；内置事件是"系统空间"的状态通知
 - 类型层强制隔离，编译期拦截误用
+
+**运行时守卫**：
+- 非字符串事件名：`typeof event !== 'string'` 时 `logger.warn` 并静默返回（DataChannel 协议仅支持字符串事件名）
+- 内置事件名：`BUILTIN_EVENT_NAMES.has(eventName)` 时 `logger.warn` 并静默返回（不抛错，避免运行时崩溃）
 
 ### #5 DataChannel 事件协议为何用 JSON 而非二进制
 

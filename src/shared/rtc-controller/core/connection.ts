@@ -42,11 +42,11 @@ function setPhase(ctx: ControllerContext, next: RtcPhase): void {
 }
 
 /** 将 ICE candidate 缓冲队列中暂存的候选批量添加到 RTCPeerConnection */
-function flushPendingCandidates(ctx: ControllerContext): void {
+async function flushPendingCandidates(ctx: ControllerContext): Promise<void> {
   if (!ctx.peerConnection) {
     return;
   }
-  void Promise.all(
+  await Promise.all(
     ctx.pendingCandidates.map((candidate) => ctx.peerConnection!.addIceCandidate(new RTCIceCandidate(candidate))),
   );
   ctx.pendingCandidates.length = 0;
@@ -71,7 +71,7 @@ async function handleAnswer(ctx: ControllerContext, sdp: string): Promise<void> 
   }
   try {
     await ctx.peerConnection.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp }));
-    flushPendingCandidates(ctx);
+    await flushPendingCandidates(ctx);
   } catch (error) {
     setPhase(ctx, 'failed');
     throwError(ERROR_FN_NAME, 'failed to handle answer', RtcSignalingError as unknown as ErrorConstructor, {

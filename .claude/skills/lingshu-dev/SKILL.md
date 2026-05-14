@@ -66,7 +66,7 @@ description: "Development workflow for lingshu-toolkit project. Handles adding n
 ⚠️ **本流程的详细执行步骤（包含 6 种命中模式 / Tier 分级 / 内部函数导出规范 / fake timers 配合）全部在 `references/coverage-attack-playbook.md`。下方仅是入口概览，遇到攻坚任务时必须先加载该 reference 再开干，禁止仅凭概览实施。**
 
 - [ ] Step A: 跑 `pnpm test:ci <module> --coverage.enabled` 生成最新 `coverage/coverage-final.json`
-- [ ] Step B: 用 `pnpm exec esno scripts/analyze-coverage.ts <module>` 扫描未覆盖项
+- [ ] Step B: 用 `pnpm test:analyze <module>` 扫描未覆盖项
 - [ ] Step C: 按 Tier 分级（易→难）逐文件补测，对防御分支采用「导出内部函数 + 构造伪 state / spy 守卫 / 运行时非法数据 / fake timers 推进定时器」六种命中模式之一
 - [ ] Step D: 全量回归（`pnpm run check` + `pnpm run test:ci <module>`）
 - [ ] Step E: 重跑 coverage + analyze 验证 `Files dirty: 0`，并直接读 `coverage-final.json` 验证 stmt/branch/fn 三项均 100%
@@ -278,10 +278,10 @@ pnpm run test:ci src/{namespace}/{tool-name}/index.test.ts
 pnpm test:ci src/{namespace}/{tool-name} --coverage.enabled
 
 # Analyze uncovered items
-pnpm exec esno scripts/analyze-coverage.ts src/{namespace}/{tool-name}
+pnpm test:analyze src/{namespace}/{tool-name}
 
 # Analyze with source context
-pnpm exec esno scripts/analyze-coverage.ts src/{namespace}/{tool-name} --with-source
+pnpm test:analyze src/{namespace}/{tool-name} --with-source
 ```
 
 ## Project Structure

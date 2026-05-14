@@ -334,6 +334,15 @@ describe('controller.ts 覆盖', () => {
     expect(result).toBeUndefined();
   });
 
+  test('emit 非字符串事件名时静默忽略（命中 typeof event !== string 分支）', () => {
+    const [sigA] = createMockSignalingPair();
+    controllerA = createRtcController({ signaling: sigA });
+
+    // 传入 Symbol 作为事件名，触发 typeof event !== 'string' 防御分支
+    // @ts-expect-error 故意传入非法类型以命中防御分支
+    expect(() => controllerA!.emit(Symbol('test'))).not.toThrow();
+  });
+
   test('createDataChannel 无连接时抛出错误', () => {
     const [sigA] = createMockSignalingPair();
     controllerA = createRtcController({ signaling: sigA });
@@ -767,7 +776,7 @@ describe('event-emitter.ts once handler idx<0 分支（browser 环境覆盖）',
 // ─────────────────────────────────────────────
 
 describe('connection.ts 补充覆盖', () => {
-  test('flushPendingCandidates 有 pendingCandidates 时执行循环体', () => {
+  test('flushPendingCandidates 有 pendingCandidates 时执行循环体', async () => {
     const addIceSpy = vi.fn();
     const fakePc = { addIceCandidate: addIceSpy } as unknown as RTCPeerConnection;
     const ctx = createFakeContext({ peerConnection: fakePc });
@@ -776,7 +785,7 @@ describe('connection.ts 补充覆盖', () => {
       { candidate: 'c2', sdpMid: '0', sdpMLineIndex: 0 },
     );
 
-    flushPendingCandidates(ctx);
+    await flushPendingCandidates(ctx);
 
     expect(addIceSpy).toHaveBeenCalledTimes(2);
     expect(ctx.pendingCandidates).toHaveLength(0);
@@ -842,23 +851,25 @@ describe('controller.ts 间接覆盖', () => {
     });
   });
 
-  test('routeSignalingMessage answer catch — 无效 answer 触发 error 事件', async () => {
-    const [sigA, sigB] = createMockSignalingPair();
-    controllerA = createRtcController({ signaling: sigA, connectTimeout: 10_000 });
-    controllerB = createRtcController({ signaling: sigB, connectTimeout: 10_000 });
+  test('routeSignalingMessage answer catch — handleAnswer 失败触发 error 事件', async () => {
+    // 直接通过 routeSignalingMessage 调用，mock peerConnection 使 handleAnswer 抛错
+    const emitter = createEventEmitter(resolveLoggerAdapter());
+    const mockPc = {
+      setRemoteDescription: vi.fn().mockRejectedValue(new Error('invalid SDP')),
+    } as unknown as RTCPeerConnection;
+    const ctx = createFakeContext({ phase: 'connecting', emitter, peerConnection: mockPc });
 
-    // 先正常连接
-    await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
+    const errorHandler = vi.fn();
+    ctx.emitter.on('error', errorHandler);
 
-    // 通过信令向 A 发送一个无效的 answer
-    const errorPromise = new Promise<void>((resolve) => {
-      controllerA!.on('error', () => resolve());
+    const onOffer = vi.fn().mockResolvedValue(undefined);
+    routeSignalingMessage(ctx, { type: 'answer', sdp: 'invalid-sdp' }, onOffer);
+
+    // handleAnswer 是 async，等 microtask 完成
+    await vi.waitFor(() => {
+      expect(errorHandler).toHaveBeenCalledOnce();
     });
-    await sigB.send({ type: 'answer', sdp: 'invalid-sdp' });
-
-    await errorPromise;
-    // 触发了 error 事件说明 answer catch 分支被覆盖
-    expect(true).toBe(true);
+    expect(errorHandler.mock.calls[0][0].context).toBe('signaling:answer');
   });
 
   test('routeSignalingMessage offer catch — processOffer 失败触发 error 事件', async () => {

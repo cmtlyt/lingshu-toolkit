@@ -188,7 +188,7 @@ async function processOffer<UserEvents extends EventMap>(
   }
   try {
     await ctx.peerConnection!.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp }));
-    flushPendingCandidates(ctx);
+    await flushPendingCandidates(ctx);
     const answer = await ctx.peerConnection!.createAnswer();
     await ctx.peerConnection!.setLocalDescription(answer);
     await signaling.send({ type: 'answer', sdp: answer.sdp! });
@@ -247,7 +247,11 @@ function emitUserEvent<UserEvents extends EventMap>(
   ...args: unknown[]
 ): void {
   assertNotDisposed(ctx, 'emit');
-  const eventName = event as string;
+  if (typeof event !== 'string') {
+    logger.warn('controller.emit() only supports string event names for data channel protocol');
+    return;
+  }
+  const eventName = event;
   if (BUILTIN_EVENT_NAMES.has(eventName)) {
     logger.warn(`cannot emit builtin event "${eventName}" via controller.emit(), ignored`);
     return;
