@@ -458,6 +458,7 @@ function createFakeContext(overrides?: Partial<ControllerContext>): ControllerCo
     phase: 'idle',
     peerConnection: null,
     defaultChannel: null,
+    channels: new Map(),
     pendingCandidates: [],
     emitter,
     logger,
@@ -1173,5 +1174,82 @@ describe('connection.ts waitForConnection phase 守卫', () => {
 
     expect(ctx.phase).toBe('connected');
     expect(phaseChangeHandler).toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────
+// doEmitTo 防御分支覆盖
+// ─────────────────────────────────────────────
+
+describe('doEmitTo 防御分支', () => {
+  let controllerA: RtcController | null = null;
+  let controllerB: RtcController | null = null;
+
+  afterEach(() => {
+    controllerA?.dispose();
+    controllerB?.dispose();
+    controllerA = null;
+    controllerB = null;
+  });
+
+  test('emitTo 非字符串事件名时静默忽略（命中 typeof event !== string 分支）', async () => {
+    const [sigA, sigB] = createMockSignalingPair();
+    controllerA = createRtcController({ signaling: sigA, connectTimeout: 10_000 });
+    controllerB = createRtcController({ signaling: sigB, connectTimeout: 10_000 });
+
+    const channelReady = new Promise<void>((resolve) => {
+      const off = controllerA!.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
+    });
+    await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
+    await channelReady;
+
+    const label = controllerA.getChannelLabels()[0]!;
+    // @ts-expect-error — 故意传非字符串事件名命中防御分支
+    expect(() => controllerA!.emitTo(label, 123)).not.toThrow();
+  });
+
+  test('emitTo 内置事件名时静默忽略（命中 BUILTIN_EVENT_NAMES.has 分支）', async () => {
+    const [sigA, sigB] = createMockSignalingPair();
+    controllerA = createRtcController({ signaling: sigA, connectTimeout: 10_000 });
+    controllerB = createRtcController({ signaling: sigB, connectTimeout: 10_000 });
+
+    const channelReady = new Promise<void>((resolve) => {
+      const off = controllerA!.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
+    });
+    await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
+    await channelReady;
+
+    const label = controllerA.getChannelLabels()[0]!;
+    // @ts-expect-error — 故意传内置事件名命中防御分支
+    expect(() => controllerA!.emitTo(label, 'connected')).not.toThrow();
+  });
+
+  test('emitTo 无 payload 时走 undefined 分支（命中 args.length > 0 else）', async () => {
+    const [sigA, sigB] = createMockSignalingPair();
+
+    interface TestEvents {
+      ping: undefined;
+    }
+    controllerA = createRtcController<TestEvents>({ signaling: sigA, connectTimeout: 10_000 });
+    controllerB = createRtcController<TestEvents>({ signaling: sigB, connectTimeout: 10_000 });
+
+    const channelReady = new Promise<void>((resolve) => {
+      const off = controllerA!.on('data-channel-ready', () => {
+        off();
+        resolve();
+      });
+    });
+    await Promise.all([controllerA.connect(), waitForPhase(controllerB, 'connected')]);
+    await channelReady;
+
+    const label = (controllerA as RtcController<TestEvents>).getChannelLabels()[0]!;
+    // 不传 payload，命中 args.length > 0 的 else 分支
+    expect(() => (controllerA as RtcController<TestEvents>).emitTo(label, 'ping')).not.toThrow();
   });
 });

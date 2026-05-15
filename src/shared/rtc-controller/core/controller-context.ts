@@ -19,6 +19,8 @@ interface ControllerContext<UserEvents extends EventMap = EventMap> {
   peerConnection: RTCPeerConnection | null;
   /** 默认数据通道 */
   defaultChannel: RTCDataChannel | null;
+  /** 多通道注册表：label → RTCDataChannel */
+  channels: Map<string, RTCDataChannel>;
   /** ICE candidate 缓冲队列（remoteDescription 未设置时暂存） */
   pendingCandidates: RTCIceCandidateInit[];
   /** 事件发射器 */

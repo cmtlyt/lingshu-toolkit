@@ -9,7 +9,7 @@
 
 import { throwError } from '@/shared/throw-error';
 import { isString } from '@/shared/utils';
-import { resolveLoggerAdapter } from '../adapters/logger';
+import { type ResolvedLoggerAdapter, resolveLoggerAdapter } from '../adapters/logger';
 import {
   DEFAULT_CONNECT_TIMEOUT,
   DEFAULT_DATA_CHANNEL_LABEL,
@@ -75,6 +75,17 @@ function createEventInfra<UserEvents extends EventMap>(userLogger?: RtcControlle
   };
 }
 
+/** 清理连接相关资源（peerConnection / defaultChannel / channels / pendingCandidates） */
+function resetConnectionState<UserEvents extends EventMap>(ctx: ControllerContext<UserEvents>): void {
+  closeResource(ctx.defaultChannel);
+  ctx.defaultChannel = null;
+  ctx.channels.values().forEach((channel) => void closeResource(channel));
+  ctx.channels.clear();
+  closeResource(ctx.peerConnection);
+  ctx.peerConnection = null;
+  ctx.pendingCandidates.length = 0;
+}
+
 /** 执行 dispose 清理逻辑（拆出以降低主函数复杂度） */
 function performDispose<UserEvents extends EventMap>(
   ctx: ControllerContext<UserEvents>,
@@ -82,11 +93,7 @@ function performDispose<UserEvents extends EventMap>(
   signaling: SignalingAdapter,
   emitter: ReturnType<typeof createEventEmitter<UserEvents>>,
 ): void {
-  closeResource(ctx.defaultChannel);
-  ctx.defaultChannel = null;
-  closeResource(ctx.peerConnection);
-  ctx.peerConnection = null;
-  ctx.pendingCandidates.length = 0;
+  resetConnectionState(ctx);
 
   for (let i = 0; i < cleanupFns.length; i++) {
     callSafely(cleanupFns[i]);
@@ -158,6 +165,23 @@ function assertChannelReady<UserEvents extends EventMap>(ctx: ControllerContext<
       RtcChannelNotReadyError as unknown as ErrorConstructor,
     );
   }
+}
+
+/** 按 label 从 channels 注册表解析通道，不存在或未 open 则抛错 */
+function resolveChannel<UserEvents extends EventMap>(
+  ctx: ControllerContext<UserEvents>,
+  label: string,
+  caller: string,
+): RTCDataChannel {
+  const channel = ctx.channels.get(label);
+  if (!channel || channel.readyState !== 'open') {
+    throwError(
+      ERROR_FN_NAME,
+      `data channel "${label}" is not ready, cannot ${caller}`,
+      RtcChannelNotReadyError as unknown as ErrorConstructor,
+    );
+  }
+  return channel;
 }
 
 /** 连接配置（从 options 中提取，供外部函数使用） */
@@ -280,6 +304,73 @@ function doCreateDataChannel<UserEvents extends EventMap>(
   return channel;
 }
 
+/** 发送原始数据：支持 send(data) 和 send(label, data) 两种调用 */
+function doSend<UserEvents extends EventMap>(
+  ctx: ControllerContext<UserEvents>,
+  labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+  data?: string | ArrayBuffer | Blob | ArrayBufferView,
+): void {
+  assertNotDisposed(ctx, 'send');
+  if (data !== undefined && typeof labelOrData === 'string') {
+    const channel = resolveChannel(ctx, labelOrData, 'send');
+    channel.send(data as string);
+    return;
+  }
+  assertChannelReady(ctx, 'send data');
+  ctx.defaultChannel!.send(labelOrData as string);
+}
+
+/** 向指定 label 的通道发送自定义事件 */
+function doEmitTo<UserEvents extends EventMap>(
+  ctx: ControllerContext<UserEvents>,
+  logger: ResolvedLoggerAdapter,
+  label: string,
+  event: string | number | symbol,
+  ...args: unknown[]
+): void {
+  assertNotDisposed(ctx, 'emitTo');
+  if (typeof event !== 'string') {
+    logger.warn('controller.emitTo() only supports string event names for data channel protocol');
+    return;
+  }
+  if (BUILTIN_EVENT_NAMES.has(event)) {
+    logger.warn(`cannot emit builtin event "${event}" via controller.emitTo(), ignored`);
+    return;
+  }
+  const channel = resolveChannel(ctx, label, 'emitTo');
+  const payload = args.length > 0 ? args[0] : undefined;
+  channel.send(encodeEventMessage(event, payload));
+}
+
+/** 按 label 获取通道，不传则返回默认通道 */
+function doGetChannel<UserEvents extends EventMap>(
+  ctx: ControllerContext<UserEvents>,
+  label?: string,
+): RTCDataChannel | undefined {
+  if (label === undefined) {
+    return ctx.defaultChannel ?? undefined;
+  }
+  return ctx.channels.get(label);
+}
+
+/** 获取所有已注册通道的 label 列表 */
+function doGetChannelLabels<UserEvents extends EventMap>(ctx: ControllerContext<UserEvents>): string[] {
+  return [...ctx.channels.keys()];
+}
+
+/** 获取连接统计信息 */
+async function doGetStats<UserEvents extends EventMap>(ctx: ControllerContext<UserEvents>): Promise<RTCStatsReport> {
+  assertNotDisposed(ctx, 'getStats');
+  if (!ctx.peerConnection) {
+    throwError(
+      ERROR_FN_NAME,
+      'getStats() requires an active connection',
+      RtcDisposedError as unknown as ErrorConstructor,
+    );
+  }
+  return ctx.peerConnection.getStats();
+}
+
 /** 重置连接 Promise（reconnect 清理后需要新的 Promise） */
 function resetConnectionPromise<UserEvents extends EventMap>(ctx: ControllerContext<UserEvents>): void {
   const newDeferred = createConnectionDeferred();
@@ -333,6 +424,7 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
     phase: 'idle',
     peerConnection: null,
     defaultChannel: null,
+    channels: new Map(),
     pendingCandidates: [],
     emitter,
     logger,
@@ -361,34 +453,12 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
   async function reconnect(): Promise<void> {
     assertNotDisposed(ctx, 'reconnect');
     if (ctx.phase !== 'idle') {
-      closeResource(ctx.peerConnection);
-      ctx.peerConnection = null;
-      closeResource(ctx.defaultChannel);
-      ctx.defaultChannel = null;
-      ctx.pendingCandidates.length = 0;
+      resetConnectionState(ctx);
       resetConnectionPromise(ctx);
       ctx.emitter.dispatch('disconnected', { reason: 'reconnect' });
       setPhase(ctx, 'idle');
     }
     await connect();
-  }
-
-  function send(data: string | ArrayBuffer | Blob | ArrayBufferView): void {
-    assertNotDisposed(ctx, 'send');
-    assertChannelReady(ctx, 'send data');
-    ctx.defaultChannel!.send(data as string);
-  }
-
-  async function getStats(): Promise<RTCStatsReport> {
-    assertNotDisposed(ctx, 'getStats');
-    if (!ctx.peerConnection) {
-      throwError(
-        ERROR_FN_NAME,
-        'getStats() requires an active connection',
-        RtcDisposedError as unknown as ErrorConstructor,
-      );
-    }
-    return ctx.peerConnection.getStats();
   }
 
   return {
@@ -409,8 +479,14 @@ function createRtcController<UserEvents extends EventMap = BuiltinEvents>(
     getRemoteStreams: () => getRemoteStreams(ctx),
     createDataChannel: (label, opts) => doCreateDataChannel(ctx, label, opts),
     emit: (event, ...args) => emitUserEvent(ctx, logger, event, ...args),
-    send,
-    getStats,
+    emitTo: (label, event, ...args) => doEmitTo(ctx, logger, label, event, ...args),
+    send: ((
+      labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+      data?: string | ArrayBuffer | Blob | ArrayBufferView,
+    ) => doSend(ctx, labelOrData, data)) as RtcController<UserEvents>['send'],
+    getChannel: (label?: string) => doGetChannel(ctx, label),
+    getChannelLabels: () => doGetChannelLabels(ctx),
+    getStats: () => doGetStats(ctx),
   };
 }
 

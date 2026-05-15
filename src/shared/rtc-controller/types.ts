@@ -145,7 +145,21 @@ interface RtcController<UserEvents extends EventMap = BuiltinEvents> extends Rtc
     event: K,
     ...args: UserEvents[K] extends void ? [] : [payload: UserEvents[K]]
   ) => void;
-  send: (data: string | ArrayBuffer | Blob | ArrayBufferView) => void;
+  /** 向指定 label 的通道发送自定义事件 */
+  emitTo: <K extends keyof UserEvents>(
+    label: string,
+    event: K,
+    ...args: UserEvents[K] extends void ? [] : [payload: UserEvents[K]]
+  ) => void;
+  /** 发送原始数据：无 label 走默认通道，有 label 走指定通道 */
+  send: {
+    (data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+    (label: string, data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+  };
+  /** 按 label 获取通道，不传则返回默认通道 */
+  getChannel: (label?: string) => RTCDataChannel | undefined;
+  /** 获取所有已注册通道的 label 列表 */
+  getChannelLabels: () => string[];
 
   // ── 状态查询 ──
   getStats: () => Promise<RTCStatsReport>;

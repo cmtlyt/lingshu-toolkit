@@ -88,10 +88,12 @@ function wireDataChannelEvents<UserEvents extends EventMap>(
   channel: RTCDataChannel,
 ): void {
   channel.onopen = () => {
+    ctx.channels.set(channel.label, channel);
     ctx.emitter.dispatch('data-channel-ready', { channel, label: channel.label });
   };
 
   channel.onclose = () => {
+    ctx.channels.delete(channel.label);
     ctx.emitter.dispatch('data-channel-closed', { label: channel.label });
   };
 

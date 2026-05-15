@@ -57,7 +57,7 @@
     "email": "cmtlyt@163.com"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.11",
+    "@biomejs/biome": "2.4.15",
     "@cmtlyt/unplugin-shadcn-registry-generate": "^0.1.6",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",

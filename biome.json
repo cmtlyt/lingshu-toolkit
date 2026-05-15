@@ -807,6 +807,25 @@
   },
   "overrides": [
     {
+      "includes": ["**/*.html"],
+      "linter": {
+        "rules": {
+          "nursery": {
+            "useGlobalThis": "off",
+            "useErrorCause": "off",
+            "noShadow": "off",
+            "noInlineStyles": "off"
+          },
+          "complexity": {
+            "noExcessiveCognitiveComplexity": "off"
+          },
+          "suspicious": {
+            "useIterableCallbackReturn": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["./src/{react,vue,shared,test,public}/**"],
       "linter": {
         "rules": {

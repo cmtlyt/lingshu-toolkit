@@ -5,19 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RtcRoom 手动测试</title>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 16px; }
-    h1 { font-size: 1.4rem; margin-bottom: 12px; color: #38bdf8; }
-    h2 { font-size: 1.1rem; margin-bottom: 8px; color: #94a3b8; }
+    * { box-sizing: border-box; padding: 0; margin: 0; }
+    body { padding: 16px; font-family: system-ui, sans-serif; color: #e2e8f0; background: #0f172a; }
+    h1 { margin-bottom: 12px; font-size: 1.4rem; color: #38bdf8; }
+    h2 { margin-bottom: 8px; font-size: 1.1rem; color: #94a3b8; }
 
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
     .panel {
-      background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;
-      display: flex; flex-direction: column; gap: 8px;
+      display: flex; flex-direction: column; gap: 8px;padding: 12px;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
     }
-    .panel-header { display: flex; justify-content: space-between; align-items: center; }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; }
     .badge {
-      display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600;
+      display: inline-block; padding: 2px 8px; font-size: 0.75rem; font-weight: 600;border-radius: 4px;
     }
     .badge-idle { background: #475569; }
     .badge-joining { background: #d97706; }
@@ -25,41 +25,42 @@
     .badge-left { background: #9333ea; }
     .badge-disposed { background: #dc2626; }
 
-    .members { font-size: 0.85rem; color: #94a3b8; min-height: 20px; }
-    .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+    .members { min-height: 20px; font-size: 0.85rem; color: #94a3b8; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
     button {
-      padding: 6px 14px; border: none; border-radius: 6px; cursor: pointer;
-      font-size: 0.8rem; font-weight: 500; transition: opacity 0.15s;
+      padding: 6px 14px; 
+      font-size: 0.8rem; font-weight: 500; cursor: pointer;border: none; border-radius: 6px; transition: opacity 0.15s;
     }
     button:hover { opacity: 0.85; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-join { background: #16a34a; color: #fff; }
-    .btn-leave { background: #d97706; color: #fff; }
-    .btn-dispose { background: #dc2626; color: #fff; }
-    .btn-msg { background: #2563eb; color: #fff; }
-    .btn-raw { background: #7c3aed; color: #fff; }
-    .btn-send { background: #0891b2; color: #fff; }
-    .btn-add { background: #0d9488; color: #fff; }
+    button:disabled { cursor: not-allowed; opacity: 0.4; }
+    .btn-join { color: #fff; background: #16a34a; }
+    .btn-leave { color: #fff; background: #d97706; }
+    .btn-dispose { color: #fff; background: #dc2626; }
+    .btn-msg { color: #fff; background: #2563eb; }
+    .btn-raw { color: #fff; background: #7c3aed; }
+    .btn-send { color: #fff; background: #0891b2; }
+    .btn-add { color: #fff; background: #0d9488; }
     select.peer-select {
-      background: #0f172a; border: 1px solid #475569; color: #e2e8f0;
-      padding: 4px 8px; border-radius: 6px; font-size: 0.8rem;
+      padding: 4px 8px; font-size: 0.8rem;color: #e2e8f0;
+      background: #0f172a; border: 1px solid #475569; border-radius: 6px;
     }
 
     #log-container {
+      max-height: 360px; 
+      padding: 12px; overflow-y: auto; 
+      font-family: 'Fira Code', monospace;font-size: 0.8rem;
       background: #1e293b; border: 1px solid #334155; border-radius: 8px;
-      padding: 12px; max-height: 360px; overflow-y: auto; font-size: 0.8rem;
-      font-family: 'Fira Code', monospace;
     }
     .log-entry { padding: 2px 0; border-bottom: 1px solid #1e293b; }
-    .log-time { color: #64748b; margin-right: 6px; }
-    .log-peer { font-weight: 600; margin-right: 4px; }
+    .log-time { margin-right: 6px; color: #64748b; }
+    .log-peer { margin-right: 4px; font-weight: 600; }
     .log-peer-a { color: #38bdf8; }
     .log-peer-b { color: #f472b6; }
     .log-peer-c { color: #a78bfa; }
     .log-event { color: #fbbf24; }
 
     .controls { margin-bottom: 12px; }
-    .msg-input { background: #0f172a; border: 1px solid #475569; color: #e2e8f0; padding: 6px 10px; border-radius: 6px; width: 200px; font-size: 0.8rem; }
+    .msg-input { width: 200px; padding: 6px 10px; font-size: 0.8rem; color: #e2e8f0; background: #0f172a; border: 1px solid #475569; border-radius: 6px; }
     .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
   </style>
 </head>
@@ -102,24 +103,24 @@
       channel.onmessage = (event) => {
         const data = event.data;
         // 忽略自己发出的消息
-        if (data._from === localPeerId) return;
+        if (data._from === localPeerId) { return; }
 
         switch (data.type) {
           // 有人请求加入 → 回复自己的存在 + 广播 member-joined 给本地 handlers
           case 'join-request':
             channel.postMessage({ type: 'join-ack', peerId: localPeerId, _from: localPeerId, _target: data.peerId });
-            for (const handler of handlers) handler({ type: 'member-joined', peerId: data.peerId });
+            for (const handler of handlers) { handler({ type: 'member-joined', peerId: data.peerId }); }
             break;
 
           // 定向发送：只处理发给自己的消息
           case 'sendTo':
-            if (data._target !== localPeerId) return;
-            for (const handler of handlers) handler(data.message);
+            if (data._target !== localPeerId) { return; }
+            for (const handler of handlers) { handler(data.message); }
             break;
 
           // 广播类消息（member-left）直接转发
           case 'member-left':
-            for (const handler of handlers) handler({ type: 'member-left', peerId: data.peerId });
+            for (const handler of handlers) { handler({ type: 'member-left', peerId: data.peerId }); }
             break;
 
           default:
@@ -163,7 +164,7 @@
           handlers.push(cb);
           return () => {
             const idx = handlers.indexOf(cb);
-            if (idx >= 0) handlers.splice(idx, 1);
+            if (idx >= 0) { handlers.splice(idx, 1); }
           };
         },
 
@@ -224,7 +225,7 @@
     // ── UI 更新 ──
 
     function updateUI() {
-      if (!room) return;
+      if (!room) { return; }
 
       const badge = document.getElementById('badge');
       if (badge) { badge.textContent = room.phase; badge.className = `badge badge-${room.phase}`; }
@@ -318,7 +319,7 @@
 
     // ── 操作函数 ──
 
-    window.__join = async function() {
+    window.__join = async () => {
       try {
         appendLog('joining...', '等待其他标签页响应...');
         await room.join();
@@ -329,22 +330,22 @@
       }
     };
 
-    window.__leave = function() { room.leave(); appendLog('left', ''); updateUI(); };
-    window.__dispose = function() { room.dispose(); appendLog('disposed 🗑️', ''); updateUI(); };
+    window.__leave = () => { room.leave(); appendLog('left', ''); updateUI(); };
+    window.__dispose = () => { room.dispose(); appendLog('disposed 🗑️', ''); updateUI(); };
 
-    window.__broadcast = function() {
+    window.__broadcast = () => {
       const msg = document.getElementById('global-msg').value || 'hello!';
       try { room.broadcast('chat', msg); appendLog('broadcast 📢', `"${msg}"`); }
       catch (e) { appendLog('broadcast failed ❌', e.message); }
     };
 
-    window.__broadcastRaw = function() {
+    window.__broadcastRaw = () => {
       const msg = document.getElementById('global-msg').value || 'raw-data';
       try { room.broadcastRaw(msg); appendLog('broadcastRaw 📦', `"${msg}"`); }
       catch (e) { appendLog('broadcastRaw failed ❌', e.message); }
     };
 
-    window.__send = function() {
+    window.__send = () => {
       const targetId = document.getElementById('target-select')?.value;
       if (!targetId) { appendLog('send ❌', '未选择目标 peer'); return; }
       const msg = document.getElementById('global-msg').value || 'hello!';
@@ -352,7 +353,7 @@
       catch (e) { appendLog('send failed ❌', e.message); }
     };
 
-    window.__sendRaw = function() {
+    window.__sendRaw = () => {
       const targetId = document.getElementById('target-select')?.value;
       if (!targetId) { appendLog('sendRaw ❌', '未选择目标 peer'); return; }
       const msg = document.getElementById('global-msg').value || 'raw-p2p';
