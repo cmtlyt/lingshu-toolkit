@@ -90,5 +90,11 @@
     "type": "file",
     "label": "rtcController",
     "name": "rtc-controller/index.mdx"
+  },
+  {
+    "id": "shared@rtcRoom",
+    "type": "file",
+    "label": "rtcRoom",
+    "name": "rtc-room/index.mdx"
   }
 ]

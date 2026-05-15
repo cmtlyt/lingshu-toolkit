@@ -77,6 +77,11 @@
       "path": "src/shared/rtc-controller/index.ts"
     },
     {
+      "name": "sharedRtcRoom",
+      "author": "cmtlyt",
+      "path": "src/shared/rtc-room/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
       "path": "src/react/use-controllable-value/index.ts"

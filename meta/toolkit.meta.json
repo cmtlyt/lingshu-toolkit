@@ -15,7 +15,8 @@
     { "name": "tryCall", "author": "cmtlyt" },
     { "name": "priorityQueue", "author": "cmtlyt" },
     { "name": "lockData", "author": "cmtlyt" },
-    { "name": "rtcController", "author": "cmtlyt" }
+    { "name": "rtcController", "author": "cmtlyt" },
+    { "name": "rtcRoom", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

@@ -73,7 +73,7 @@ function dispatchParsedEvent<UserEvents extends EventMap>(
     }
   }
 
-  ctx.emitter.dispatch(eventName as keyof BuiltinEvents, payload as never);
+  ctx.emitter.dispatch(eventName as keyof BuiltinEvents, payload);
 }
 
 /**
