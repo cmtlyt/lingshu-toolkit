@@ -26,7 +26,7 @@
  */
 
 import { createError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils';
+import { isFunction, isObject, isPromiseLike, isUndef } from '@/shared/utils';
 import { withResolvers } from '@/shared/with-resolvers';
 import type { ResolvedAdapters } from '../adapters/index';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';
@@ -352,7 +352,7 @@ function createInstanceRegistry(): InstanceRegistry {
       return;
     }
     const { entry, teardowns, alive } = slot;
-    if (listeners !== undefined) {
+    if (!isUndef(listeners)) {
       entry.listenersSet.delete(listeners);
     }
     entry.refCount--;
@@ -452,7 +452,7 @@ function prepareEntryData<T extends object>(id: string, options: LockDataOptions
 
   // 同步返回值：assertJsonSafeInput 校验 → cloneByJson 隔离 → firstValue
   // 校验失败抛 InvalidOptionsError / TypeError（Entry 不构造，不进 registry）
-  if (!isPromiseLikeValue(raw)) {
+  if (!isPromiseLike(raw)) {
     assertJsonSafeInput(raw, 'lockData getValue() result');
     return {
       firstValue: cloneByJson(raw as T),
@@ -501,11 +501,6 @@ function buildPendingEntryData<T extends object>(id: string, source: PromiseLike
     firstValue: {} as T,
     dataReadyPromise: ready.promise,
   };
-}
-
-/** PromiseLike 判定：避免引入 verify 的 isPromiseLike 依赖（已从 imports 删除） */
-function isPromiseLikeValue<V>(value: V | PromiseLike<V>): value is PromiseLike<V> {
-  return value !== null && typeof value === 'object' && typeof (value as PromiseLike<V>).then === 'function';
 }
 
 function suppressUnhandled(): void {

@@ -10,7 +10,7 @@
  * - 自定义事件与内置事件命名冲突的运行时检测
  */
 
-import { isString } from '@/shared/utils';
+import { isNull, isString } from '@/shared/utils';
 import { RTC_EVENT_MARKER } from '../constants';
 import type { BuiltinEvents, DataChannelEventMessage, EventMap } from '../types';
 import type { ControllerContext } from './controller-context';
@@ -35,7 +35,7 @@ const BUILTIN_EVENT_NAMES: ReadonlySet<string> = new Set<string>([
 
 /** 判断消息是否为事件协议消息 */
 function isEventMessage(data: unknown): data is DataChannelEventMessage {
-  if (typeof data !== 'object' || data === null) {
+  if (typeof data !== 'object' || isNull(data)) {
     return false;
   }
   const obj = data as Record<string, unknown>;

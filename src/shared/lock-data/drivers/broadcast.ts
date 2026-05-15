@@ -18,7 +18,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isString } from '@/shared/utils';
+import { isFunction, isNull, isNumber, isString } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { ChannelAdapter, LockDriverContext, LockDriverHandle } from '../types';
@@ -53,7 +53,7 @@ function buildWaiter(
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   function cleanup(): void {
-    if (timeoutId !== null) {
+    if (!isNull(timeoutId)) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }
@@ -85,19 +85,19 @@ function buildWaiter(
       removeWaiter(state.waiters, waiter);
       // 若自己是 pendingAnnounce / pendingForce 的 waiter，标记放弃并清理 timer，
       // 但不走 abandonPendingXxx（那会把 waiter 回队）—— 这里直接 reject 终结
-      if (state.pendingAnnounce !== null && state.pendingAnnounce.waiter === waiter) {
+      if (!isNull(state.pendingAnnounce) && state.pendingAnnounce.waiter === waiter) {
         const pending = state.pendingAnnounce;
         pending.abandoned = true;
-        if (pending.timer !== null) {
+        if (!isNull(pending.timer)) {
           clearTimeout(pending.timer);
           pending.timer = null;
         }
         state.pendingAnnounce = null;
       }
-      if (state.pendingForce !== null && state.pendingForce.waiter === waiter) {
+      if (!isNull(state.pendingForce) && state.pendingForce.waiter === waiter) {
         const pending = state.pendingForce;
         pending.abandoned = true;
-        if (pending.timer !== null) {
+        if (!isNull(pending.timer)) {
           clearTimeout(pending.timer);
           pending.timer = null;
         }
@@ -163,7 +163,7 @@ function acquireBroadcastLock(state: BroadcastDriverState, ctx: LockDriverContex
       return;
     }
 
-    if (state.status.kind === 'idle' && state.pendingAnnounce === null && state.pendingForce === null) {
+    if (state.status.kind === 'idle' && isNull(state.pendingAnnounce) && isNull(state.pendingForce)) {
       startAnnounceCampaign(state, waiter);
       return;
     }
@@ -190,7 +190,7 @@ function createBroadcastDriver(deps: LockDriverDeps): LockDriver {
   }
 
   const channel = (getChannel as NonNullable<LockDriverDeps['getChannel']>)({ id, channel: 'custom' });
-  if (channel === null) {
+  if (isNull(channel)) {
     throwError(ERROR_FN_NAME, 'broadcast driver getChannel returned null', TypeError);
   }
   const resolvedChannel = channel as ChannelAdapter;

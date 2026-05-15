@@ -24,6 +24,7 @@
  * 对应 RFC.md「设计原则」：用户提供 > 默认实现 > null
  */
 
+import { isNull } from '@/shared/utils';
 import type {
   AuthorityAdapter,
   AuthorityAdapterContext,
@@ -80,7 +81,7 @@ function pickDefaultAdapters<T>(userAdapters?: LockDataAdapters<T>): ResolvedAda
   const getAuthority = (ctx: AuthorityAdapterContext): AuthorityAdapter | null => {
     if (userGetAuthority) {
       const userResult = userGetAuthority(ctx);
-      if (userResult !== null) {
+      if (!isNull(userResult)) {
         return userResult;
       }
       // 用户工厂显式返回 null（表示当前 ctx 不支持），继续走默认工厂
@@ -92,7 +93,7 @@ function pickDefaultAdapters<T>(userAdapters?: LockDataAdapters<T>): ResolvedAda
   const getChannel = (ctx: ChannelAdapterContext): ChannelAdapter | null => {
     if (userGetChannel) {
       const userResult = userGetChannel(ctx);
-      if (userResult !== null) {
+      if (!isNull(userResult)) {
         return userResult;
       }
     }
@@ -103,7 +104,7 @@ function pickDefaultAdapters<T>(userAdapters?: LockDataAdapters<T>): ResolvedAda
   const getSessionStore = (ctx: SessionStoreAdapterContext): SessionStoreAdapter | null => {
     if (userGetSessionStore) {
       const userResult = userGetSessionStore(ctx);
-      if (userResult !== null) {
+      if (!isNull(userResult)) {
         return userResult;
       }
     }

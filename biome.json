@@ -807,6 +807,15 @@
   },
   "overrides": [
     {
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noUnresolvedImports": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": ["**/*.html"],
       "linter": {
         "rules": {

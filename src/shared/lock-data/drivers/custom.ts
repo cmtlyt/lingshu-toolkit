@@ -19,7 +19,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNullOrUndef, isNumber, isPromiseLike } from '@/shared/utils';
+import { isFunction, isNull, isNullOrUndef, isNumber, isPromiseLike } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDataAdapters, LockDriverContext, LockDriverHandle } from '../types';
@@ -75,7 +75,7 @@ function mergeSignalWithTimeout(
   }
 
   function cleanup(): void {
-    if (timeoutId !== null) {
+    if (!isNull(timeoutId)) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }

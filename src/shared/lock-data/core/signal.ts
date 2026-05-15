@@ -9,6 +9,8 @@
  * 若构造时已有任何输入为 aborted，则派生 signal 立即 aborted
  */
 
+import { isUndef } from '@/shared/utils';
+
 type SignalLike = AbortSignal | null | undefined;
 
 /**
@@ -29,7 +31,7 @@ function anySignal(signals: readonly SignalLike[]): { signal: AbortSignal; dispo
 
   const controller = new AbortController();
   const alreadyAborted = validSignals.find((signal) => signal.aborted);
-  if (alreadyAborted !== undefined) {
+  if (!isUndef(alreadyAborted)) {
     controller.abort(alreadyAborted.reason);
     return { signal: controller.signal, dispose: noop };
   }

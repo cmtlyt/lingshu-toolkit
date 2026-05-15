@@ -8,7 +8,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isString } from '@/shared/utils';
+import { isString, isUndef } from '@/shared/utils';
 import { type ResolvedLoggerAdapter, resolveLoggerAdapter } from '../adapters/logger';
 import {
   DEFAULT_CONNECT_TIMEOUT,
@@ -311,7 +311,7 @@ function doSend<UserEvents extends EventMap>(
   data?: string | ArrayBuffer | Blob | ArrayBufferView,
 ): void {
   assertNotDisposed(ctx, 'send');
-  if (data !== undefined && typeof labelOrData === 'string') {
+  if (!isUndef(data) && typeof labelOrData === 'string') {
     const channel = resolveChannel(ctx, labelOrData, 'send');
     channel.send(data as string);
     return;
@@ -347,7 +347,7 @@ function doGetChannel<UserEvents extends EventMap>(
   ctx: ControllerContext<UserEvents>,
   label?: string,
 ): RTCDataChannel | undefined {
-  if (label === undefined) {
+  if (isUndef(label)) {
     return ctx.defaultChannel ?? undefined;
   }
   return ctx.channels.get(label);

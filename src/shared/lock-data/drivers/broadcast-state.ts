@@ -28,7 +28,7 @@
 /** biome-ignore-all lint/nursery/noExcessiveLinesPerFile: ignore */
 
 import { createError } from '@/shared/throw-error';
-import { isFunction } from '@/shared/utils';
+import { isFunction, isNull } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError } from '../errors';
 import type { ChannelAdapter, LockDriverHandle } from '../types';
@@ -115,14 +115,14 @@ interface BroadcastDriverState {
 // -----------------------------------------------------------------------------
 
 function stopHeartbeat(holding: HoldingState): void {
-  if (holding.heartbeatTimer !== null) {
+  if (!isNull(holding.heartbeatTimer)) {
     clearInterval(holding.heartbeatTimer);
     holding.heartbeatTimer = null;
   }
 }
 
 function stopDeadTimer(remoteHeld: RemoteHeldState): void {
-  if (remoteHeld.deadTimer !== null) {
+  if (!isNull(remoteHeld.deadTimer)) {
     clearTimeout(remoteHeld.deadTimer);
     remoteHeld.deadTimer = null;
   }
@@ -234,11 +234,11 @@ function enterRemoteHeld(state: BroadcastDriverState, token: string, peerTs: num
 
 function abandonPendingAnnounce(state: BroadcastDriverState, reason: string): void {
   const pending = state.pendingAnnounce;
-  if (pending === null || pending.abandoned) {
+  if (isNull(pending) || pending.abandoned) {
     return;
   }
   pending.abandoned = true;
-  if (pending.timer !== null) {
+  if (!isNull(pending.timer)) {
     clearTimeout(pending.timer);
     pending.timer = null;
   }
@@ -251,11 +251,11 @@ function abandonPendingAnnounce(state: BroadcastDriverState, reason: string): vo
 
 function abandonPendingForce(state: BroadcastDriverState, reason: string): void {
   const pending = state.pendingForce;
-  if (pending === null || pending.abandoned) {
+  if (isNull(pending) || pending.abandoned) {
     return;
   }
   pending.abandoned = true;
-  if (pending.timer !== null) {
+  if (!isNull(pending.timer)) {
     clearTimeout(pending.timer);
     pending.timer = null;
   }
@@ -297,7 +297,7 @@ function handleAnnounce(state: BroadcastDriverState, msg: AnnounceMessage): void
 
   // 并发 announce 仲裁（BC-3）
   const pending = state.pendingAnnounce;
-  if (pending !== null && !pending.abandoned) {
+  if (!(isNull(pending) || pending.abandoned)) {
     if (isEarlier(pending.ts, pending.requestId, msg.ts, msg.requestId)) {
       return;
     }
@@ -323,7 +323,7 @@ function handleReject(state: BroadcastDriverState, msg: RejectMessage): void {
 
   // pendingAnnounce 被明确拒绝
   const pending = state.pendingAnnounce;
-  if (pending !== null && !pending.abandoned && pending.requestId === msg.requestId) {
+  if (!(isNull(pending) || pending.abandoned) && pending.requestId === msg.requestId) {
     abandonPendingAnnounce(state, 'rejected');
   }
 
@@ -353,7 +353,7 @@ function handleHeartbeat(state: BroadcastDriverState, msg: HeartbeatMessage): vo
   }
 
   // 收到 heartbeat 时若本方有 pendingAnnounce，放弃（有持有者）
-  if (state.pendingAnnounce !== null && !state.pendingAnnounce.abandoned) {
+  if (!(isNull(state.pendingAnnounce) || state.pendingAnnounce.abandoned)) {
     abandonPendingAnnounce(state, 'heartbeat-detected');
   }
   enterRemoteHeld(state, msg.token, msg.ts);
@@ -382,7 +382,7 @@ function handleForce(state: BroadcastDriverState, msg: ForceMessage): void {
   }
 
   const pending = state.pendingForce;
-  if (pending !== null && !pending.abandoned) {
+  if (!(isNull(pending) || pending.abandoned)) {
     if (isEarlier(pending.ts, pending.token, msg.ts, msg.token)) {
       // 我方更早：保持竞选；注意本方 startForceCampaign 已提前 revoke 过自己的 holding，
       // 此时本方处于"等待窗口到期 enterHolding"状态，不需要再处理 holding
@@ -440,7 +440,7 @@ function pumpNextWaiter(state: BroadcastDriverState): void {
   if (state.destroyed || state.status.kind !== 'idle' || state.waiters.length === 0) {
     return;
   }
-  if (state.pendingAnnounce !== null || state.pendingForce !== null) {
+  if (!(isNull(state.pendingAnnounce) && isNull(state.pendingForce))) {
     return;
   }
   const next = state.waiters.shift();
@@ -505,9 +505,9 @@ function startAnnounceCampaign(state: BroadcastDriverState, waiter: Waiter): voi
     // destroy 路径会统一 abort；此处直接返回避免竞态
     return;
   }
-  if (state.status.kind !== 'idle' || state.pendingAnnounce !== null || state.pendingForce !== null) {
+  if (state.status.kind !== 'idle' || !isNull(state.pendingAnnounce) || !isNull(state.pendingForce)) {
     logger.error(
-      `[${name}] broadcast driver: startAnnounceCampaign precondition violated (status=${state.status.kind}, pendingAnnounce=${state.pendingAnnounce !== null}, pendingForce=${state.pendingForce !== null})`,
+      `[${name}] broadcast driver: startAnnounceCampaign precondition violated (status=${state.status.kind}, pendingAnnounce=${!isNull(state.pendingAnnounce)}, pendingForce=${!isNull(state.pendingForce)})`,
     );
     // 把 waiter 回队，下一次状态回 idle 时 pumpNextWaiter 会重新触发
     state.waiters.push(waiter);
@@ -555,7 +555,7 @@ function startForceCampaign(state: BroadcastDriverState, waiter: Waiter): void {
     logger.error(`[${name}] broadcast driver: startForceCampaign called after destroyed`);
     return;
   }
-  if (state.pendingAnnounce !== null || state.pendingForce !== null) {
+  if (!(isNull(state.pendingAnnounce) && isNull(state.pendingForce))) {
     waiter.abort(
       createError(
         ERROR_FN_NAME,
@@ -610,26 +610,26 @@ function drainOnDestroy(state: BroadcastDriverState, buildAbortError: (token: st
   const { deps, waiters } = state;
   const { name, logger } = deps;
   logger.debug(
-    `[${name}] broadcast driver: destroy (waiters=${waiters.length}, status=${state.status.kind}, pendingAnnounce=${state.pendingAnnounce !== null}, pendingForce=${state.pendingForce !== null})`,
+    `[${name}] broadcast driver: destroy (waiters=${waiters.length}, status=${state.status.kind}, pendingAnnounce=${!isNull(state.pendingAnnounce)}, pendingForce=${!isNull(state.pendingForce)})`,
   );
 
   // 收集所有需要 abort 的 waiter —— pending 里的 waiter 也要（BC-J）
   const toAbort: Waiter[] = [];
 
-  if (state.pendingAnnounce !== null) {
+  if (!isNull(state.pendingAnnounce)) {
     const { pendingAnnounce } = state;
     pendingAnnounce.abandoned = true;
-    if (pendingAnnounce.timer !== null) {
+    if (!isNull(pendingAnnounce.timer)) {
       clearTimeout(pendingAnnounce.timer);
     }
     state.pendingAnnounce = null;
     toAbort.push(pendingAnnounce.waiter);
   }
 
-  if (state.pendingForce !== null) {
+  if (!isNull(state.pendingForce)) {
     const { pendingForce } = state;
     pendingForce.abandoned = true;
-    if (pendingForce.timer !== null) {
+    if (!isNull(pendingForce.timer)) {
       clearTimeout(pendingForce.timer);
     }
     state.pendingForce = null;
@@ -665,7 +665,7 @@ function drainOnDestroy(state: BroadcastDriverState, buildAbortError: (token: st
     toAbort[i].abort(buildAbortError(toAbort[i].token));
   }
 
-  if (state.unsubscribe !== null) {
+  if (!isNull(state.unsubscribe)) {
     try {
       state.unsubscribe();
     } catch (error) {

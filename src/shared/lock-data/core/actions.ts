@@ -20,7 +20,7 @@
  */
 
 import { createError, throwError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils';
+import { isFunction, isNull, isObject } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockRevokedError } from '../errors';
 import type {
@@ -152,7 +152,7 @@ async function ensureDataReady<T extends object>(deps: ActionsDeps<T>, state: Ac
   }
   const { entry } = deps;
   // 显式 !== null 避开 `Promise | null` 做布尔条件触发的 noMisusedPromises 告警
-  if (entry.dataReadyPromise !== null) {
+  if (!isNull(entry.dataReadyPromise)) {
     await entry.dataReadyPromise;
     if (state.disposed) {
       throwDisposed();
@@ -261,7 +261,7 @@ function startHoldTimer<T extends object>(
   holdTimeout: TimeoutValue,
 ): void {
   const holdMs = toMilliseconds(holdTimeout);
-  if (holdMs === null) {
+  if (isNull(holdMs)) {
     return;
   }
   state.holdTimer = setTimeout(() => {

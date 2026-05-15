@@ -12,6 +12,7 @@
  * 对应 RFC.md「接口定义」「默认实现」
  */
 
+import { isNull } from '@/shared/utils';
 import { LOCK_PREFIX } from '../constants';
 import type { ChannelAdapter, ChannelAdapterContext, LoggerAdapter } from '../types';
 
@@ -71,7 +72,7 @@ function createDefaultChannelAdapter(ctx: ChannelAdapterContext, deps: ChannelFa
 
   return {
     postMessage(message: unknown): void {
-      if (closed || channel === null) {
+      if (closed || isNull(channel)) {
         // 关闭后的 post 视为 no-op 并 warn 一次（上层已不应再调用）
         deps.logger.warn('postMessage on closed ChannelAdapter is ignored.');
         return;
@@ -85,7 +86,7 @@ function createDefaultChannelAdapter(ctx: ChannelAdapterContext, deps: ChannelFa
     },
 
     subscribe(onMessage: (message: unknown) => void): () => void {
-      if (closed || channel === null) {
+      if (closed || isNull(channel)) {
         deps.logger.warn('subscribe on closed ChannelAdapter is ignored; returning noop unsubscriber.');
         return () => void 0;
       }
