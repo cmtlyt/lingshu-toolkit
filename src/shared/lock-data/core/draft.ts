@@ -29,6 +29,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
+import { isObject } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockRevokedError } from '../errors';
 import type { LockDataMutation } from '../types';
@@ -75,10 +76,7 @@ interface DraftSession<T extends object> {
   dispose: () => void;
 }
 
-function isPlainAccessible(value: unknown): value is object {
-  return typeof value === 'object' && value !== null;
-}
-
+const isPlainAccessible = isObject;
 /**
  * 为"首次属性写入"的路径记录 prevValue
  *

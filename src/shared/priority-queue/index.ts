@@ -1,6 +1,7 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { logger } from '@/shared/logger';
 import { tryCall } from '@/shared/try-call';
+import { isObject } from '@/shared/utils';
 import type { CompareFn, HeapItem, PriorityQueueOptions } from './types';
 import { defaultCompare, getLeftChildIndex, getParentIndex, getRightChildIndex, updateSmallestIndex } from './utils';
 
@@ -74,7 +75,7 @@ class PriorityQueue<T> {
   enqueue(item: T): boolean {
     if (this.isDuplicate(item)) {
       const desc = tryCall(
-        () => (typeof item === 'object' && item !== null ? JSON.stringify(item) : String(item)),
+        () => (isObject(item) ? JSON.stringify(item) : String(item)),
         () => Object.prototype.toString.call(item),
       );
       logger.warn('PriorityQueue.enqueue', `Duplicate item detected: ${desc}`);

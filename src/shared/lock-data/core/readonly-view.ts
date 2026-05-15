@@ -29,15 +29,11 @@
  */
 
 import { throwError } from '@/shared/throw-error';
+import { isObject, isUndef } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { ReadonlyMutationError } from '../errors';
 
 const READONLY_CACHE = new WeakMap<object, object>();
-
-function isObjectLike(value: unknown): value is object {
-  // typeof null === 'object'，需排除 null；array 在此分支内自动覆盖
-  return typeof value === 'object' && value !== null;
-}
 
 function rejectMutation(): never {
   // `ErrorConstructor` 接口同时要求「可 new 调用」和「可直接调用」两种签名，
@@ -53,7 +49,7 @@ function rejectMutation(): never {
 const NESTED_HANDLER: ProxyHandler<object> = {
   get(target, key, receiver) {
     const value = Reflect.get(target, key, receiver);
-    if (isObjectLike(value)) {
+    if (isObject(value)) {
       return createNestedView(value);
     }
     return value;
@@ -66,7 +62,7 @@ const NESTED_HANDLER: ProxyHandler<object> = {
 
 function createNestedView<T extends object>(target: T): T {
   const cached = READONLY_CACHE.get(target);
-  if (cached !== undefined) {
+  if (!isUndef(cached)) {
     return cached as T;
   }
   const proxy = new Proxy(target, NESTED_HANDLER) as T;
@@ -95,7 +91,7 @@ const ROOT_HANDLER: ProxyHandler<DataRef<object>> = {
     // 不传 receiver 给底层：避免 receiver 是 wrapper Proxy 触发的 invariant 检查
     // 所有读取以 `dataRef.current` 为来源，与 commit 后的最新值同步
     const value = Reflect.get(target.current, key);
-    if (isObjectLike(value)) {
+    if (isObject(value)) {
       return createNestedView(value);
     }
     return value;
@@ -110,7 +106,7 @@ const ROOT_HANDLER: ProxyHandler<DataRef<object>> = {
   ownKeys: (target) => Reflect.ownKeys(target.current),
   getOwnPropertyDescriptor: (target, key) => {
     const desc = Reflect.getOwnPropertyDescriptor(target.current, key);
-    if (desc === undefined) {
+    if (isUndef(desc)) {
       return;
     }
     // 对外声明 readonly：Proxy invariant 要求 wrapper 上的 own property 必须 configurable，
@@ -130,7 +126,7 @@ const ROOT_HANDLER: ProxyHandler<DataRef<object>> = {
  */
 function createReadonlyView<T extends object>(dataRef: DataRef<T>): T {
   const cached = READONLY_CACHE.get(dataRef);
-  if (cached !== undefined) {
+  if (!isUndef(cached)) {
     return cached as T;
   }
   const proxy = new Proxy(dataRef as DataRef<object>, ROOT_HANDLER) as unknown as T;

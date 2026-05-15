@@ -18,7 +18,7 @@
  * 两者通过 waiter.token 关联；入队 / 出队均走 CAS 重试（最多 WRITE_RETRY_MAX 次）
  */
 
-import { isFunction } from '@/shared/utils';
+import { isFunction, isNull } from '@/shared/utils';
 import type { LockDriverHandle } from '../types';
 import {
   EMPTY_VALUE,
@@ -93,7 +93,7 @@ function readStorage(state: StorageDriverState): StorageLockValue {
     deps.logger.warn(`[${deps.name}] storage driver: getItem failed at key=${key}`, error);
     return EMPTY_VALUE;
   }
-  if (raw === null || raw === '') {
+  if (isNull(raw) || raw === '') {
     return EMPTY_VALUE;
   }
   try {
@@ -236,7 +236,7 @@ function tryAcquireOnce(
   const current = readStorage(state);
   const { holder, queue } = current;
 
-  if (holder !== null && !isHolderDead(holder)) {
+  if (!(isNull(holder) || isHolderDead(holder))) {
     if (!force) {
       return 'cannot-acquire';
     }
@@ -263,7 +263,7 @@ function tryAcquireOnce(
   }
   // verify
   const verify = readStorage(state);
-  if (verify.holder === null || verify.holder.token !== token || verify.holder.nonce !== newNonce) {
+  if (isNull(verify.holder) || verify.holder.token !== token || verify.holder.nonce !== newNonce) {
     // 被其他 Tab 覆盖（token 或 nonce 不匹配）→ 重试
     return 'retry';
   }
@@ -299,7 +299,7 @@ function tryAcquire(state: StorageDriverState, token: string, force: boolean): P
 // -----------------------------------------------------------------------------
 
 function stopHeartbeat(holding: HoldingState): void {
-  if (holding.heartbeatTimer !== null) {
+  if (!isNull(holding.heartbeatTimer)) {
     clearInterval(holding.heartbeatTimer);
     holding.heartbeatTimer = null;
   }
@@ -313,7 +313,7 @@ function startHeartbeat(state: StorageDriverState, holding: HoldingState): void 
     }
     const current = readStorage(state);
     // ST-1：若 holder 已被他方覆盖（token 或 nonce 不匹配）→ 触发 revoke('force')
-    if (current.holder === null || current.holder.token !== holding.token || current.holder.nonce !== holding.nonce) {
+    if (isNull(current.holder) || current.holder.token !== holding.token || current.holder.nonce !== holding.nonce) {
       revokeHolding(state, 'force');
       return;
     }
@@ -384,7 +384,7 @@ function pumpNextWaiter(state: StorageDriverState): void {
   state.pumping = true;
   void tryAcquire(state, next.token, false).then((grant) => {
     state.pumping = false;
-    if (grant === null) {
+    if (isNull(grant)) {
       // 抢不到 —— 保持排队，等 storage 事件 / polling / heartbeat timeout 下次 pump
       return;
     }
@@ -424,7 +424,7 @@ function pumpNextWaiter(state: StorageDriverState): void {
  */
 function releaseHolderInStorage(state: StorageDriverState, token: string, nonce: string): void {
   const current = readStorage(state);
-  if (current.holder === null || current.holder.token !== token || current.holder.nonce !== nonce) {
+  if (isNull(current.holder) || current.holder.token !== token || current.holder.nonce !== nonce) {
     return;
   }
   const next: StorageLockValue = {
@@ -502,7 +502,7 @@ function handleExternalChange(state: StorageDriverState): void {
   // 本 Tab holding：检查自己是否仍是 holder
   if (state.status.kind === 'holding' && !state.status.released) {
     if (
-      current.holder === null ||
+      isNull(current.holder) ||
       current.holder.token !== state.status.token ||
       current.holder.nonce !== state.status.nonce
     ) {
@@ -513,7 +513,7 @@ function handleExternalChange(state: StorageDriverState): void {
 
   // 本 Tab idle：若 storage 的 holder 已不存在（被释放）或已崩溃 → 尝试 pump
   if (state.status.kind === 'idle' && state.waiters.length > 0) {
-    if (current.holder === null || isHolderDead(current.holder)) {
+    if (isNull(current.holder) || isHolderDead(current.holder)) {
       pumpNextWaiter(state);
     }
   }
@@ -539,7 +539,7 @@ function subscribeStorageEvent(state: StorageDriverState): (() => void) | null {
     if (event.storageArea !== state.storage) {
       return;
     }
-    if (event.key !== state.key && event.key !== null) {
+    if (event.key !== state.key && !isNull(event.key)) {
       // key === null：storage.clear()，也要触发重算
       return;
     }
@@ -582,7 +582,7 @@ function canFastAcquire(state: StorageDriverState): false | true {
   if (current.queue.length > 0) {
     return false;
   }
-  return current.holder === null || isHolderDead(current.holder);
+  return isNull(current.holder) || isHolderDead(current.holder);
 }
 
 // -----------------------------------------------------------------------------
@@ -595,11 +595,11 @@ function drainOnDestroy(state: StorageDriverState, buildAbortError: (token: stri
   logger.debug(`[${name}] storage driver: destroy (waiters=${waiters.length}, status=${state.status.kind})`);
 
   // 停止 polling + 解除 storage 事件订阅
-  if (state.pollTimer !== null) {
+  if (!isNull(state.pollTimer)) {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
-  if (state.unsubscribeStorageEvent !== null) {
+  if (!isNull(state.unsubscribeStorageEvent)) {
     try {
       state.unsubscribeStorageEvent();
     } catch (error) {

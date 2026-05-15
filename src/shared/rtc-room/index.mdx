@@ -1,0 +1,286 @@
+# rtcRoom
+
+> package version >0.7.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/05/14 16:30:00
+
+基于 rtcController 的 WebRTC 多方通信房间控制器。采用 Mesh 拓扑策略，自动管理成员发现、P2P 连接建立、事件桥接与本地轨道同步，将多方通信的复杂性封装为简洁的房间级 API。
+
+## 特性
+
+- **Mesh 拓扑**：每对成员间建立独立 P2P 连接，无需中继服务器
+- **自动成员管理**：通过 RoomSignalingAdapter 自动发现成员、建立连接、处理离开
+- **类型安全的自定义事件**：泛型参数声明用户事件，`broadcast` / `send` / `on` 全链路类型推断
+- **事件桥接**：自动将底层 rtcController 事件桥接为房间级事件，附加 peerId 标识
+- **完整生命周期**：6 阶段状态机（idle → joining → joined → leaving → left → disposed）
+- **媒体流同步**：addTrack 自动向所有已连接 peer 添加轨道，新加入成员自动同步
+- **AbortSignal 支持**：通过 signal 选项实现外部生命周期控制
+
+## 安装
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedRtcRoom.json
+```
+
+## 用法
+
+```ts
+import { createRtcRoom } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createRtcRoom } from '@cmtlyt/lingshu-toolkit/shared/rtc-room'
+```
+
+## 基础用法
+
+### 创建房间并加入
+
+```ts
+import { createRtcRoom } from '@cmtlyt/lingshu-toolkit/shared'
+import type { RoomSignalingAdapter } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 实现房间信令适配器（WebSocket、HTTP 等）
+const roomSignaling: RoomSignalingAdapter = {
+  async join(peerId) {
+    // 加入房间，返回当前成员列表（不含自己）
+    return await fetch(`/api/room/join?peerId=${peerId}`).then((r) => r.json())
+  },
+  leave(peerId) {
+    fetch(`/api/room/leave?peerId=${peerId}`, { method: 'POST' })
+  },
+  sendTo(targetPeerId, message) {
+    websocket.send(JSON.stringify({ to: targetPeerId, ...message }))
+  },
+  onMessage(callback) {
+    const handler = (event: MessageEvent) => callback(JSON.parse(event.data))
+    websocket.addEventListener('message', handler)
+    return () => websocket.removeEventListener('message', handler)
+  },
+}
+
+const room = createRtcRoom({
+  peerId: 'user-123',
+  roomSignaling,
+})
+
+// 监听成员变化
+room.on('member-joined', ({ peerId }) => console.log(`${peerId} 加入了房间`))
+room.on('member-left', ({ peerId }) => console.log(`${peerId} 离开了房间`))
+room.on('peer-connected', ({ peerId }) => console.log(`与 ${peerId} 建立了 P2P 连接`))
+
+// 加入房间
+await room.join()
+console.log('当前成员:', room.members)
+```
+
+### 收发自定义事件
+
+```ts
+interface ChatEvents {
+  message: { text: string; timestamp: number }
+  typing: { isTyping: boolean }
+}
+
+const room = createRtcRoom<ChatEvents>({
+  peerId: 'user-123',
+  roomSignaling,
+})
+
+await room.join()
+
+// 广播消息给所有成员
+room.broadcast('message', { text: '大家好！', timestamp: Date.now() })
+
+// 发送私聊消息
+room.send('user-456', 'message', { text: '你好', timestamp: Date.now() })
+
+// 接收消息（自动附加发送者信息）
+room.on('message', ({ from, payload }) => {
+  console.log(`${from}: ${payload.text}`)
+})
+```
+
+### 离开与销毁
+
+```ts
+// 离开房间（可以重新 join）
+room.leave()
+
+// 离开后重新加入
+await room.join()
+
+// 彻底销毁（不可再使用）
+room.dispose()
+```
+
+## 高级用法
+
+### 媒体流共享
+
+```ts
+const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+
+// 向所有已连接 peer 添加轨道
+for (const track of stream.getTracks()) {
+  room.addTrack(track, stream)
+}
+
+// 接收远程轨道
+room.on('track', ({ peerId, track, streams }) => {
+  console.log(`收到 ${peerId} 的媒体轨道:`, track.kind)
+  const videoElement = document.getElementById(`video-${peerId}`) as HTMLVideoElement
+  videoElement.srcObject = streams[0]
+})
+
+// 移除轨道
+room.removeTrack(trackId)
+```
+
+### 原始数据通道
+
+```ts
+// 广播原始数据
+room.broadcastRaw(JSON.stringify({ type: 'cursor', x: 100, y: 200 }))
+
+// 发送原始数据到指定 peer
+room.sendRaw('user-456', new ArrayBuffer(1024))
+
+// 接收原始数据
+room.on('raw-message', ({ peerId, data }) => {
+  console.log(`收到 ${peerId} 的原始数据:`, data)
+})
+```
+
+### AbortSignal 集成
+
+```ts
+const abortController = new AbortController()
+
+const room = createRtcRoom({
+  peerId: 'user-123',
+  roomSignaling,
+  signal: abortController.signal,
+})
+
+// 外部控制生命周期
+abortController.abort() // 等价于 room.dispose()
+```
+
+### 重连管理
+
+```ts
+// 重连指定 peer
+await room.reconnectPeer('user-456')
+
+// 重连所有未连接的 peer
+await room.reconnectAll()
+
+// 查看所有 peer 的连接状态
+const states = room.getPeerStates()
+for (const [peerId, phase] of states) {
+  console.log(`${peerId}: ${phase}`)
+}
+```
+
+## API Reference
+
+### createRtcRoom
+
+```ts
+function createRtcRoom<UserEvents extends EventMap = Record<string, never>>(
+  options: RtcRoomOptions,
+): RtcRoom<UserEvents>
+```
+
+#### RtcRoomOptions
+
+| 属性 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| peerId | `string` | 是 | - | 本地 peer 唯一标识 |
+| roomSignaling | `RoomSignalingAdapter` | 是 | - | 房间信令适配器 |
+| rtcConfig | `RTCConfiguration` | 否 | - | RTCPeerConnection 配置 |
+| dataChannelLabel | `string` | 否 | - | 默认数据通道 label |
+| dataChannelOptions | `RTCDataChannelInit` | 否 | - | 默认数据通道配置 |
+| autoCreateDataChannel | `boolean` | 否 | - | 是否自动创建数据通道 |
+| connectTimeout | `number` | 否 | - | P2P 连接超时（ms） |
+| joinTimeout | `number` | 否 | `10000` | join() 超时（ms） |
+| signal | `AbortSignal` | 否 | - | 外部生命周期控制 |
+| logger | `LoggerAdapter` | 否 | - | 日志适配器 |
+
+#### RtcRoom 实例方法
+
+| 方法 | 签名 | 描述 |
+|------|------|------|
+| join | `() => Promise<void>` | 加入房间 |
+| leave | `() => void` | 离开房间 |
+| dispose | `() => void` | 销毁实例 |
+| broadcast | `(event, payload?) => void` | 广播自定义事件 |
+| send | `(peerId, event, payload?) => void` | 发送自定义事件到指定 peer |
+| broadcastRaw | `(data) => void` | 广播原始数据 |
+| sendRaw | `(peerId, data) => void` | 发送原始数据到指定 peer |
+| addTrack | `(track, ...streams) => string` | 添加媒体轨道 |
+| removeTrack | `(trackId) => void` | 移除媒体轨道 |
+| getRemoteStreams | `(peerId) => MediaStream[]` | 获取指定 peer 的远程流 |
+| getAllRemoteStreams | `() => Map<string, MediaStream[]>` | 获取所有远程流 |
+| reconnectPeer | `(peerId) => Promise<void>` | 重连指定 peer |
+| reconnectAll | `() => Promise<void>` | 重连所有断开的 peer |
+| getPeerController | `(peerId) => RtcController \| undefined` | 获取底层控制器 |
+| getPeerStates | `() => Map<string, RtcPhase>` | 获取所有 peer 状态 |
+| getPeerStats | `(peerId) => Promise<RTCStatsReport>` | 获取 peer 统计信息 |
+
+#### RtcRoom 只读属性
+
+| 属性 | 类型 | 描述 |
+|------|------|------|
+| phase | `RoomPhase` | 当前房间阶段 |
+| peerId | `string` | 本地 peerId |
+| members | `readonly string[]` | 当前成员列表 |
+
+#### 内置事件
+
+| 事件 | Payload | 描述 |
+|------|---------|------|
+| room-phase-change | `{ phase, prevPhase }` | 房间阶段变化 |
+| member-joined | `{ peerId }` | 成员加入 |
+| member-left | `{ peerId }` | 成员离开 |
+| peer-connected | `{ peerId }` | P2P 连接建立 |
+| peer-disconnected | `{ peerId, reason }` | P2P 连接断开 |
+| peer-failed | `{ peerId, error }` | P2P 连接失败 |
+| track | `{ peerId, track, streams }` | 收到远程媒体轨道 |
+| track-removed | `{ peerId, track }` | 远程轨道移除 |
+| data-channel-ready | `{ peerId, channel, label }` | 数据通道就绪 |
+| raw-message | `{ peerId, data, channel }` | 收到原始数据 |
+| error | `{ error, context, peerId? }` | 错误事件 |
+
+### RoomSignalingAdapter
+
+```ts
+interface RoomSignalingAdapter {
+  join: (peerId: string) => Promise<string[]>
+  leave: (peerId: string) => void | Promise<void>
+  sendTo: (targetPeerId: string, message: PeerSignalingMessage) => void | Promise<void>
+  onMessage: (callback: (message: RoomSignalingMessage) => void) => () => void
+  dispose?: () => void
+}
+```
+
+## 注意事项
+
+### ⚠️ Mesh 拓扑的适用场景
+
+Mesh 拓扑中每对成员间建立独立连接，连接数随成员数量呈 O(n²) 增长。适合 2-8 人的小型房间场景，大规模场景建议使用 SFU/MCU 架构。
+
+### ⚠️ 信令适配器的实现要求
+
+`RoomSignalingAdapter` 是房间功能的核心依赖，`join()` 必须返回当前房间已有成员列表（不含自己），`onMessage()` 必须能可靠接收三种消息类型：`member-joined`、`member-left`、`peer-signal`。
+
+### ⚠️ Offerer 决定规则
+
+后加入的成员（joiner）始终作为 Offerer 主动发起连接，已在房间内的成员作为 Answerer 响应。这保证了连接建立的确定性。

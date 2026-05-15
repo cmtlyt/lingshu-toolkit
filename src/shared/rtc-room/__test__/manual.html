@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RtcRoom 手动测试</title>
+  <style>
+    * { box-sizing: border-box; padding: 0; margin: 0; }
+    body { padding: 16px; font-family: system-ui, sans-serif; color: #e2e8f0; background: #0f172a; }
+    h1 { margin-bottom: 12px; font-size: 1.4rem; color: #38bdf8; }
+    h2 { margin-bottom: 8px; font-size: 1.1rem; color: #94a3b8; }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .panel {
+      display: flex; flex-direction: column; gap: 8px;padding: 12px;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    }
+    .panel-header { display: flex; align-items: center; justify-content: space-between; }
+    .badge {
+      display: inline-block; padding: 2px 8px; font-size: 0.75rem; font-weight: 600;border-radius: 4px;
+    }
+    .badge-idle { background: #475569; }
+    .badge-joining { background: #d97706; }
+    .badge-joined { background: #16a34a; }
+    .badge-left { background: #9333ea; }
+    .badge-disposed { background: #dc2626; }
+
+    .members { min-height: 20px; font-size: 0.85rem; color: #94a3b8; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+    button {
+      padding: 6px 14px; 
+      font-size: 0.8rem; font-weight: 500; cursor: pointer;border: none; border-radius: 6px; transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { cursor: not-allowed; opacity: 0.4; }
+    .btn-join { color: #fff; background: #16a34a; }
+    .btn-leave { color: #fff; background: #d97706; }
+    .btn-dispose { color: #fff; background: #dc2626; }
+    .btn-msg { color: #fff; background: #2563eb; }
+    .btn-raw { color: #fff; background: #7c3aed; }
+    .btn-send { color: #fff; background: #0891b2; }
+    .btn-add { color: #fff; background: #0d9488; }
+    select.peer-select {
+      padding: 4px 8px; font-size: 0.8rem;color: #e2e8f0;
+      background: #0f172a; border: 1px solid #475569; border-radius: 6px;
+    }
+
+    #log-container {
+      max-height: 360px; 
+      padding: 12px; overflow-y: auto; 
+      font-family: 'Fira Code', monospace;font-size: 0.8rem;
+      background: #1e293b; border: 1px solid #334155; border-radius: 8px;
+    }
+    .log-entry { padding: 2px 0; border-bottom: 1px solid #1e293b; }
+    .log-time { margin-right: 6px; color: #64748b; }
+    .log-peer { margin-right: 4px; font-weight: 600; }
+    .log-peer-a { color: #38bdf8; }
+    .log-peer-b { color: #f472b6; }
+    .log-peer-c { color: #a78bfa; }
+    .log-event { color: #fbbf24; }
+
+    .controls { margin-bottom: 12px; }
+    .msg-input { width: 200px; padding: 6px 10px; font-size: 0.8rem; color: #e2e8f0; background: #0f172a; border: 1px solid #475569; border-radius: 6px; }
+    .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🏠 RtcRoom 跨标签页测试台</h1>
+  <p style="color:#64748b; font-size:0.85rem; margin-bottom:12px;">
+    基于 BroadcastChannel 的跨标签页房间信令。<strong style="color:#fbbf24;">多开此页面</strong>即可模拟多人房间。
+  </p>
+
+  <div class="toolbar">
+    <span style="color:#94a3b8; font-size:0.85rem;">本标签页 Peer ID：<strong id="local-peer-id" style="color:#38bdf8;">-</strong></span>
+    <input id="global-msg" class="msg-input" placeholder="消息内容..." value="hello!" />
+  </div>
+
+  <div class="grid" id="peer-grid"></div>
+
+  <h2>📋 事件日志</h2>
+  <div id="log-container"></div>
+
+  <script type="module">
+    // ── BroadcastChannel 跨标签页房间信令 ──
+
+    const ROOM_NAME = 'rtc-room-test';
+
+    /**
+     * 基于 BroadcastChannel 的跨标签页 RoomSignalingAdapter
+     *
+     * 协议消息（通过 BroadcastChannel 传递）：
+     * - { type: 'join-request', peerId }        → 新成员加入请求
+     * - { type: 'join-ack', peerId, members }   → 已有成员回复自己的 peerId
+     * - { type: 'member-joined', peerId }       → 广播：新成员已加入
+     * - { type: 'member-left', peerId }         → 广播：成员已离开
+     * - { type: 'peer-signal', from, signal }   → P2P 信令（含 target 字段做定向路由）
+     * - { type: 'sendTo', target, message }     → 定向发送（含 target 路由）
+     */
+    function createBroadcastChannelAdapter(localPeerId) {
+      const channel = new BroadcastChannel(ROOM_NAME);
+      const handlers = [];
+
+      channel.onmessage = (event) => {
+        const data = event.data;
+        // 忽略自己发出的消息
+        if (data._from === localPeerId) { return; }
+
+        switch (data.type) {
+          // 有人请求加入 → 回复自己的存在 + 广播 member-joined 给本地 handlers
+          case 'join-request':
+            channel.postMessage({ type: 'join-ack', peerId: localPeerId, _from: localPeerId, _target: data.peerId });
+            for (const handler of handlers) { handler({ type: 'member-joined', peerId: data.peerId }); }
+            break;
+
+          // 定向发送：只处理发给自己的消息
+          case 'sendTo':
+            if (data._target !== localPeerId) { return; }
+            for (const handler of handlers) { handler(data.message); }
+            break;
+
+          // 广播类消息（member-left）直接转发
+          case 'member-left':
+            for (const handler of handlers) { handler({ type: 'member-left', peerId: data.peerId }); }
+            break;
+
+          default:
+            break;
+        }
+      };
+
+      return {
+        async join(peerId) {
+          // 广播 join-request，收集 ack
+          const existingMembers = [];
+          const collectTimeout = 500; // 等 500ms 收集回复
+
+          const ackHandler = (event) => {
+            const data = event.data;
+            if (data.type === 'join-ack' && data._target === peerId && data.peerId !== peerId) {
+              existingMembers.push(data.peerId);
+            }
+          };
+          channel.addEventListener('message', ackHandler);
+
+          channel.postMessage({ type: 'join-request', peerId, _from: peerId });
+
+          await new Promise((resolve) => setTimeout(resolve, collectTimeout));
+          channel.removeEventListener('message', ackHandler);
+
+          return existingMembers;
+        },
+
+        leave(peerId) {
+          channel.postMessage({ type: 'member-left', peerId, _from: peerId });
+        },
+
+        sendTo(targetPeerId, message) {
+          channel.postMessage({ type: 'sendTo', _target: targetPeerId, _from: localPeerId, message: {
+            type: 'peer-signal', from: message.from, signal: message.signal,
+          }});
+        },
+
+        onMessage(cb) {
+          handlers.push(cb);
+          return () => {
+            const idx = handlers.indexOf(cb);
+            if (idx >= 0) { handlers.splice(idx, 1); }
+          };
+        },
+
+        dispose() {
+          handlers.length = 0;
+          channel.close();
+        },
+      };
+    }
+
+    // ── 动态加载 rtc-room ──
+    // 从构建产物加载或者直接从 src 导入
+    // 这里使用全局变量，由外部脚本注入
+
+    let createRtcRoom;
+
+    try {
+      // 尝试从相对路径导入（开发环境）
+      const mod = await import('../../index.ts');
+      createRtcRoom = mod.createRtcRoom;
+    } catch {
+      // 如果直接打开 HTML 文件，提示用户
+      document.body.innerHTML = `
+        <div style="padding:40px;text-align:center;">
+          <h1 style="color:#f87171;">⚠️ 请通过开发服务器打开此文件</h1>
+          <p style="color:#94a3b8;margin-top:12px;">
+            运行 <code style="background:#1e293b;padding:4px 8px;border-radius:4px;">npx vite src/shared/rtc-room/__test__</code> 后访问此页面
+          </p>
+        </div>
+      `;
+      throw new Error('无法加载 rtc-room 模块');
+    }
+
+    // ── 全局状态 ──
+
+    const localPeerId = `peer-${Math.random().toString(36).slice(2, 6)}`;
+    document.getElementById('local-peer-id').textContent = localPeerId;
+
+    const adapter = createBroadcastChannelAdapter(localPeerId);
+    let room = null;
+
+    const logContainer = document.getElementById('log-container');
+    const peerGrid = document.getElementById('peer-grid');
+
+    // ── 日志 ──
+
+    function appendLog(event, detail = '') {
+      const now = new Date();
+      const time = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}.${now.getMilliseconds().toString().padStart(3, '0')}`;
+
+      const entry = document.createElement('div');
+      entry.className = 'log-entry';
+      entry.innerHTML = `<span class="log-time">${time}</span><span class="log-peer log-peer-a">[${localPeerId}]</span> <span class="log-event">${event}</span> ${detail}`;
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    // ── UI 更新 ──
+
+    function updateUI() {
+      if (!room) { return; }
+
+      const badge = document.getElementById('badge');
+      if (badge) { badge.textContent = room.phase; badge.className = `badge badge-${room.phase}`; }
+
+      const membersEl = document.getElementById('members');
+      if (membersEl) {
+        membersEl.textContent = `成员: ${room.members.length > 0 ? room.members.join(', ') : '-'}`;
+      }
+
+      const isJoined = room.phase === 'joined';
+      const isDisposed = room.phase === 'disposed';
+
+      document.getElementById('btn-join').disabled = isJoined || isDisposed;
+      document.getElementById('btn-leave').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-dispose').disabled = isDisposed;
+      document.getElementById('btn-broadcast').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-raw').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-send').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-sendraw').disabled = !isJoined || isDisposed;
+
+      // 更新目标 peer 选择器
+      const targetSelect = document.getElementById('target-select');
+      const currentValue = targetSelect.value;
+      targetSelect.innerHTML = '';
+      for (const memberId of room.members) {
+        const opt = document.createElement('option');
+        opt.value = memberId;
+        opt.textContent = memberId;
+        targetSelect.appendChild(opt);
+      }
+      if (currentValue && [...targetSelect.options].some(o => o.value === currentValue)) {
+        targetSelect.value = currentValue;
+      }
+      if (targetSelect.options.length === 0) {
+        const opt = document.createElement('option');
+        opt.textContent = '(无成员)';
+        opt.disabled = true;
+        targetSelect.appendChild(opt);
+      }
+    }
+
+    // ── 初始化房间 ──
+
+    room = createRtcRoom({
+      peerId: localPeerId,
+      roomSignaling: adapter,
+      autoCreateDataChannel: true,
+    });
+
+    // 注册自定义事件
+    room.on('chat', ({ from, payload }) => appendLog('chat 💬', `from=${from}: "${payload}"`));
+
+    // 注册内置事件
+    room.on('room-phase-change', ({ phase, prevPhase }) => { appendLog('phase-change', `${prevPhase} → ${phase}`); updateUI(); });
+    room.on('member-joined', ({ peerId: id }) => { appendLog('member-joined', id); updateUI(); });
+    room.on('member-left', ({ peerId: id }) => { appendLog('member-left', id); updateUI(); });
+    room.on('peer-connected', ({ peerId: id }) => appendLog('peer-connected ✅', id));
+    room.on('peer-disconnected', ({ peerId: id, reason }) => appendLog('peer-disconnected ⚠️', `${id} (${reason})`));
+    room.on('peer-failed', ({ peerId: id, error }) => appendLog('peer-failed ❌', `${id} — ${error.message}`));
+    room.on('track', ({ peerId: id, track }) => appendLog('track 🎵', `from=${id} kind=${track.kind}`));
+    room.on('data-channel-ready', ({ peerId: id, label }) => { appendLog('data-channel-ready 📡', `peer=${id} label=${label}`); updateUI(); });
+    room.on('raw-message', ({ peerId: id, data }) => appendLog('raw-message 📦', `from=${id} data=${JSON.stringify(data)}`));
+    room.on('error', ({ error, context }) => appendLog('error 🔴', `${context}: ${error.message}`));
+
+    // 渲染面板
+    peerGrid.innerHTML = `
+      <div class="panel">
+        <div class="panel-header">
+          <h2>${localPeerId}</h2>
+          <span class="badge badge-idle" id="badge">idle</span>
+        </div>
+        <div class="members" id="members">成员: -</div>
+        <div class="btn-row">
+          <button class="btn-join" id="btn-join" onclick="window.__join()">Join</button>
+          <button class="btn-leave" id="btn-leave" onclick="window.__leave()" disabled>Leave</button>
+          <button class="btn-dispose" id="btn-dispose" onclick="window.__dispose()">Dispose</button>
+        </div>
+        <div class="btn-row">
+          <button class="btn-msg" id="btn-broadcast" onclick="window.__broadcast()" disabled>📢 Broadcast</button>
+          <button class="btn-raw" id="btn-raw" onclick="window.__broadcastRaw()" disabled>📦 BroadcastRaw</button>
+        </div>
+        <div class="btn-row">
+          <select class="peer-select" id="target-select"></select>
+          <button class="btn-send" id="btn-send" onclick="window.__send()" disabled>🎯 Send</button>
+          <button class="btn-raw" id="btn-sendraw" onclick="window.__sendRaw()" disabled>📦 SendRaw</button>
+        </div>
+      </div>
+    `;
+
+    appendLog('created', '房间实例已创建，点击 Join 加入房间');
+
+    // ── 操作函数 ──
+
+    window.__join = async () => {
+      try {
+        appendLog('joining...', '等待其他标签页响应...');
+        await room.join();
+        appendLog('joined ✅', `members: [${room.members.join(', ')}]`);
+        updateUI();
+      } catch (error) {
+        appendLog('join failed ❌', error.message);
+      }
+    };
+
+    window.__leave = () => { room.leave(); appendLog('left', ''); updateUI(); };
+    window.__dispose = () => { room.dispose(); appendLog('disposed 🗑️', ''); updateUI(); };
+
+    window.__broadcast = () => {
+      const msg = document.getElementById('global-msg').value || 'hello!';
+      try { room.broadcast('chat', msg); appendLog('broadcast 📢', `"${msg}"`); }
+      catch (e) { appendLog('broadcast failed ❌', e.message); }
+    };
+
+    window.__broadcastRaw = () => {
+      const msg = document.getElementById('global-msg').value || 'raw-data';
+      try { room.broadcastRaw(msg); appendLog('broadcastRaw 📦', `"${msg}"`); }
+      catch (e) { appendLog('broadcastRaw failed ❌', e.message); }
+    };
+
+    window.__send = () => {
+      const targetId = document.getElementById('target-select')?.value;
+      if (!targetId) { appendLog('send ❌', '未选择目标 peer'); return; }
+      const msg = document.getElementById('global-msg').value || 'hello!';
+      try { room.send(targetId, 'chat', msg); appendLog('send 🎯', `→ ${targetId}: "${msg}"`); }
+      catch (e) { appendLog('send failed ❌', e.message); }
+    };
+
+    window.__sendRaw = () => {
+      const targetId = document.getElementById('target-select')?.value;
+      if (!targetId) { appendLog('sendRaw ❌', '未选择目标 peer'); return; }
+      const msg = document.getElementById('global-msg').value || 'raw-p2p';
+      try { room.sendRaw(targetId, msg); appendLog('sendRaw 📦🎯', `→ ${targetId}: "${msg}"`); }
+      catch (e) { appendLog('sendRaw failed ❌', e.message); }
+    };
+
+    // 标签页关闭时自动 leave
+    window.addEventListener('beforeunload', () => { try { room.leave(); } catch {} });
+  </script>
+</body>
+</html>

@@ -35,7 +35,7 @@
  *   wrapper Proxy view 自动看到最新值
  */
 
-import { isObject, isString } from '@/shared/utils';
+import { isNull, isObject, isString, isUndef } from '@/shared/utils';
 import { pickDefaultAdapters, type ResolvedAdapters } from '../adapters/index';
 import { createStorageAuthority } from '../authority/index';
 import { DEFAULT_SESSION_PROBE_TIMEOUT } from '../constants';
@@ -77,7 +77,7 @@ import {
 let defaultRegistry: InstanceRegistry | null = null;
 
 function getDefaultRegistry(): InstanceRegistry {
-  if (defaultRegistry === null) {
+  if (isNull(defaultRegistry)) {
     defaultRegistry = createInstanceRegistry();
   }
   return defaultRegistry;
@@ -209,7 +209,7 @@ function attachAuthority<T extends object>(
   const sessionStoreAdapter = adapters.getSessionStore({ id });
 
   // 全不可用 → logger.warn + 退化为同进程共享（返回 null 意味着"无 authority，commit 事件由 Actions 直接 fanout"）
-  if (authorityAdapter === null && channelAdapter === null && sessionStoreAdapter === null) {
+  if (isNull(authorityAdapter) && isNull(channelAdapter) && isNull(sessionStoreAdapter)) {
     adapters.logger.warn(
       `[lockData] syncMode='storage-authority' requested on id=${id} but no authority/channel/sessionStore adapter is available; fallback to in-process sharing only`,
     );
@@ -262,7 +262,7 @@ function mergeReadyPromises(
   dataReady: Promise<void> | null,
   authorityReady: Promise<void> | null,
 ): Promise<void> | null {
-  if (dataReady !== null && authorityReady !== null) {
+  if (!(isNull(dataReady) || isNull(authorityReady))) {
     return Promise.all([dataReady, authorityReady]).then(() => undefined);
   }
   return dataReady ?? authorityReady;
@@ -381,7 +381,7 @@ function attachAsyncFirstValue<T extends object>(
   applyRemote: (next: T) => void,
   dataReadyPromise: Promise<T> | null,
 ): Promise<void> | null {
-  if (dataReadyPromise === null) {
+  if (isNull(dataReadyPromise)) {
     return null;
   }
   return dataReadyPromise.then((awaited) => {
@@ -413,8 +413,9 @@ function lockData<T extends object>(options: LockDataOptions<T>): LockDataResult
 
   // 分派 Registry / 无 id 路径；无 id 场景用一次性 ctx（teardowns 在实例 dispose 时逆序运行）
   // prepareEntryData 内的同步抛错（getValue 同步抛 / 校验失败）会从这里直接向上抛
-  const { entry, releaseFromRegistry } =
-    id === undefined ? acquireStandalone<T>(options, factory) : acquireFromRegistry<T>(id, options, factory);
+  const { entry, releaseFromRegistry } = isUndef(id)
+    ? acquireStandalone<T>(options, factory)
+    : acquireFromRegistry<T>(id, options, factory);
 
   const actions = createActions<T>({
     entry,
@@ -509,7 +510,7 @@ function finalizeResult<T extends object>(
 ): LockDataResult<T> | Promise<LockDataResult<T>> {
   const tuple: LockDataResult<T> = [view, actions] as const;
 
-  if (entry.dataReadyPromise === null) {
+  if (isNull(entry.dataReadyPromise)) {
     return tuple;
   }
 

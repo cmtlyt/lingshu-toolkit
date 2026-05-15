@@ -7,6 +7,7 @@
  * 对应 RFC.md「附录 A：完整接口索引」章节。
  */
 
+import type { LoggerAdapter } from '@/shared/logger';
 import type { NEVER_TIMEOUT } from './constants';
 
 /**
@@ -177,12 +178,6 @@ interface ChannelAdapter {
 interface SessionStoreAdapter {
   read: () => string | null;
   write: (value: string) => void;
-}
-
-interface LoggerAdapter {
-  warn: (message: string, ...extras: unknown[]) => void;
-  error: (message: string, ...extras: unknown[]) => void;
-  debug?: (message: string, ...extras: unknown[]) => void;
 }
 
 /**
@@ -398,6 +393,7 @@ type LockDataReturn<T extends object, O extends object> = O extends { syncMode: 
       : LockDataTuple<T>
     : LockDataTuple<T>;
 
+export type { LoggerAdapter } from '@/shared/logger';
 export type {
   ActionCallOptions,
   AuthorityAdapter,
@@ -421,7 +417,6 @@ export type {
   LockMode,
   LockPhase,
   LockStateChangeEvent,
-  LoggerAdapter,
   Persistence,
   ReadonlyView,
   RevokeEvent,
