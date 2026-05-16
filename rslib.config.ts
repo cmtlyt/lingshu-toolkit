@@ -5,10 +5,14 @@ import { defineConfig } from '@rslib/core';
 import { config } from './scripts/config';
 
 function getEntrys(namespace: string) {
-  return globSync([`src/${namespace}/**/*.ts`], {
-    cwd: import.meta.dirname,
-    exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**/*.test-d.{ts,tsx,js,jsx}'],
-  });
+  return (
+    globSync([`src/${namespace}/**/*.ts`], {
+      cwd: import.meta.dirname,
+      exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**/*.test-d.{ts,tsx,js,jsx}'],
+    })
+      // 兼容 windows, rslib 需要 entry 的路径为 /
+      .map((item) => item.replace(/\\/gu, '/'))
+  );
 }
 
 const metaFilePath = path.resolve(import.meta.dirname, 'meta/toolkit.meta.json');
