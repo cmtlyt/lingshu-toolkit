@@ -1,6 +1,6 @@
 {
   "name": "@cmtlyt/lingshu-toolkit",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "main": "./dist/shared.js",
   "module": "./dist/shared.js",
@@ -58,7 +58,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
-    "@cmtlyt/unplugin-shadcn-registry-generate": "^0.1.6",
+    "@cmtlyt/unplugin-shadcn-registry-generate": "^0.1.7",
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
     "@rslib/core": "^0.21.0",
