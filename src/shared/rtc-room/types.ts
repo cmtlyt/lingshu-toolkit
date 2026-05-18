@@ -60,6 +60,7 @@ interface RoomBuiltinEvents {
   track: { peerId: string; track: MediaStreamTrack; streams: readonly MediaStream[] };
   'track-removed': { peerId: string; track: MediaStreamTrack };
   'data-channel-ready': { peerId: string; channel: RTCDataChannel; label: string };
+  'data-channel-closed': { peerId: string; label: string };
   'raw-message': { peerId: string; data: unknown; channel: RTCDataChannel };
   error: { error: Error; context: string; peerId?: string };
 }
@@ -75,7 +76,7 @@ interface RoomEventPayload<P> {
  *
  * 内置事件始终优先；用户自定义事件自动包装为 RoomEventPayload
  */
-type AllRoomEvents<UserEvents extends EventMap> = RoomBuiltinEvents & {
+type AllRoomEvents<UserEvents extends EventMap = RoomBuiltinEvents> = RoomBuiltinEvents & {
   [K in keyof Omit<UserEvents, keyof RoomBuiltinEvents>]: RoomEventPayload<UserEvents[K]>;
 };
 
@@ -103,6 +104,8 @@ interface RtcRoomOptions {
   readonly signal?: AbortSignal;
   /** 日志适配器 */
   readonly logger?: LoggerAdapter;
+  /** 新 peer 连接后是否自动创建 broadcastDataChannel 注册过的额外通道（默认 true） */
+  readonly autoSyncBroadcastChannels?: boolean;
 }
 
 // ── 内部类型 ──
@@ -132,7 +135,7 @@ interface DerivedSignalingAdapter extends SignalingAdapter {
 // ── 房间接口 ──
 
 /** RtcRoom 控制器主体 */
-interface RtcRoom<UserEvents extends EventMap = Record<string, never>> {
+interface RtcRoom<UserEvents extends EventMap = RoomBuiltinEvents> {
   /** 当前房间阶段（只读） */
   readonly phase: RoomPhase;
   /** 本地 peerId（只读） */
@@ -169,14 +172,43 @@ interface RtcRoom<UserEvents extends EventMap = Record<string, never>> {
     event: K,
     ...args: UserEvents[K] extends void ? [] : [payload: UserEvents[K]]
   ) => void;
-  sendRaw: (targetPeerId: string, data: string | ArrayBuffer | Blob | ArrayBufferView) => void;
-  broadcastRaw: (data: string | ArrayBuffer | Blob | ArrayBufferView) => void;
+  /** 通过指定 label 的通道广播自定义事件 */
+  broadcastTo: <K extends keyof UserEvents>(
+    label: string,
+    event: K,
+    ...args: UserEvents[K] extends void ? [] : [payload: UserEvents[K]]
+  ) => void;
+  /** 通过指定 label 的通道向目标 peer 发送自定义事件 */
+  sendTo: <K extends keyof UserEvents>(
+    targetPeerId: string,
+    label: string,
+    event: K,
+    ...args: UserEvents[K] extends void ? [] : [payload: UserEvents[K]]
+  ) => void;
+  sendRaw: {
+    (targetPeerId: string, data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+    (targetPeerId: string, label: string, data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+  };
+  broadcastRaw: {
+    (data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+    (label: string, data: string | ArrayBuffer | Blob | ArrayBufferView): void;
+  };
 
   // ── 媒体 ──
   addTrack: (track: MediaStreamTrack, ...streams: MediaStream[]) => string;
   removeTrack: (trackId: string) => void;
   getRemoteStreams: (peerId: string) => readonly MediaStream[];
   getAllRemoteStreams: () => ReadonlyMap<string, readonly MediaStream[]>;
+
+  // ── 数据通道 ──
+  /** 在指定 peer 上创建额外的数据通道 */
+  createDataChannel: (targetPeerId: string, label: string, options?: RTCDataChannelInit) => RTCDataChannel;
+  /** 为所有已连接 peer 创建同名数据通道 */
+  broadcastDataChannel: (label: string, options?: RTCDataChannelInit) => void;
+  /** 获取指定 peer 的通道（不传 label 返回默认通道） */
+  getChannel: (targetPeerId: string, label?: string) => RTCDataChannel | undefined;
+  /** 获取指定 peer 的所有已注册通道 label */
+  getChannelLabels: (targetPeerId: string) => string[];
 
   // ── 连接管理 ──
   reconnectPeer: (peerId: string) => Promise<void>;

@@ -9,6 +9,7 @@
 
 import type { EventMap, RtcPhase } from '@/shared/rtc-controller';
 import { throwError } from '@/shared/throw-error';
+import { isUndef } from '@/shared/utils';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';
 import { resolveLoggerAdapter } from '../adapters/logger';
 import { DEFAULT_JOIN_TIMEOUT, ERROR_FN_NAME } from '../constants';
@@ -38,6 +39,7 @@ interface RoomContext {
   readonly localPeerId: string;
   readonly roomSignaling: RoomSignalingAdapter;
   readonly joinTimeout: number;
+  readonly autoSyncBroadcastChannels: boolean;
   readonly logger: ResolvedLoggerAdapter;
   readonly emitter: ReturnType<typeof createEventEmitter>;
   readonly peers: Map<string, PeerEntry>;
@@ -45,6 +47,8 @@ interface RoomContext {
   readonly cleanupFns: Array<() => void>;
   readonly stateCtx: RoomStateContext;
   readonly peerDeps: PeerManagerDeps;
+  /** broadcastDataChannel 注册过的通道 label → options，用于新 peer 连接后自动补建 */
+  readonly broadcastedChannels: Map<string, RTCDataChannelInit | undefined>;
   unsubscribeRoomSignaling: (() => void) | null;
 }
 
@@ -269,28 +273,121 @@ function sendEvent(ctx: RoomContext, targetPeerId: string, event: string, payloa
   entry.controller.emit(event, payload);
 }
 
-/** 发送原始数据到指定 peer */
+/** 通过指定 label 的通道广播自定义事件 */
+function broadcastToEvent(ctx: RoomContext, label: string, event: string, payload: unknown): void {
+  assertNotDisposed(ctx.stateCtx, 'broadcastTo');
+  assertJoined(ctx.stateCtx, 'broadcastTo');
+  for (const [, entry] of ctx.peers) {
+    if (entry.controller.phase !== 'connected') {
+      continue;
+    }
+    entry.controller.emitTo(label, event, payload);
+  }
+}
+
+/** 通过指定 label 的通道向目标 peer 发送自定义事件 */
+function sendToEvent(ctx: RoomContext, targetPeerId: string, label: string, event: string, payload: unknown): void {
+  assertNotDisposed(ctx.stateCtx, 'sendTo');
+  assertJoined(ctx.stateCtx, 'sendTo');
+  const entry = requireConnectedPeerEntry(ctx, targetPeerId, 'sendTo');
+  entry.controller.emitTo(label, event, payload);
+}
+
+/** 发送原始数据到指定 peer（可选指定通道 label） */
 function sendRawData(
   ctx: RoomContext,
   targetPeerId: string,
-  data: string | ArrayBuffer | Blob | ArrayBufferView,
+  labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+  data?: string | ArrayBuffer | Blob | ArrayBufferView,
 ): void {
   assertNotDisposed(ctx.stateCtx, 'sendRaw');
   assertJoined(ctx.stateCtx, 'sendRaw');
   const entry = requireConnectedPeerEntry(ctx, targetPeerId, 'sendRaw');
-  entry.controller.send(data);
+  if (!isUndef(data) && typeof labelOrData === 'string') {
+    entry.controller.send(labelOrData, data);
+    return;
+  }
+  entry.controller.send(labelOrData);
 }
 
-/** 广播原始数据到所有已连接 peer */
-function broadcastRawData(ctx: RoomContext, data: string | ArrayBuffer | Blob | ArrayBufferView): void {
+/** 广播原始数据到所有已连接 peer（可选指定通道 label） */
+function broadcastRawData(
+  ctx: RoomContext,
+  labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+  data?: string | ArrayBuffer | Blob | ArrayBufferView,
+): void {
   assertNotDisposed(ctx.stateCtx, 'broadcastRaw');
   assertJoined(ctx.stateCtx, 'broadcastRaw');
   for (const [, entry] of ctx.peers) {
     if (entry.controller.phase !== 'connected') {
       continue;
     }
-    entry.controller.send(data);
+    if (!isUndef(data) && typeof labelOrData === 'string') {
+      entry.controller.send(labelOrData, data);
+    } else {
+      entry.controller.send(labelOrData);
+    }
   }
+}
+
+// ── 数据通道操作 ──
+
+/** 在指定 peer 上创建额外数据通道 */
+function createPeerDataChannel(
+  ctx: RoomContext,
+  targetPeerId: string,
+  label: string,
+  options?: RTCDataChannelInit,
+): RTCDataChannel {
+  assertNotDisposed(ctx.stateCtx, 'createDataChannel');
+  assertJoined(ctx.stateCtx, 'createDataChannel');
+  const entry = requireConnectedPeerEntry(ctx, targetPeerId, 'createDataChannel');
+  return entry.controller.createDataChannel(label, options);
+}
+
+/** 为所有已连接 peer 创建同名数据通道，并记录到 broadcastedChannels 供后续新 peer 自动补建 */
+function broadcastDataChannel(ctx: RoomContext, label: string, options?: RTCDataChannelInit): void {
+  assertNotDisposed(ctx.stateCtx, 'broadcastDataChannel');
+  assertJoined(ctx.stateCtx, 'broadcastDataChannel');
+  ctx.broadcastedChannels.set(label, options);
+  for (const [, entry] of ctx.peers) {
+    if (entry.controller.phase !== 'connected') {
+      continue;
+    }
+    entry.controller.createDataChannel(label, options);
+  }
+}
+
+/** 新 peer 连接后自动补建 broadcastDataChannel 注册过的额外通道 */
+function syncBroadcastChannels(ctx: RoomContext, peerId: string): void {
+  if (!ctx.autoSyncBroadcastChannels || ctx.broadcastedChannels.size === 0) {
+    return;
+  }
+  const entry = ctx.peers.get(peerId);
+  if (!entry || entry.controller.phase !== 'connected') {
+    return;
+  }
+  for (const [label, options] of ctx.broadcastedChannels) {
+    entry.controller.createDataChannel(label, options);
+  }
+}
+
+/** 获取指定 peer 的通道（不传 label 返回默认通道） */
+function getPeerChannel(ctx: RoomContext, targetPeerId: string, label?: string): RTCDataChannel | undefined {
+  const entry = ctx.peers.get(targetPeerId);
+  if (!entry) {
+    return;
+  }
+  return entry.controller.getChannel(label);
+}
+
+/** 获取指定 peer 的所有已注册通道 label */
+function getPeerChannelLabels(ctx: RoomContext, targetPeerId: string): string[] {
+  const entry = ctx.peers.get(targetPeerId);
+  if (!entry) {
+    return [];
+  }
+  return entry.controller.getChannelLabels();
 }
 
 // ── 媒体操作 ──
@@ -377,8 +474,19 @@ function buildRoomApi<UserEvents extends EventMap>(ctx: RoomContext): RtcRoom<Us
     broadcast: (event, ...args) => broadcastEvent(ctx, event as string, args.length > 0 ? args[0] : undefined),
     send: (targetPeerId, event, ...args) =>
       sendEvent(ctx, targetPeerId, event as string, args.length > 0 ? args[0] : undefined),
-    sendRaw: (targetPeerId, data) => sendRawData(ctx, targetPeerId, data),
-    broadcastRaw: (data) => broadcastRawData(ctx, data),
+    broadcastTo: (label, event, ...args) =>
+      broadcastToEvent(ctx, label, event as string, args.length > 0 ? args[0] : undefined),
+    sendTo: (targetPeerId, label, event, ...args) =>
+      sendToEvent(ctx, targetPeerId, label, event as string, args.length > 0 ? args[0] : undefined),
+    sendRaw: ((
+      targetPeerId: string,
+      labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+      data?: string | ArrayBuffer | Blob | ArrayBufferView,
+    ) => sendRawData(ctx, targetPeerId, labelOrData, data)) as RtcRoom<UserEvents>['sendRaw'],
+    broadcastRaw: ((
+      labelOrData: string | ArrayBuffer | Blob | ArrayBufferView,
+      data?: string | ArrayBuffer | Blob | ArrayBufferView,
+    ) => broadcastRawData(ctx, labelOrData, data)) as RtcRoom<UserEvents>['broadcastRaw'],
     addTrack(track, ...streams) {
       assertNotDisposed(ctx.stateCtx, 'addTrack');
       assertJoined(ctx.stateCtx, 'addTrack');
@@ -390,6 +498,10 @@ function buildRoomApi<UserEvents extends EventMap>(ctx: RoomContext): RtcRoom<Us
     },
     getRemoteStreams: (remotePeerId) => getRemoteStreamsOf(ctx, remotePeerId),
     getAllRemoteStreams: () => getAllRemoteStreamsMap(ctx),
+    createDataChannel: (targetPeerId, label, opts) => createPeerDataChannel(ctx, targetPeerId, label, opts),
+    broadcastDataChannel: (label, opts) => broadcastDataChannel(ctx, label, opts),
+    getChannel: (targetPeerId, label) => getPeerChannel(ctx, targetPeerId, label),
+    getChannelLabels: (targetPeerId) => getPeerChannelLabels(ctx, targetPeerId),
     reconnectPeer: (remotePeerId) => reconnectSinglePeer(ctx, remotePeerId),
     reconnectAll: () => reconnectAllPeers(ctx),
     getPeerController: ((remotePeerId: string) =>
@@ -400,7 +512,14 @@ function buildRoomApi<UserEvents extends EventMap>(ctx: RoomContext): RtcRoom<Us
 }
 
 function createRoom<UserEvents extends EventMap = Record<string, never>>(options: RtcRoomOptions): RtcRoom<UserEvents> {
-  const { peerId: localPeerId, roomSignaling, joinTimeout: userJoinTimeout, signal, logger: userLogger } = options;
+  const {
+    peerId: localPeerId,
+    roomSignaling,
+    joinTimeout: userJoinTimeout,
+    autoSyncBroadcastChannels: userAutoSync,
+    signal,
+    logger: userLogger,
+  } = options;
 
   const joinTimeout = userJoinTimeout ?? DEFAULT_JOIN_TIMEOUT;
   const logger = resolveLoggerAdapter(userLogger);
@@ -416,6 +535,7 @@ function createRoom<UserEvents extends EventMap = Record<string, never>>(options
     localPeerId,
     roomSignaling,
     joinTimeout,
+    autoSyncBroadcastChannels: userAutoSync !== false,
     logger,
     emitter: emitter as ReturnType<typeof createEventEmitter>,
     peers,
@@ -423,8 +543,15 @@ function createRoom<UserEvents extends EventMap = Record<string, never>>(options
     cleanupFns,
     stateCtx,
     peerDeps,
+    broadcastedChannels: new Map(),
     unsubscribeRoomSignaling: null,
   };
+
+  // 新 peer 连接后自动补建 broadcastDataChannel 注册过的额外通道
+  // 类型断言：AllEvents 会对 AllRoomEvents 再叠一层合并导致交叉类型，此处内部使用安全
+  (emitter as ReturnType<typeof createEventEmitter>).on('peer-connected', (event: { peerId: string }) => {
+    syncBroadcastChannels(ctx, event.peerId);
+  });
 
   setupAbortSignal(ctx, signal);
 

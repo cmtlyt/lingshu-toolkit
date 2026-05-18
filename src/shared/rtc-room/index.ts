@@ -8,11 +8,9 @@
 
 import type { EventMap } from '@/shared/rtc-controller';
 import { createRoom } from './core/room';
-import type { RtcRoom, RtcRoomOptions } from './types';
+import type { RoomBuiltinEvents, RtcRoom, RtcRoomOptions } from './types';
 
-function createRtcRoom<UserEvents extends EventMap = Record<string, never>>(
-  options: RtcRoomOptions,
-): RtcRoom<UserEvents> {
+function createRtcRoom<UserEvents extends EventMap = RoomBuiltinEvents>(options: RtcRoomOptions): RtcRoom<UserEvents> {
   return createRoom<UserEvents>(options);
 }
 

@@ -40,6 +40,14 @@
     .btn-raw { color: #fff; background: #7c3aed; }
     .btn-send { color: #fff; background: #0891b2; }
     .btn-add { color: #fff; background: #0d9488; }
+    .btn-channel { color: #fff; background: #8b5cf6; }
+    .channel-row { display: flex; gap: 6px; align-items: center; }
+    .channel-info { padding: 4px 0; font-size: 0.8rem; color: #94a3b8; }
+    select.channel-select {
+      min-width: 120px;
+      padding: 4px 8px; font-size: 0.8rem; color: #e2e8f0;
+      background: #0f172a; border: 1px solid #475569; border-radius: 6px;
+    }
     select.peer-select {
       padding: 4px 8px; font-size: 0.8rem;color: #e2e8f0;
       background: #0f172a; border: 1px solid #475569; border-radius: 6px;
@@ -245,6 +253,10 @@
       document.getElementById('btn-raw').disabled = !isJoined || isDisposed;
       document.getElementById('btn-send').disabled = !isJoined || isDisposed;
       document.getElementById('btn-sendraw').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-create-ch').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-broadcast-ch').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-broadcast-to').disabled = !isJoined || isDisposed;
+      document.getElementById('btn-send-to').disabled = !isJoined || isDisposed;
 
       // 更新目标 peer 选择器
       const targetSelect = document.getElementById('target-select');
@@ -286,7 +298,8 @@
     room.on('peer-disconnected', ({ peerId: id, reason }) => appendLog('peer-disconnected ⚠️', `${id} (${reason})`));
     room.on('peer-failed', ({ peerId: id, error }) => appendLog('peer-failed ❌', `${id} — ${error.message}`));
     room.on('track', ({ peerId: id, track }) => appendLog('track 🎵', `from=${id} kind=${track.kind}`));
-    room.on('data-channel-ready', ({ peerId: id, label }) => { appendLog('data-channel-ready 📡', `peer=${id} label=${label}`); updateUI(); });
+    room.on('data-channel-ready', ({ peerId: id, label }) => { appendLog('data-channel-ready 📡', `peer=${id} label=${label}`); updateUI(); refreshChannelSelect(); });
+    room.on('data-channel-closed', ({ peerId: id, label }) => { appendLog('data-channel-closed 🔌', `peer=${id} label=${label}`); refreshChannelSelect(); });
     room.on('raw-message', ({ peerId: id, data }) => appendLog('raw-message 📦', `from=${id} data=${JSON.stringify(data)}`));
     room.on('error', ({ error, context }) => appendLog('error 🔴', `${context}: ${error.message}`));
 
@@ -311,6 +324,17 @@
           <select class="peer-select" id="target-select"></select>
           <button class="btn-send" id="btn-send" onclick="window.__send()" disabled>🎯 Send</button>
           <button class="btn-raw" id="btn-sendraw" onclick="window.__sendRaw()" disabled>📦 SendRaw</button>
+        </div>
+        <div class="channel-row">
+          <input class="msg-input" id="channel-label-input" placeholder="通道 label（如 file）" style="width:140px;" />
+          <button class="btn-channel" id="btn-create-ch" onclick="window.__createChannel()" disabled>＋ 创建通道</button>
+          <button class="btn-channel" id="btn-broadcast-ch" onclick="window.__broadcastChannel()" disabled>📡 广播创建</button>
+          <select class="channel-select" id="channel-select"><option value="">默认通道</option></select>
+        </div>
+        <div class="channel-info" id="channel-info">通道：无</div>
+        <div class="btn-row">
+          <button class="btn-channel" id="btn-broadcast-to" onclick="window.__broadcastTo()" disabled>📢 BroadcastTo</button>
+          <button class="btn-channel" id="btn-send-to" onclick="window.__sendTo()" disabled>🎯 SendTo</button>
         </div>
       </div>
     `;
@@ -359,6 +383,76 @@
       const msg = document.getElementById('global-msg').value || 'raw-p2p';
       try { room.sendRaw(targetId, msg); appendLog('sendRaw 📦🎯', `→ ${targetId}: "${msg}"`); }
       catch (e) { appendLog('sendRaw failed ❌', e.message); }
+    };
+
+    // ── 通道管理 ──
+
+    function refreshChannelSelect() {
+      const select = document.getElementById('channel-select');
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">默认通道</option>';
+      if (!room || room.members.length === 0) {
+        document.getElementById('channel-info').textContent = '通道：无';
+        return;
+      }
+      const allLabels = new Set();
+      for (const memberId of room.members) {
+        for (const label of room.getChannelLabels(memberId)) {
+          allLabels.add(label);
+        }
+      }
+      for (const label of allLabels) {
+        const opt = document.createElement('option');
+        opt.value = label;
+        opt.textContent = label;
+        select.appendChild(opt);
+      }
+      if (allLabels.has(currentValue)) { select.value = currentValue; }
+      document.getElementById('channel-info').textContent = allLabels.size > 0
+        ? `通道(${allLabels.size})：${[...allLabels].join(', ')}`
+        : '通道：无';
+    }
+
+    window.__createChannel = () => {
+      const targetId = document.getElementById('target-select')?.value;
+      const label = document.getElementById('channel-label-input').value.trim();
+      if (!label) { appendLog('createChannel ❌', '请输入通道 label'); return; }
+      if (!targetId) { appendLog('createChannel ❌', '未选择目标 peer'); return; }
+      try {
+        room.createDataChannel(targetId, label);
+        appendLog('createChannel 📡', `peer=${targetId} label=${label}`);
+        document.getElementById('channel-label-input').value = '';
+        refreshChannelSelect();
+      } catch (e) { appendLog('createChannel failed ❌', e.message); }
+    };
+
+    window.__broadcastChannel = () => {
+      const label = document.getElementById('channel-label-input').value.trim();
+      if (!label) { appendLog('broadcastChannel ❌', '请输入通道 label'); return; }
+      try {
+        room.broadcastDataChannel(label);
+        appendLog('broadcastChannel 📡', `为所有已连接 peer 创建通道: "${label}"`);
+        document.getElementById('channel-label-input').value = '';
+        refreshChannelSelect();
+      } catch (e) { appendLog('broadcastChannel failed ❌', e.message); }
+    };
+
+    window.__broadcastTo = () => {
+      const label = document.getElementById('channel-select').value;
+      if (!label) { appendLog('broadcastTo ❌', '请选择非默认通道'); return; }
+      const msg = document.getElementById('global-msg').value || 'hello!';
+      try { room.broadcastTo(label, 'chat', msg); appendLog('broadcastTo 📢', `[${label}] "${msg}"`); }
+      catch (e) { appendLog('broadcastTo failed ❌', e.message); }
+    };
+
+    window.__sendTo = () => {
+      const targetId = document.getElementById('target-select')?.value;
+      const label = document.getElementById('channel-select').value;
+      if (!targetId) { appendLog('sendTo ❌', '未选择目标 peer'); return; }
+      if (!label) { appendLog('sendTo ❌', '请选择非默认通道'); return; }
+      const msg = document.getElementById('global-msg').value || 'hello!';
+      try { room.sendTo(targetId, label, 'chat', msg); appendLog('sendTo 🎯', `[${label}] → ${targetId}: "${msg}"`); }
+      catch (e) { appendLog('sendTo failed ❌', e.message); }
     };
 
     // 标签页关闭时自动 leave

@@ -16,6 +16,7 @@ type EventHandler = (...args: unknown[]) => void;
 
 function createMockController() {
   const eventHandlers = new Map<string, EventHandler[]>();
+  const channels = new Map<string, { label: string; readyState: string }>();
   return {
     phase: 'idle' as string,
     on(event: string, handler: EventHandler) {
@@ -30,6 +31,23 @@ function createMockController() {
     addTrack: vi.fn(() => ({}) as RTCRtpSender),
     removeTrack: vi.fn(),
     emit: vi.fn(),
+    emitTo: vi.fn(),
+    send: vi.fn(),
+    createDataChannel: vi.fn((label: string) => {
+      const channel = { label, readyState: 'open' };
+      channels.set(label, channel);
+      return channel;
+    }),
+    getChannel: vi.fn((label?: string) => {
+      if (label === undefined) {
+        return { label: 'default', readyState: 'open' };
+      }
+      return channels.get(label);
+    }),
+    getChannelLabels: vi.fn(() => [...channels.keys()]),
+    getRemoteStreams: vi.fn(() => []),
+    getStats: vi.fn(async () => new Map()),
+    reconnect: vi.fn(async () => {}),
     /** 手动触发注册的事件 */
     __fireEvent(event: string, payload: unknown) {
       const handlers = eventHandlers.get(event) ?? [];
@@ -38,6 +56,7 @@ function createMockController() {
       }
     },
     __eventHandlers: eventHandlers,
+    __channels: channels,
   };
 }
 
@@ -227,6 +246,256 @@ describe('performJoin 中 existingMembers 包含自己的 peerId（line 167-168 
     // 自己不应出现在 members 中
     expect(room.members).not.toContain('a');
     expect(room.members).toContain('remote-peer');
+
+    room.dispose();
+  });
+});
+
+// ── 多 DataChannel 支持 ──
+
+describe('多 DataChannel 支持', () => {
+  let room: RtcRoom;
+  let handlers: Array<(msg: unknown) => void>;
+
+  beforeEach(async () => {
+    const mock = createMockAdapter();
+    handlers = mock.handlers;
+    room = createRtcRoom({ peerId: 'a', roomSignaling: mock.adapter });
+    await room.join();
+    // 模拟 peer 加入
+    handlers[0]?.({ type: 'member-joined', peerId: 'b' });
+    latestMockController.phase = 'connected';
+  });
+
+  test('data-channel-closed 事件应桥接为 room 级事件', () => {
+    const closedEvents: unknown[] = [];
+    room.on('data-channel-closed', (event) => closedEvents.push(event));
+
+    latestMockController.__fireEvent('data-channel-closed', { label: 'chat' });
+
+    expect(closedEvents).toHaveLength(1);
+    expect((closedEvents[0] as { peerId: string }).peerId).toBe('b');
+    expect((closedEvents[0] as { label: string }).label).toBe('chat');
+
+    room.dispose();
+  });
+
+  test('createDataChannel 应调用 controller.createDataChannel', () => {
+    const channel = room.createDataChannel('b', 'file-transfer');
+    expect(latestMockController.createDataChannel).toHaveBeenCalledWith('file-transfer', undefined);
+    expect(channel.label).toBe('file-transfer');
+    room.dispose();
+  });
+
+  test('getChannel 应代理到 controller.getChannel', () => {
+    room.createDataChannel('b', 'chat');
+    const channel = room.getChannel('b', 'chat');
+    expect(latestMockController.getChannel).toHaveBeenCalledWith('chat');
+    expect(channel?.label).toBe('chat');
+    room.dispose();
+  });
+
+  test('getChannel 不传 label 返回默认通道', () => {
+    const channel = room.getChannel('b');
+    expect(latestMockController.getChannel).toHaveBeenCalledWith(undefined);
+    expect(channel?.label).toBe('default');
+    room.dispose();
+  });
+
+  test('getChannel peer 不存在时返回 undefined', () => {
+    const channel = room.getChannel('nonexistent');
+    expect(channel).toBeUndefined();
+    room.dispose();
+  });
+
+  test('getChannelLabels 应代理到 controller.getChannelLabels', () => {
+    room.createDataChannel('b', 'chat');
+    room.createDataChannel('b', 'file');
+    const labels = room.getChannelLabels('b');
+    expect(labels).toContain('chat');
+    expect(labels).toContain('file');
+    room.dispose();
+  });
+
+  test('getChannelLabels peer 不存在时返回空数组', () => {
+    const labels = room.getChannelLabels('nonexistent');
+    expect(labels).toEqual([]);
+    room.dispose();
+  });
+
+  test('sendTo 应调用 controller.emitTo', () => {
+    // UserEvents 默认为空，用 as any 绕过类型检查触发运行时逻辑
+    (room as any).sendTo('b', 'chat', 'greeting', 'hello');
+    expect(latestMockController.emitTo).toHaveBeenCalledWith('chat', 'greeting', 'hello');
+    room.dispose();
+  });
+
+  test('broadcastTo 应调用所有已连接 peer 的 controller.emitTo', () => {
+    (room as any).broadcastTo('chat', 'greeting', 'hello');
+    expect(latestMockController.emitTo).toHaveBeenCalledWith('chat', 'greeting', 'hello');
+    room.dispose();
+  });
+
+  test('sendRaw(peerId, label, data) 应调用 controller.send(label, data)', () => {
+    room.sendRaw('b', 'chat', 'raw-data');
+    expect(latestMockController.send).toHaveBeenCalledWith('chat', 'raw-data');
+    room.dispose();
+  });
+
+  test('sendRaw(peerId, data) 应调用 controller.send(data)', () => {
+    const buffer = new ArrayBuffer(4);
+    room.sendRaw('b', buffer);
+    expect(latestMockController.send).toHaveBeenCalledWith(buffer);
+    room.dispose();
+  });
+
+  test('broadcastRaw(label, data) 应调用 controller.send(label, data)', () => {
+    room.broadcastRaw('chat', 'broadcast-raw');
+    expect(latestMockController.send).toHaveBeenCalledWith('chat', 'broadcast-raw');
+    room.dispose();
+  });
+
+  test('broadcastRaw(data) 应调用 controller.send(data)', () => {
+    const buffer = new ArrayBuffer(4);
+    room.broadcastRaw(buffer);
+    expect(latestMockController.send).toHaveBeenCalledWith(buffer);
+    room.dispose();
+  });
+
+  test('broadcastDataChannel 应为所有已连接 peer 创建同名通道', () => {
+    room.broadcastDataChannel('file-transfer');
+    expect(latestMockController.createDataChannel).toHaveBeenCalledWith('file-transfer', undefined);
+    room.dispose();
+  });
+
+  test('broadcastDataChannel 应跳过未连接的 peer', () => {
+    latestMockController.phase = 'connecting';
+    latestMockController.createDataChannel.mockClear();
+    room.broadcastDataChannel('file-transfer');
+    expect(latestMockController.createDataChannel).not.toHaveBeenCalled();
+    room.dispose();
+  });
+
+  test('broadcastTo 应跳过未连接的 peer（L281 continue 分支）', () => {
+    latestMockController.phase = 'connecting';
+    latestMockController.emitTo.mockClear();
+    (room as any).broadcastTo('chat', 'greeting', 'hello');
+    expect(latestMockController.emitTo).not.toHaveBeenCalled();
+    room.dispose();
+  });
+
+  test('broadcastTo 无 payload 时应传 undefined（L478 cond-expr false 分支）', () => {
+    latestMockController.emitTo.mockClear();
+    (room as any).broadcastTo('chat', 'greeting');
+    expect(latestMockController.emitTo).toHaveBeenCalledWith('chat', 'greeting', undefined);
+    room.dispose();
+  });
+
+  test('sendTo 无 payload 时应传 undefined（L480 cond-expr false 分支）', () => {
+    latestMockController.emitTo.mockClear();
+    (room as any).sendTo('b', 'chat', 'greeting');
+    expect(latestMockController.emitTo).toHaveBeenCalledWith('chat', 'greeting', undefined);
+    room.dispose();
+  });
+});
+
+describe('syncBroadcastChannels 防御分支', () => {
+  test('peer 未连接时不应自动补建通道（L367 entry.phase !== connected 分支）', async () => {
+    const { adapter, handlers } = createMockAdapter();
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+    await room.join();
+
+    // 先有一个已连接 peer 来接收 broadcastDataChannel 注册
+    handlers[0]?.({ type: 'member-joined', peerId: 'b' });
+    const controllerB = latestMockController;
+    controllerB.phase = 'connected';
+    controllerB.__fireEvent('connected', null);
+    room.broadcastDataChannel('file-sync');
+
+    // 新 peer 加入但不连接（phase 停留在 idle）
+    handlers[0]?.({ type: 'member-joined', peerId: 'c' });
+    const controllerC = latestMockController;
+    controllerC.phase = 'idle';
+    controllerC.createDataChannel.mockClear();
+    // 手动触发 connected 事件但 phase 仍为 idle → syncBroadcastChannels 应走 entry.phase !== 'connected' 提前 return
+    controllerC.__fireEvent('connected', null);
+
+    expect(controllerC.createDataChannel).not.toHaveBeenCalled();
+
+    room.dispose();
+  });
+});
+
+describe('autoSyncBroadcastChannels 配置项', () => {
+  test('默认启用：新 peer 连接后自动补建已注册的额外通道', async () => {
+    const { adapter, handlers } = createMockAdapter();
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+    await room.join();
+
+    // 先注册一个广播通道
+    // 需要先有一个已连接 peer 来接收 broadcastDataChannel
+    handlers[0]?.({ type: 'member-joined', peerId: 'b' });
+    const controllerB = latestMockController;
+    controllerB.phase = 'connected';
+    controllerB.__fireEvent('connected', null);
+
+    room.broadcastDataChannel('file-sync');
+    controllerB.createDataChannel.mockClear();
+
+    // 新 peer 加入并连接 → 应自动补建 'file-sync' 通道
+    handlers[0]?.({ type: 'member-joined', peerId: 'c' });
+    const controllerC = latestMockController;
+    controllerC.phase = 'connected';
+    controllerC.createDataChannel.mockClear();
+    controllerC.__fireEvent('connected', null);
+
+    expect(controllerC.createDataChannel).toHaveBeenCalledWith('file-sync', undefined);
+
+    room.dispose();
+  });
+
+  test('设为 false 时：新 peer 连接后不自动补建通道', async () => {
+    const { adapter, handlers } = createMockAdapter();
+    const room = createRtcRoom({
+      peerId: 'a',
+      roomSignaling: adapter,
+      autoSyncBroadcastChannels: false,
+    });
+    await room.join();
+
+    // 先注册广播通道
+    handlers[0]?.({ type: 'member-joined', peerId: 'b' });
+    const controllerB = latestMockController;
+    controllerB.phase = 'connected';
+    controllerB.__fireEvent('connected', null);
+
+    room.broadcastDataChannel('file-sync');
+
+    // 新 peer 加入并连接 → 不应自动补建
+    handlers[0]?.({ type: 'member-joined', peerId: 'c' });
+    const controllerC = latestMockController;
+    controllerC.phase = 'connected';
+    controllerC.createDataChannel.mockClear();
+    controllerC.__fireEvent('connected', null);
+
+    expect(controllerC.createDataChannel).not.toHaveBeenCalled();
+
+    room.dispose();
+  });
+
+  test('无已注册广播通道时：新 peer 连接后不触发 createDataChannel', async () => {
+    const { adapter, handlers } = createMockAdapter();
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+    await room.join();
+
+    // 不调用 broadcastDataChannel，直接让新 peer 连接
+    handlers[0]?.({ type: 'member-joined', peerId: 'b' });
+    const controllerB = latestMockController;
+    controllerB.phase = 'connected';
+    controllerB.createDataChannel.mockClear();
+    controllerB.__fireEvent('connected', null);
+
+    expect(controllerB.createDataChannel).not.toHaveBeenCalled();
 
     room.dispose();
   });

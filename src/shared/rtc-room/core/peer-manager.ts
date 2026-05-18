@@ -60,6 +60,10 @@ function bridgeControllerEvents(
     dispatch('data-channel-ready', { peerId: remotePeerId, channel, label });
   });
 
+  controller.on('data-channel-closed', ({ label }) => {
+    dispatch('data-channel-closed', { peerId: remotePeerId, label });
+  });
+
   controller.on('raw-message', ({ data, channel }) => {
     dispatch('raw-message', { peerId: remotePeerId, data, channel });
   });
