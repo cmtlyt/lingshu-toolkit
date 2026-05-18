@@ -229,6 +229,31 @@ describe('core/media-manager', () => {
     expect(disconnectedEntry.controller.addTrack).not.toHaveBeenCalled();
   });
 
+  test('addTrackToAllPeers 第二个 peer 抛异常时应回滚第一个 peer 的 sender', () => {
+    const state = createMediaManagerState();
+    const successEntry = createFakePeerEntry('connected');
+    const failEntry = createFakePeerEntry('connected');
+
+    const fakeSender = { track: null } as unknown as RTCRtpSender;
+    (successEntry.controller.addTrack as ReturnType<typeof vi.fn>).mockReturnValue(fakeSender);
+    (failEntry.controller.addTrack as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error('addTrack failed');
+    });
+
+    const peers = new Map<string, PeerEntry>([
+      ['p1', successEntry],
+      ['p2', failEntry],
+    ]);
+
+    const fakeTrack = {} as MediaStreamTrack;
+    expect(() => addTrackToAllPeers(state, peers, fakeTrack, [])).toThrow('addTrack failed');
+
+    // 第一个 peer 的 sender 应被回滚移除
+    expect(successEntry.controller.removeTrack).toHaveBeenCalledWith(fakeSender);
+    // 状态不应被更新
+    expect(state.localTracks).toHaveLength(0);
+  });
+
   test('removeTrackFromAllPeers 应移除轨道并清理 sender', () => {
     const state = createMediaManagerState();
     const entry = createFakePeerEntry('connected');

@@ -34,13 +34,27 @@ function addTrackToAllPeers(
   streams: MediaStream[],
 ): string {
   const trackId = `local-track-${++state.trackIdCounter}`;
-  state.localTracks.push({ trackId, track, streams });
+  const senders = new Map<PeerEntry, RTCRtpSender>();
 
-  for (const [, entry] of peers) {
-    if (SKIP_PHASES.has(entry.controller.phase)) {
-      continue;
+  try {
+    for (const [, entry] of peers) {
+      if (SKIP_PHASES.has(entry.controller.phase)) {
+        continue;
+      }
+      const sender = entry.controller.addTrack(track, ...streams);
+      senders.set(entry, sender);
     }
-    const sender = entry.controller.addTrack(track, ...streams);
+  } catch (error) {
+    // 回滚已添加的 sender
+    for (const [rollbackEntry, rollbackSender] of senders) {
+      rollbackEntry.controller.removeTrack(rollbackSender);
+    }
+    throw error;
+  }
+
+  // 所有 peer 添加成功后才更新状态
+  state.localTracks.push({ trackId, track, streams });
+  for (const [entry, sender] of senders) {
     entry.trackSenders.set(trackId, sender);
   }
 

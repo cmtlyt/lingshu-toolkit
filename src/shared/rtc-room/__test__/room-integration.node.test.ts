@@ -500,3 +500,85 @@ describe('autoSyncBroadcastChannels 配置项', () => {
     room.dispose();
   });
 });
+
+// ── 覆盖率攻坚：room.ts 防御分支 ──
+
+describe('performJoin 中途被 leave 应提前退出（L168-169 + L194 false 分支）', () => {
+  test('join 等待期间调用 leave，后续流程不应复活状态', async () => {
+    let joinResolve: (members: string[]) => void;
+    const joinPromise = new Promise<string[]>((resolve) => {
+      joinResolve = resolve;
+    });
+
+    const { adapter } = createMockAdapter();
+    (adapter.join as ReturnType<typeof vi.fn>).mockReturnValue(joinPromise);
+
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+    const joinP = room.join();
+
+    // join 尚未 resolve，此时调用 leave 使 phase 变为 left
+    room.leave();
+
+    // 现在让 join resolve，此时 phase 已不是 joining
+    joinResolve!([]);
+    await joinP.catch(() => {});
+
+    // phase 应该不是 joined（因为 L168 的守卫 return 了）
+    expect(room.phase).not.toBe('joined');
+
+    room.dispose();
+  });
+
+  test('allSettled 后 phase 已非 joining 时不应 setPhase joined（L194 false 分支）', async () => {
+    let connectResolve: () => void;
+    const connectBlocker = new Promise<void>((resolve) => {
+      connectResolve = resolve;
+    });
+
+    const { adapter } = createMockAdapter();
+    // join 立即返回已有 member，使 L168 通过（phase 仍为 joining）
+    (adapter.join as ReturnType<typeof vi.fn>).mockResolvedValue(['b']);
+
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+
+    const joinP = room.join();
+
+    // 等一个 microtask 让 join resolve 后执行到 connect 调用
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // 此时 controller 已经创建，劫持其 connect 使其返回一个被控 promise
+    latestMockController.connect.mockReturnValue(connectBlocker);
+
+    // 在 connect 等待期间调用 leave，使 phase 变为 left
+    room.leave();
+
+    // 放行 connect promise，让 allSettled 完成
+    connectResolve!();
+    await joinP.catch(() => {});
+
+    // allSettled 后 phase 不应该是 joined（因为 leave 把它变了）
+    expect(room.phase).not.toBe('joined');
+
+    room.dispose();
+  });
+});
+
+describe('performLeave 中 roomSignaling.leave 返回 rejected promise（L219-220）', () => {
+  test('leave 返回 rejected promise 时应通过 catch 回调记录错误', async () => {
+    const { adapter } = createMockAdapter();
+    (adapter.leave as ReturnType<typeof vi.fn>).mockReturnValue(Promise.reject(new Error('leave failed')));
+
+    const room = createRtcRoom({ peerId: 'a', roomSignaling: adapter });
+    await room.join();
+
+    // leave 应该不抛异常（内部 catch 处理了）
+    expect(() => room.leave()).not.toThrow();
+
+    // 等一个 microtask 让 Promise.resolve().catch() 执行
+    await Promise.resolve();
+
+    expect(room.phase).toBe('left');
+    room.dispose();
+  });
+});

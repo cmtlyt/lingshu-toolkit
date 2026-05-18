@@ -163,6 +163,12 @@ async function performJoin(ctx: RoomContext): Promise<void> {
     throw error;
   }
 
+  // join 等待期间可能已经 leave/dispose，避免后续流程把状态复活
+  // @ts-expect-error
+  if (ctx.stateCtx.phase !== 'joining') {
+    return;
+  }
+
   ctx.unsubscribeRoomSignaling = ctx.roomSignaling.onMessage((msg) => handleRoomMessage(ctx, msg));
 
   const connectPromises: Promise<void>[] = [];
@@ -185,7 +191,9 @@ async function performJoin(ctx: RoomContext): Promise<void> {
   }
 
   await Promise.allSettled(connectPromises);
-  setPhase(ctx.stateCtx, 'joined');
+  if (ctx.stateCtx.phase === 'joining') {
+    setPhase(ctx.stateCtx, 'joined');
+  }
 }
 
 /** leave 流程：清理所有 peer + 通知信令 */
@@ -207,7 +215,10 @@ function performLeave(ctx: RoomContext): void {
   }
 
   try {
-    void ctx.roomSignaling.leave(ctx.localPeerId);
+    const leaveResult = ctx.roomSignaling.leave(ctx.localPeerId);
+    Promise.resolve(leaveResult).catch((leaveError) => {
+      ctx.logger.error('failed to notify room signaling of leave', leaveError);
+    });
   } catch (leaveError) {
     ctx.logger.error('failed to notify room signaling of leave', leaveError);
   }

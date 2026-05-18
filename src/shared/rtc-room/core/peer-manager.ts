@@ -82,7 +82,7 @@ function bridgeControllerEvents(
  * 4. 应用已有本地轨道
  */
 function createPeerEntry(deps: PeerManagerDeps, remotePeerId: string): PeerEntry {
-  const { localPeerId, options, dispatch, mediaState } = deps;
+  const { localPeerId, options, dispatch, mediaState, logger } = deps;
 
   const derivedSignaling: DerivedSignalingAdapter = deriveSignalingAdapter(
     options.roomSignaling,
@@ -97,7 +97,7 @@ function createPeerEntry(deps: PeerManagerDeps, remotePeerId: string): PeerEntry
     dataChannelOptions: options.dataChannelOptions,
     autoCreateDataChannel: options.autoCreateDataChannel,
     connectTimeout: options.connectTimeout,
-    logger: options.logger,
+    logger,
     __onUserEvent(event: string, payload: unknown): boolean | undefined {
       dispatch(event, { from: remotePeerId, payload });
       return true;

@@ -130,7 +130,7 @@ interface ControllerContext<UserEvents extends EventMap = EventMap> {
 
 ### send / emitTo 路由
 
-```
+```text
 resolveChannel(label?: string) → RTCDataChannel:
   if label 未提供 → return defaultChannel （现有行为）
   if channels.has(label) → return channels.get(label)

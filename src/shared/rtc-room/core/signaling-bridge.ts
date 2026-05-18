@@ -49,7 +49,7 @@ function deriveSignalingAdapter(
  * Room 收到 { type: 'peer-signal', from, signal } 时调用此函数
  */
 function dispatchToAdapter(adapter: DerivedSignalingAdapter, signal: SignalingMessage): void {
-  const handlers = adapter.__handlers;
+  const handlers = adapter.__handlers.slice();
   for (let i = 0; i < handlers.length; i++) {
     handlers[i](signal);
   }

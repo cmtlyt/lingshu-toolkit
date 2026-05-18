@@ -61,7 +61,7 @@ function createStorageHandler<T extends Record<string, any>>(
   const storageData = storage.getItem(validStorageKey);
   const context = {
     data: storageData ? JSON.parse(storageData) : initialData || {},
-    timer: null as number | null,
+    timer: null as ReturnType<typeof setTimeout> | null,
   };
   const clearTimer = () => {
     if (!isNull(context.timer)) {
@@ -93,7 +93,7 @@ function createStorageHandler<T extends Record<string, any>>(
         clearTimer();
         context.timer = setTimeout(() => {
           storage.setItem(validStorageKey, JSON.stringify(context.data));
-        }, autoSaveInterval) as any;
+        }, autoSaveInterval);
       } else {
         storage.setItem(validStorageKey, JSON.stringify(context.data));
       }

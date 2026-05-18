@@ -70,6 +70,7 @@ function createMockRoomSignaling(): MockRoomSignaling {
       dispose() {
         handlers.length = 0;
         adapterHandlers.delete(peerId);
+        members.delete(peerId);
       },
     };
   }

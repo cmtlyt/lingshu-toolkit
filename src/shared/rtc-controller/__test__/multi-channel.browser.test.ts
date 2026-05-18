@@ -25,8 +25,12 @@ function waitForPhase(controller: RtcController, phase: string): Promise<void> {
       resolve();
       return;
     }
-    const timeout = setTimeout(() => reject(new Error(`timeout waiting for phase "${phase}"`)), 5000);
-    const off = controller.on('phase-change', (event) => {
+    let off = () => {};
+    const timeout = setTimeout(() => {
+      off();
+      reject(new Error(`timeout waiting for phase "${phase}"`));
+    }, 5000);
+    off = controller.on('phase-change', (event) => {
       if (event.phase === phase) {
         clearTimeout(timeout);
         off();
@@ -43,8 +47,12 @@ function waitForChannel(controller: RtcController, label: string): Promise<void>
     return Promise.resolve();
   }
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`timeout waiting for channel "${label}"`)), 5000);
-    const off = controller.on('data-channel-ready', (event) => {
+    let off = () => {};
+    const timeout = setTimeout(() => {
+      off();
+      reject(new Error(`timeout waiting for channel "${label}"`));
+    }, 5000);
+    off = controller.on('data-channel-ready', (event) => {
       if (event.label === label) {
         clearTimeout(timeout);
         off();
