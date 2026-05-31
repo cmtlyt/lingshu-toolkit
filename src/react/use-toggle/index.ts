@@ -11,11 +11,11 @@ interface Actions<T> {
 function useToggle(): [boolean, Actions<boolean>];
 function useToggle<L>(defaultValue: L): [L, Actions<L>];
 function useToggle<L, R>(defaultValue: L, reverseValue: R): [L | R, Actions<L | R>];
-function useToggle<L, R>(defualtValue = false as L, reverseValue?: R) {
-  const [state, setState] = useState<L | R>(defualtValue);
+function useToggle<L, R>(defaultValue = false as L, reverseValue?: R) {
+  const [state, setState] = useState<L | R>(defaultValue);
   const toggleRef = useRef([
-    defualtValue,
-    (typeof reverseValue === 'undefined' ? !defualtValue : reverseValue) as R,
+    defaultValue,
+    (typeof reverseValue === 'undefined' ? !defaultValue : reverseValue) as R,
   ] as const);
 
   const actions: Actions<L | R> = useMemo(() => {
