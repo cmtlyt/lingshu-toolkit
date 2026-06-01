@@ -12,7 +12,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 interface PluginAutoPatchFileOptions {
   root?: string;
-  mateFile: string;
+  metaFile: string;
   registryUrl?: string;
   docGenIgnoreEntryCheck?: boolean;
 }
@@ -49,7 +49,7 @@ function initializeNamespaces(namespaces: string[], ctx: Context) {
   );
 }
 
-interface ToolMate {
+interface ToolMeta {
   name: string;
 }
 
@@ -80,7 +80,7 @@ function formatUpdateTime(date = new Date()) {
   return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
-function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ctx: Context) {
+function parseInjectData(toolPath: string, namespace: string, tool: ToolMeta, ctx: Context) {
   return {
     namespace,
     ...tool,
@@ -93,7 +93,7 @@ function parseInjectData(toolPath: string, namespace: string, tool: ToolMate, ct
 
 const toolFiles = fs.readdirSync(path.resolve(__dirname, 'template'));
 
-async function createToolFiles(toolPath: string, namespace: string, tool: ToolMate, ctx: Context) {
+async function createToolFiles(toolPath: string, namespace: string, tool: ToolMeta, ctx: Context) {
   const entryPath = path.resolve(toolPath, 'index.ts');
   const hasEntry = fs.existsSync(entryPath);
   for (let i = 0, tempName = toolFiles[i]; i < toolFiles.length; tempName = toolFiles[++i]) {
@@ -111,7 +111,7 @@ async function createToolFiles(toolPath: string, namespace: string, tool: ToolMa
   return entryPath;
 }
 
-async function initializeTools(namespace: string, namespacePath: string, toolMetas: ToolMate[], ctx: Context) {
+async function initializeTools(namespace: string, namespacePath: string, toolMetas: ToolMeta[], ctx: Context) {
   return Promise.all(
     toolMetas.map(async (tool) => {
       const toolPath = path.resolve(namespacePath, formatDirname(tool.name));
@@ -127,14 +127,14 @@ async function writeJson(filePath: string, json: Record<string, any>) {
   return fsp.writeFile(filePath, `${JSON.stringify(json, null, 2)}\n`, 'utf-8');
 }
 
-async function packageJsonPatch(namesapces: string[], ctx: Context) {
+async function packageJsonPatch(namespaces: string[], ctx: Context) {
   const packageJsonPath = path.resolve(ctx.root, 'package.json');
   const packageJson = JSON.parse(await fsp.readFile(packageJsonPath, 'utf-8'));
   ctx.packageJson = packageJson;
 
   const exports: Record<string, any> = packageJson.exports || {};
 
-  namesapces.forEach((ns) => {
+  namespaces.forEach((ns) => {
     exports[`./${ns}`] = {
       types: `./dist/${ns}/index.d.ts`,
       import: `./dist/${ns}/index.js`,
@@ -163,7 +163,7 @@ async function generateShadcnExports(toolInfos: ToolInfo[], ctx: Context) {
     return {
       ...toolInfo.meta,
       name: formatNameFromTool(toolInfo),
-      path: path.relative(root, toolInfo.filePath),
+      path: path.relative(root, toolInfo.filePath).split(path.sep).join('/'),
     };
   });
 
@@ -174,9 +174,9 @@ async function generateShadcnExports(toolInfos: ToolInfo[], ctx: Context) {
 }
 
 function createContext(options: PluginAutoPatchFileOptions) {
-  const { root = process.cwd(), mateFile, registryUrl = './public/r' } = options;
+  const { root = process.cwd(), metaFile, registryUrl = './public/r' } = options;
 
-  const realMetaFile = path.resolve(root, mateFile);
+  const realMetaFile = path.resolve(root, metaFile);
   const shadcnExportsFile = path.resolve(root, 'shadcn-exports.json');
   const ctx = {
     root,
@@ -294,26 +294,21 @@ async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx
       const entryContent = `${Array.from(exportFromSet)
         .map((item) => `export * from '${item}';`)
         .join('\n')}\n`;
-      return fsp.appendFile(entryPath, entryContent, 'utf-8');
+      return fsp.writeFile(entryPath, entryContent, 'utf-8');
     }),
   );
 }
 
 async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], ctx: Context) {
   const namespaceExports: Record<string, Set<string>> = await parseNamespaceExports(namespaceInfos);
-  const patchNamespaceExports: Record<string, Set<string>> = {};
 
   for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
     const { namespace, filePath } = toolInfo;
     const exportPath = `./${path.basename(path.dirname(filePath))}`;
-    if (namespaceExports[namespace]?.has(exportPath)) {
-      continue;
-    }
-    patchNamespaceExports[namespace] ||= new Set();
-    patchNamespaceExports[namespace].add(exportPath);
+    namespaceExports[namespace] ||= new Set();
+    namespaceExports[namespace].add(exportPath);
   }
-
-  return generateEntrys(patchNamespaceExports, ctx);
+  return generateEntrys(namespaceExports, ctx);
 }
 
 async function processHandler(ctx: Context) {
@@ -343,14 +338,28 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
 
   const ctx = createContext(options);
 
-  void processHandler(ctx);
+  let running: Promise<void> = Promise.resolve();
+
+  const enqueueProcess = () => {
+    running = running
+      .then(async () => {
+        await processHandler(ctx);
+      })
+      .catch((error) => {
+        console.error(error);
+      });
+
+    return running;
+  };
+
+  void enqueueProcess();
 
   return {
     name: '@cmtlyt/lingshu-toolkit:auto-patch-file',
     apply: 'serve',
     async watchChange(id) {
       if (id === ctx.metaFile) {
-        void processHandler(ctx);
+        void enqueueProcess();
       }
     },
   } satisfies Plugin;

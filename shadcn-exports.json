@@ -4,127 +4,127 @@
     {
       "name": "sharedUtils",
       "author": "cmtlyt",
-      "path": "src\\shared\\utils\\index.ts"
+      "path": "src/shared/utils/index.ts"
     },
     {
       "name": "sharedDataHandler",
       "author": "cmtlyt",
-      "path": "src\\shared\\data-handler\\index.ts"
+      "path": "src/shared/data-handler/index.ts"
     },
     {
       "name": "sharedDataMixedManager",
       "author": "cmtlyt",
-      "path": "src\\shared\\data-mixed-manager\\index.ts"
+      "path": "src/shared/data-mixed-manager/index.ts"
     },
     {
       "name": "sharedThrowError",
       "author": "cmtlyt",
-      "path": "src\\shared\\throw-error\\index.ts"
+      "path": "src/shared/throw-error/index.ts"
     },
     {
       "name": "sharedTypes",
       "author": "cmtlyt",
-      "path": "src\\shared\\types\\index.ts"
+      "path": "src/shared/types/index.ts"
     },
     {
       "name": "sharedConditionMerge",
       "author": "cmtlyt",
-      "path": "src\\shared\\condition-merge\\index.ts"
+      "path": "src/shared/condition-merge/index.ts"
     },
     {
       "name": "sharedCreateStorageHandler",
       "author": "cmtlyt",
-      "path": "src\\shared\\create-storage-handler\\index.ts"
+      "path": "src/shared/create-storage-handler/index.ts"
     },
     {
       "name": "sharedAnimation",
       "author": "cmtlyt",
-      "path": "src\\shared\\animation\\index.ts"
+      "path": "src/shared/animation/index.ts"
     },
     {
       "name": "sharedWithResolvers",
       "author": "cmtlyt",
-      "path": "src\\shared\\with-resolvers\\index.ts"
+      "path": "src/shared/with-resolvers/index.ts"
     },
     {
       "name": "sharedAllx",
       "author": "cmtlyt",
-      "path": "src\\shared\\allx\\index.ts"
+      "path": "src/shared/allx/index.ts"
     },
     {
       "name": "sharedApiController",
       "author": "cmtlyt",
-      "path": "src\\shared\\api-controller\\index.ts"
+      "path": "src/shared/api-controller/index.ts"
     },
     {
       "name": "sharedTryCall",
       "author": "cmtlyt",
-      "path": "src\\shared\\try-call\\index.ts"
+      "path": "src/shared/try-call/index.ts"
     },
     {
       "name": "sharedPriorityQueue",
       "author": "cmtlyt",
-      "path": "src\\shared\\priority-queue\\index.ts"
+      "path": "src/shared/priority-queue/index.ts"
     },
     {
       "name": "sharedLockData",
       "author": "cmtlyt",
-      "path": "src\\shared\\lock-data\\index.ts"
+      "path": "src/shared/lock-data/index.ts"
     },
     {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
-      "path": "src\\react\\use-controllable-value\\index.ts"
+      "path": "src/react/use-controllable-value/index.ts"
     },
     {
       "name": "reactUseCounter",
       "author": "cmtlyt",
-      "path": "src\\react\\use-counter\\index.ts"
+      "path": "src/react/use-counter/index.ts"
     },
     {
       "name": "reactUseValidData",
       "author": "cmtlyt",
-      "path": "src\\react\\use-valid-data\\index.ts"
+      "path": "src/react/use-valid-data/index.ts"
     },
     {
       "name": "reactUseToggle",
       "author": "cmtlyt",
-      "path": "src\\react\\use-toggle\\index.ts"
+      "path": "src/react/use-toggle/index.ts"
     },
     {
       "name": "reactUseBoolean",
       "author": "cmtlyt",
-      "path": "src\\react\\use-boolean\\index.ts"
+      "path": "src/react/use-boolean/index.ts"
     },
     {
       "name": "reactUseTitle",
       "author": "cmtlyt",
-      "path": "src\\react\\use-title\\index.ts"
+      "path": "src/react/use-title/index.ts"
     },
     {
       "name": "reactUseMount",
       "author": "cmtlyt",
-      "path": "src\\react\\use-mount\\index.ts"
+      "path": "src/react/use-mount/index.ts"
     },
     {
       "name": "reactUseForceUpdate",
       "author": "cmtlyt",
-      "path": "src\\react\\use-force-update\\index.ts"
+      "path": "src/react/use-force-update/index.ts"
     },
     {
       "name": "reactUseRefState",
       "author": "cmtlyt",
-      "path": "src\\react\\use-ref-state\\index.ts"
+      "path": "src/react/use-ref-state/index.ts"
     },
     {
       "name": "reactUseStorage",
       "author": "cmtlyt",
-      "path": "src\\react\\use-storage\\index.ts"
+      "path": "src/react/use-storage/index.ts"
     },
     {
       "name": "vueUseTitle",
       "author": "snailuu",
-      "path": "src\\vue\\use-title\\index.ts"
+      "path": "src/vue/use-title/index.ts"
     }
   ]
 }
