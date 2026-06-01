@@ -56,7 +56,7 @@ function tryCallFunc<A extends any[], R, E = never>(
       }
     } finally {
       if (isFunction(onFinal)) {
-        const callArgs = ctx.error === EMPTY ? [result] : [ctx.error];
+        const callArgs = [ctx.error === EMPTY ? result : ctx.error];
         Reflect.apply(onFinal, self, callArgs);
       }
     }
@@ -119,4 +119,118 @@ function tryCall<R, E = never>(
   return tryCallFunc(cb, onError, onFinal).call(this);
 }
 
-export { tryCall, tryCallFunc };
+function tryCallSyncFunc<A extends any[], R, E = never>(
+  cb: (...args: A) => R,
+  onError?: ((err: any) => E) | null,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
+): (...args: A) => TryCallResult<R, E> {
+  if (!isFunction(cb)) {
+    throwType('tryCallSyncFunc', 'callback is not a function');
+  }
+
+  const handleError = (self: any, err: any): { result: any; error: any } => {
+    if (isFunction(onError)) {
+      try {
+        return { result: Reflect.apply(onError, self, [err]), error: EMPTY };
+      } catch (onErrorErr) {
+        return { result: undefined, error: onErrorErr };
+      }
+    }
+    return { result: undefined, error: err };
+  };
+
+  return function (this: any, ...args: A) {
+    let result: any;
+    let error: any = EMPTY;
+
+    try {
+      result = Reflect.apply(cb, this, args);
+    } catch (err) {
+      ({ result, error } = handleError(this, err));
+    }
+
+    try {
+      if (error !== EMPTY) {
+        throw error;
+      }
+    } finally {
+      if (isFunction(onFinal)) {
+        Reflect.apply(onFinal, this, [error === EMPTY ? result : error]);
+      }
+    }
+
+    return result;
+  };
+}
+
+function tryCallSync<R, E = never>(
+  this: any,
+  cb: () => R,
+  onError?: ((err: any) => E) | null,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
+): TryCallResult<R, E> {
+  if (!isFunction(cb)) {
+    throwType('tryCallSync', 'callback is not a function');
+  }
+
+  return tryCallSyncFunc(cb, onError, onFinal).call(this);
+}
+
+function tryCallAsyncFunc<A extends any[], R extends Promise<any>, E = never>(
+  cb: (...args: A) => R,
+  onError?: ((err: any) => E) | null,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
+): (...args: A) => TryCallResult<R, E> {
+  if (!isFunction(cb)) {
+    throwType('tryCallAsyncFunc', 'callback is not a function');
+  }
+
+  return function (this: any, ...args: A) {
+    let result = EMPTY as any;
+    return Reflect.apply(cb, this, args)
+      .then(
+        (res) => {
+          result = res;
+          return EMPTY;
+        },
+        (error) => {
+          if (isFunction(onError)) {
+            try {
+              result = Reflect.apply(onError, this, [error]);
+              return EMPTY;
+            } catch (onErrorErr) {
+              return onErrorErr;
+            }
+          }
+          return error;
+        },
+      )
+      .then((error) => {
+        try {
+          if (error !== EMPTY) {
+            throw error;
+          }
+        } finally {
+          if (isFunction(onFinal)) {
+            Reflect.apply(onFinal, this, [error === EMPTY ? result : error]);
+          }
+        }
+        return result;
+      });
+  } as any;
+}
+
+function tryCallAsync<R extends Promise<any>, E = never>(
+  this: any,
+  cb: () => R,
+  onError?: ((err: any) => E) | null,
+  onFinal?: (result: TryCallFinalArgs<R, E>) => void,
+): TryCallResult<R, E> {
+  if (!isFunction(cb)) {
+    throwType('tryCallAsync', 'callback is not a function');
+  }
+
+  return tryCallAsyncFunc(cb, onError, onFinal).call(this);
+}
+
+export { tryCall, tryCallAsync, tryCallAsyncFunc, tryCallFunc, tryCallSync, tryCallSyncFunc };
