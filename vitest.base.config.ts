@@ -11,7 +11,7 @@ export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
   plugins: [
     tsConfigPaths(),
-    pluginAutoPatchFile({ registryUrl: config.registryUrl, mateFile: 'meta/toolkit.meta.json' }),
+    pluginAutoPatchFile({ registryUrl: config.registryUrl, metaFile: 'meta/toolkit.meta.json' }),
   ],
   test: {
     coverage: {
