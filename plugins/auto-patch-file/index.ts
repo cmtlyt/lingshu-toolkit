@@ -333,7 +333,7 @@ async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx
     const rollbackFailedPaths = await rollbackEntrys(writtenEntryPaths, entrySnapshots);
 
     if (rollbackFailedPaths.length > 0) {
-      console.error('[auto-path-file] entry rollback failed, workspace may be inconsistent');
+      console.error('[auto-patch-file] entry rollback failed, workspace may be inconsistent');
       console.error(rollbackFailedPaths);
     }
 
@@ -392,7 +392,7 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
         await processHandler(ctx);
       })
       .catch((error) => {
-        console.error('[auto-path-file] process failed');
+        console.error('[auto-patch-file] process failed');
         console.error(error);
       });
 
