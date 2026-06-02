@@ -193,12 +193,13 @@ type NamespaceInfo = Awaited<ReturnType<typeof initializeNamespaces>>[number];
 
 interface DocMeta {
   id: string;
-  type: 'file';
+  type: 'file' | 'dir';
   name: string;
   label?: string;
   tag?: string;
   overviewHeaders?: number[];
   context?: string;
+  collapsed?: boolean;
 }
 
 async function initMetaMap(namespaceInfos: NamespaceInfo[]) {
@@ -232,7 +233,26 @@ async function generateDocMeta(namespaceInfos: NamespaceInfo[], metaMap: Record<
 function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]>, docSet: Set<string>) {
   for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
     const { meta, namespace, namespacePath, filePath } = toolInfo;
-    const docPath = path.resolve(path.dirname(filePath), 'index.mdx');
+    const toolPath = path.dirname(filePath);
+    const docId = `${namespace}@${meta.name}`;
+
+    if (docSet.has(docId)) {
+      continue;
+    }
+
+    const toolMetaPath = path.resolve(toolPath, '_meta.json');
+    if (fs.existsSync(toolMetaPath)) {
+      metaMap[namespace].push({
+        id: docId,
+        type: 'dir',
+        label: meta.name,
+        name: path.relative(namespacePath, toolPath).split(path.sep).join('/'),
+        collapsed: true,
+      });
+      continue;
+    }
+
+    const docPath = path.resolve(toolPath, 'index.mdx');
     if (!fs.existsSync(docPath)) {
       continue;
     }
@@ -240,10 +260,6 @@ function computeDocMeta(toolInfos: ToolInfo[], metaMap: Record<string, DocMeta[]
       .slice(namespacePath.length + 1)
       .split(path.sep)
       .join('/');
-    const docId = `${namespace}@${meta.name}`;
-    if (docSet.has(docId)) {
-      continue;
-    }
     metaMap[namespace].push({
       id: docId,
       type: 'file',
@@ -261,46 +277,76 @@ async function generateRspressDocMetas(namespaceInfos: NamespaceInfo[], toolInfo
   return generateDocMeta(namespaceInfos, metaMap);
 }
 
-async function parseNamespaceExports(namespaceInfos: NamespaceInfo[]) {
-  const namespaceExports: Record<string, Set<string>> = {};
-  const exportReg = /export.*?from\s+(['"])(.*?)\1/su;
+function getEntryContent(exportFromSet?: Set<string>) {
+  const exportLines = Array.from(exportFromSet || [])
+    .sort()
+    .map((item) => `export * from '${item}';`);
 
-  for (let i = 0, namespaceInfo = namespaceInfos[i]; i < namespaceInfos.length; namespaceInfo = namespaceInfos[++i]) {
-    const { namespace, namespacePath } = namespaceInfo;
-    const exportFromSet = namespaceExports[namespace] || new Set();
-    namespaceExports[namespace] = exportFromSet;
-    const entryContent = await fsp.readFile(path.resolve(namespacePath, 'index.ts'), 'utf-8');
-    const entrys = entryContent.split(';\n');
+  return exportLines.length > 0 ? `${exportLines.join('\n')}\n` : 'export {};\n';
+}
 
-    for (let j = 0, line = entrys[j]; j < entrys.length; line = entrys[++j]) {
-      const [, , from] = line.match(exportReg) || [];
-      if (!from) {
+async function snapshotEntryFiles(namespace: string[], ctx: Context) {
+  const entrySnapshots = new Map<string, string | null>();
+
+  for (let i = 0, ns = namespace[i]; i < namespace.length; ns = namespace[++i]) {
+    const entryPath = path.resolve(ctx.root, 'src', ns, 'index.ts');
+    entrySnapshots.set(entryPath, fs.existsSync(entryPath) ? await fsp.readFile(entryPath, 'utf-8') : null);
+  }
+
+  return entrySnapshots;
+}
+
+async function rollbackEntrys(writtenEntryPaths: string[], entrySnapshots: Map<string, string | null>) {
+  const rollbackFailedPaths: string[] = [];
+
+  for (let i = 0, entryPath = writtenEntryPaths[i]; i < writtenEntryPaths.length; entryPath = writtenEntryPaths[++i]) {
+    try {
+      const snapshot = entrySnapshots.get(entryPath);
+
+      if (snapshot === null || snapshot === undefined) {
+        await fsp.rm(entryPath, { force: true });
         continue;
       }
-      exportFromSet.add(from);
+      await fsp.writeFile(entryPath, snapshot, 'utf-8');
+    } catch {
+      rollbackFailedPaths.push(entryPath);
     }
   }
 
-  return namespaceExports;
+  return rollbackFailedPaths;
 }
 
 async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx: Context) {
   const namespace = Reflect.ownKeys(namespaceExports) as string[];
+  const entrySnapshots = await snapshotEntryFiles(namespace, ctx);
+  const writtenEntryPaths: string[] = [];
 
-  return Promise.all(
-    namespace.map(async (ns) => {
-      const exportFromSet = namespaceExports[ns];
+  try {
+    for (let i = 0, ns = namespace[i]; i < namespace.length; ns = namespace[++i]) {
       const entryPath = path.resolve(ctx.root, 'src', ns, 'index.ts');
-      const entryContent = `${Array.from(exportFromSet)
-        .map((item) => `export * from '${item}';`)
-        .join('\n')}\n`;
-      return fsp.writeFile(entryPath, entryContent, 'utf-8');
-    }),
-  );
+      const entryContent = getEntryContent(namespaceExports[ns]);
+
+      await fsp.writeFile(entryPath, entryContent, 'utf-8');
+      writtenEntryPaths.push(entryPath);
+    }
+  } catch (error) {
+    const rollbackFailedPaths = await rollbackEntrys(writtenEntryPaths, entrySnapshots);
+
+    if (rollbackFailedPaths.length > 0) {
+      console.error('[auto-path-file] entry rollback failed, workspace may be inconsistent');
+      console.error(rollbackFailedPaths);
+    }
+
+    throw error;
+  }
 }
 
 async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolInfos: ToolInfo[], ctx: Context) {
-  const namespaceExports: Record<string, Set<string>> = await parseNamespaceExports(namespaceInfos);
+  const namespaceExports: Record<string, Set<string>> = {};
+
+  for (let i = 0, namespaceInfo = namespaceInfos[i]; i < namespaceInfos.length; namespaceInfo = namespaceInfos[++i]) {
+    namespaceExports[namespaceInfo.namespace] = new Set();
+  }
 
   for (let i = 0, toolInfo = toolInfos[i]; i < toolInfos.length; toolInfo = toolInfos[++i]) {
     const { namespace, filePath } = toolInfo;
@@ -346,6 +392,7 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
         await processHandler(ctx);
       })
       .catch((error) => {
+        console.error('[auto-path-file] process failed');
         console.error(error);
       });
 
