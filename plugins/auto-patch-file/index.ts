@@ -380,19 +380,32 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
 
   const ctx = createContext(options);
 
-  let running: Promise<void> = Promise.resolve();
+  let running = false;
+  let dirty = false;
 
-  const enqueueProcess = () => {
-    running = running
-      .then(async () => {
-        await processHandler(ctx);
-      })
-      .catch((error) => {
-        console.error('[auto-patch-file] process failed');
-        console.error(error);
-      });
+  const enqueueProcess = async () => {
+    dirty = true;
 
-    return running;
+    if (running) {
+      return;
+    }
+
+    running = true;
+
+    try {
+      while (dirty) {
+        dirty = false;
+
+        try {
+          await processHandler(ctx);
+        } catch (error) {
+          console.error('[auto-patch-file] process failed');
+          console.error(error);
+        }
+      }
+    } finally {
+      running = false;
+    }
   };
 
   void enqueueProcess();
