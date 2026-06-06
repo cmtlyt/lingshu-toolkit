@@ -296,45 +296,41 @@ async function snapshotEntryFiles(namespace: string[], ctx: Context) {
   return entrySnapshots;
 }
 
-async function rollbackEntries(writtenEntryPaths: string[], entrySnapshots: Map<string, string | null>) {
-  const rollbackFailedPaths: string[] = [];
+async function rollbackEntries(entryPath: string, entrySnapshots: Map<string, string | null>) {
+  try {
+    const snapshot = entrySnapshots.get(entryPath);
 
-  for (let i = 0, entryPath = writtenEntryPaths[i]; i < writtenEntryPaths.length; entryPath = writtenEntryPaths[++i]) {
-    try {
-      const snapshot = entrySnapshots.get(entryPath);
-
-      if (snapshot === null || snapshot === undefined) {
-        await fsp.rm(entryPath, { force: true });
-        continue;
-      }
-      await fsp.writeFile(entryPath, snapshot, 'utf-8');
-    } catch {
-      rollbackFailedPaths.push(entryPath);
+    if (snapshot === null || snapshot === undefined) {
+      await fsp.rm(entryPath, { force: true });
+      return false;
     }
-  }
 
-  return rollbackFailedPaths;
+    await fsp.writeFile(entryPath, snapshot, 'utf-8');
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 async function generateEntries(namespaceExports: Record<string, Set<string>>, ctx: Context) {
   const namespace = Reflect.ownKeys(namespaceExports) as string[];
   const entrySnapshots = await snapshotEntryFiles(namespace, ctx);
-  const writtenEntryPaths: string[] = [];
+  let currentEntryPath: string | undefined;
 
   try {
     for (let i = 0, ns = namespace[i]; i < namespace.length; ns = namespace[++i]) {
-      const entryPath = path.resolve(ctx.root, 'src', ns, 'index.ts');
+      currentEntryPath = path.resolve(ctx.root, 'src', ns, 'index.ts');
       const entryContent = getEntryContent(namespaceExports[ns]);
 
-      await fsp.writeFile(entryPath, entryContent, 'utf-8');
-      writtenEntryPaths.push(entryPath);
+      await fsp.writeFile(currentEntryPath, entryContent, 'utf-8');
+      currentEntryPath = undefined;
     }
   } catch (error) {
-    const rollbackFailedPaths = await rollbackEntries(writtenEntryPaths, entrySnapshots);
+    const rollbackFailed = currentEntryPath ? await rollbackEntries(currentEntryPath, entrySnapshots) : false;
 
-    if (rollbackFailedPaths.length > 0) {
+    if (rollbackFailed) {
       console.error('[auto-patch-file] entry rollback failed, workspace may be inconsistent');
-      console.error(rollbackFailedPaths);
+      console.error(currentEntryPath);
     }
 
     throw error;
