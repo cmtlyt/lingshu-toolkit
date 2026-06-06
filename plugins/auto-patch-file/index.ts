@@ -296,7 +296,7 @@ async function snapshotEntryFiles(namespace: string[], ctx: Context) {
   return entrySnapshots;
 }
 
-async function rollbackEntrys(writtenEntryPaths: string[], entrySnapshots: Map<string, string | null>) {
+async function rollbackEntries(writtenEntryPaths: string[], entrySnapshots: Map<string, string | null>) {
   const rollbackFailedPaths: string[] = [];
 
   for (let i = 0, entryPath = writtenEntryPaths[i]; i < writtenEntryPaths.length; entryPath = writtenEntryPaths[++i]) {
@@ -316,7 +316,7 @@ async function rollbackEntrys(writtenEntryPaths: string[], entrySnapshots: Map<s
   return rollbackFailedPaths;
 }
 
-async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx: Context) {
+async function generateEntries(namespaceExports: Record<string, Set<string>>, ctx: Context) {
   const namespace = Reflect.ownKeys(namespaceExports) as string[];
   const entrySnapshots = await snapshotEntryFiles(namespace, ctx);
   const writtenEntryPaths: string[] = [];
@@ -330,7 +330,7 @@ async function generateEntrys(namespaceExports: Record<string, Set<string>>, ctx
       writtenEntryPaths.push(entryPath);
     }
   } catch (error) {
-    const rollbackFailedPaths = await rollbackEntrys(writtenEntryPaths, entrySnapshots);
+    const rollbackFailedPaths = await rollbackEntries(writtenEntryPaths, entrySnapshots);
 
     if (rollbackFailedPaths.length > 0) {
       console.error('[auto-patch-file] entry rollback failed, workspace may be inconsistent');
@@ -354,7 +354,7 @@ async function patchNamespaceEntryExports(namespaceInfos: NamespaceInfo[], toolI
     namespaceExports[namespace] ||= new Set();
     namespaceExports[namespace].add(exportPath);
   }
-  return generateEntrys(namespaceExports, ctx);
+  return generateEntries(namespaceExports, ctx);
 }
 
 async function processHandler(ctx: Context) {
