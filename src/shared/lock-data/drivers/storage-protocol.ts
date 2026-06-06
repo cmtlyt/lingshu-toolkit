@@ -27,7 +27,7 @@
  * - WRITE_RETRY_JITTER_MAX=20ms：重试前随机退避 0~20ms，分散并发写者
  */
 
-import { isArray, isNumber, isObject, isString } from '@/shared/utils';
+import { isArray, isNull, isNumber, isObject, isString } from '@/shared/utils';
 
 /** 心跳周期（ms）；持有者每此毫秒更新一次 holder.heartbeat */
 const HEARTBEAT_INTERVAL = 500;
@@ -103,7 +103,7 @@ function isStorageLockValue(value: unknown): value is StorageLockValue {
       return false;
     }
   }
-  if (obj.holder !== null && !isStorageHolder(obj.holder)) {
+  if (!(isNull(obj.holder) || isStorageHolder(obj.holder))) {
     return false;
   }
   return true;

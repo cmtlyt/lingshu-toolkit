@@ -81,7 +81,7 @@ interface MockChannelCtor {
 function createMockBroadcastChannelCtor(bus: MockBus): MockChannelCtor {
   return class MockBroadcastChannel {
     readonly name: string;
-    private _handlers: Set<(event: { data: unknown }) => void> = new Set();
+    private readonly _handlers: Set<(event: { data: unknown }) => void> = new Set();
     private _closed = false;
 
     constructor(name: string) {
@@ -94,7 +94,7 @@ function createMockBroadcastChannelCtor(bus: MockBus): MockChannelCtor {
       bus.registry.set(name, set);
     }
 
-    private _dispatch = (event: { data: unknown }): void => {
+    private readonly _dispatch = (event: { data: unknown }): void => {
       if (this._closed) {
         return;
       }

@@ -73,7 +73,6 @@ function useControllableValue<
     }
   });
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies(propValue): 需要依赖此 effect 进行更新
   useEffect(() => {
     if (isFirstRenderRef.current || !hasValueRef.current) {
       isFirstRenderRef.current = false;

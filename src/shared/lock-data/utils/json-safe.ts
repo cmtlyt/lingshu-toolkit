@@ -16,6 +16,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
+import { isNull, isUndef } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { InvalidOptionsError } from '../errors';
 
@@ -49,7 +50,7 @@ function describeNonJsonValue(value: unknown): string {
   // 防御性兜底：assertJsonSafe 入口已对 undefined 早抛，公共路径下不会进入此函数；
   // 但作为独立工具保留 undefined 描述以保证函数自洽性。
   // 覆盖见 __test__/utils/json-safe-describe.node.test.ts
-  if (value === undefined) {
+  if (isUndef(value)) {
     return 'undefined';
   }
   if (typeof value === 'number') {
@@ -67,7 +68,7 @@ function describeNonJsonValue(value: unknown): string {
   }
   // 防御性兜底：assertJsonSafe 入口已对 null 早返回，公共路径下不会进入此函数；
   // 同上保留 null 描述
-  if (value === null) {
+  if (isNull(value)) {
     return 'null';
   }
   // toString tag 形如 `[object Map]` → `Map`
@@ -95,7 +96,7 @@ function describeNonJsonValue(value: unknown): string {
  */
 function isPlainObject(value: object): value is Record<string, unknown> {
   const proto = Object.getPrototypeOf(value);
-  return proto === Object.prototype || proto === null;
+  return proto === Object.prototype || isNull(proto);
 }
 
 /**
@@ -111,10 +112,10 @@ function isPlainObject(value: object): value is Record<string, unknown> {
  * @param subject 错误信息中的来源描述（如 `'getValue() result'` / `'actions.replace(next)'` / `'draft'`）
  */
 function assertJsonSafe(value: unknown, path: readonly PropertyKey[], seen: WeakSet<object>, subject: string): void {
-  if (value === null) {
+  if (isNull(value)) {
     return;
   }
-  if (value === undefined) {
+  if (isUndef(value)) {
     throwError(
       ERROR_FN_NAME,
       `${subject} only supports JSON-safe values, got "undefined" at "${formatPath(path)}" (use "null" instead)`,

@@ -1,0 +1,1852 @@
+# RFC: rtcRoom 权限控制 — Kick / Host / Admin / Mute
+
+> status: draft
+>
+> author: cmtlyt
+>
+> create time: 2026/05/18 10:47:00
+>
+> rfc version: 0.28.0
+>
+> scope: `src/shared/rtc-room`
+
+## 版本历史
+
+| 版本 | 日期 | 变更摘要 |
+|------|------|----------|
+| 0.27.0 | 2026/05/22 | 禁言模型重构：MuteEntry 结构体替换为组合键两层策略（MuteRuleSet + MuteRegistry { room, users }），checkMute 从 4 层 if-else 简化为 evaluateRuleSet（三态）/ matchRuleSet（二态）前缀匹配，MuteState 返回 ParsedRule 结构（roomRules/roomExemptions/userRules/userExemptions），serialize/deserialize 简化为 assertRuleSet 校验，分隔符 \0 |
+| 0.28.0 | 2026/05/22 | 评审修复 14：evaluateRuleSet 改为禁言/豁免同级匹配+细粒度优先级比较（matchRuleSet 复用 evaluateRuleSet）、tiebreaker 改用 elapsedSinceDisconnect 比较（纯本地时钟无偏移）、空窗期 assertControlPermission 豁免 host-transfer、getMuteState.muted 改为有效规则数判断、设计决策表补充 request 执行时刻权限声明、awaitingResult 改为 readonly 属性暴露、deserialize 错误码改为 SYNC_STATE_INVALID、移除冗余注释、TS 技巧说明移至附录 |
+
+> 完整版本历史见 [附录 A](#附录-a-完整版本历史)
+>
+> 版本变更摘要仅记录设计演化过程，若正文与变更摘要存在差异，**以正文为准**。
+
+## 背景与动机
+
+当前 `rtc-room` 提供了多方通信的基础能力（成员管理、消息收发、媒体流广播），但缺少房间管理权限：
+
+- 无法踢出恶意/违规用户
+- 无法对特定用户的特定通道/事件进行禁言
+- 无主持人/管理员角色概念
+
+## 设计理念
+
+**权限变更通过独立的房间管理 channel（`__room_ctrl__`）广播同步，接收方以断言模式校验发送者身份合法性。**
+
+房间管理 channel 设计：
+
+1. **独立 channel**：`__room_ctrl__` 是一个独立的内部 DataChannel，专用于房间控制消息通信
+2. **全员建立**：`enablePermissions=true` 时所有用户都建立该 channel
+3. **读写分离**：默认只读（普通用户仅接收控制消息），管理员/房主拥有写权限
+4. **低延迟**：P2P 直连比绕信令服务器更快
+5. **减轻信令压力**：信令服务器只负责组网
+
+安全模型：**断言式校验**——在 `__room_ctrl__` channel 收到消息时，`from` 从 `PeerEntry.peerId`（建连时确定的对端身份）获取，**而非消息 payload 中的 `by` 字段**。断言 `from` 的写权限合法性，越权则 dispatch 事件 + 抛错阻断后续逻辑。是否自动断连由配置开关控制。
+
+**前置开关断言**：所有权限和角色相关的 API 调用、事件处理在入口处统一断言 `enablePermissions === true`，未启用时直接 throwError。
+
+### 模块架构
+
+权限系统作为 `rtc-room` 的**子模块**独立实现，通过 transport 接口与 rtc-room 核心解耦：
+
+```text
+src/shared/rtc-room/
+├── core/              — rtc-room 核心（通信、组网）
+├── errors/            — 错误类型定义（所有 room 级错误，含权限相关）
+├── permissions/       — 权限管理子模块（独立实现）
+│   ├── state/         — RoomContext 状态管理
+│   ├── roles/         — 角色：host 协商、admin 管理、候选列表、继位
+│   ├── mute/          — 禁言引擎：checkMute、getMuteState、三层粒度
+│   ├── queue/         — request 队列：管理员端 + 房主端
+│   ├── sync/          — 状态同步：buildSyncStatePayload、batch、serialize/deserialize
+│   └── index.ts       — 入口，暴露 createPermissionController(transport, options)
+└── index.ts           — rtc-room 入口，整合 core + permissions
+```
+
+**transport 接口**（rtc-room core 负责实现，权限子模块通过该接口与外部通信）：
+
+```typescript
+interface PermissionTransport {
+  /** 向指定 peer 发送控制消息（通过 __room_ctrl__ channel 单播） */
+  sendTo(peerId: string, message: ControlMessage): void;
+  /** 向所有 peer 广播控制消息（通过 __room_ctrl__ channel 广播） */
+  broadcast(message: ControlMessage): void;
+  /** 断开指定 peer 的所有连接 */
+  disconnect(peerId: string): void;
+  /** 监听 __room_ctrl__ channel 收到的控制消息 */
+  onMessage(handler: (from: string, message: ControlMessage) => void): () => void;
+  /** 监听成员加入（首次建连，不含重连） */
+  onMemberJoin(handler: (peerId: string) => void): () => void;
+  /** 监听成员离开 */
+  onMemberLeave(handler: (peerId: string) => void): () => void;
+  /**
+   * 监听成员重连。重连不触发 onMemberJoin。
+   * 触发条件：同一 peerId 的 peer 在 DataChannel 关闭后重新建立连接，
+   * 且该 peerId 仍存在于 memberJoinOrder 中（未被 kick 清除）。
+   */
+  onMemberReconnect(handler: (peerId: string) => void): () => void;
+  /** 本地 peerId */
+  readonly localPeerId: string;
+}
+```
+
+**设计要点**：
+
+- **子模块定位**：权限模块是 rtc-room 的内部子模块（非平级独立模块），物理目录在 `src/shared/rtc-room/permissions/` 下
+- **单向依赖**：权限模块仅依赖 transport 接口，不依赖 rtc-room 的具体实现（DataChannel、PeerConnection 等）
+- **发送拦截**：rtc-room core 的 `send()`/`broadcast()` 方法调用前，通过 `permissionController.checkSendPermission(channel, event)` 做禁言守卫（一行调用，耦合极低）
+- **API 透传**：rtc-room 对外暴露的权限 API（kick/mute/unmute 等）直接委托给 `permissionController` 对应方法
+- **tree-shaking**：`enablePermissions=false` 时不初始化权限子模块，不引入额外开销
+- **可测试性**：权限子模块可纯内存测试（mock transport 接口），无需 WebRTC 环境
+
+## 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| **Host（房主）** | 房间唯一拥有者，最高权限，**不可被禁言/踢出**。由 `hostId` 标识，冗余存在于 `adminIds` 中。默认为第一个进房的用户，组网后自动协商产生 |
+| **Admin（管理员）** | 拥有除「转让房主」「指派/移除管理员」「禁言 `__room_ctrl__` channel」外的全部管理权限。可有多个。**权限管理遵循单向链：host → admin → user，仅上游可管理下游，不可互操作、不可反向操作**，不可自解禁 |
+| **Kick（踢人）** | 房主/管理员断开目标 peer 的所有连接。房主更新状态后广播 batch（kick + sync-state），target 收到后 performLeave，其他端主动断开与 target 的连接。不可踢房主，管理员不可踢其他管理员（仅房主可踢管理员） |
+| **Mute（禁言）** | 三层粒度：用户级 / channel 级 / 事件级。**channel 禁言仅影响写权限（发送拦截），消息接收不受影响**。Host 免疫禁言。全房间禁言使用 `mute('*')` |
+| **`__room_ctrl__` channel** | 房间管理 channel，`enablePermissions=true` 时所有用户都建立。默认只读，管理员/房主拥有写权限。仅房主可禁言/解禁他人的该 channel |
+| **越权广播（Forbidden Broadcast）** | `from`（从 PeerEntry.peerId 获取，即建连时确定的对端身份）不具备对应操作权限（无 `__room_ctrl__` 写权限）却发送了控制消息。断言式阻断 + dispatch 事件，是否自动断连由配置开关控制（默认开） |
+| **performLeave（离开房间）** | 仅断开所有 P2P 连接并清理本地状态的内部操作。**不通过任何 channel 发送消息**（因此无需禁言检测），不触发 `member-left` 广播（其他端通过连接断开事件自行检测）。被 kick 时由 target 端调用，也可由用户主动离开时调用 |
+
+## API 设计
+
+### 新增配置项
+
+```typescript
+/**
+ * Room 行为开关（通用，不仅限于权限，后续可扩展更多开关）
+ */
+interface RoomSwitches {
+  /**
+   * 是否启用权限系统（默认 false）
+   * 启用后：建立 __room_ctrl__ channel、房主由组网协商自动产生（首个进房用户）
+   */
+  readonly enablePermissions?: boolean;
+  /** 检测到越权广播时是否自动断开与非法用户的连接（默认 true，仅 enablePermissions=true 时生效） */
+  readonly autoDisconnectOnForbiddenBroadcast?: boolean;
+  /** 创建房间时是否默认开启房间级别禁言（默认 false，仅 enablePermissions=true 时生效） */
+  readonly defaultRoomMute?: boolean;
+  /** 全房间禁言是否对管理员生效（默认 false，仅 enablePermissions=true 时生效） */
+  readonly roomMuteAffectsAdmin?: boolean;
+}
+
+/**
+ * 权限系统可交互参数（所有权限相关的可调参数聚合于此，仅 enablePermissions=true 时生效）
+ */
+interface PermissionParameters {
+  /** 管理员 request 等待 ack 的超时时间（ms，默认 5000） */
+  readonly requestTimeout?: number;
+  /** 房主端 request 队列最大容量（默认 64，超限时立即回复 ack(success=false, error='queue full')） */
+  readonly maxPendingRequests?: number;
+  /**
+   * 房主候选列表最大长度
+   * 默认值 = 房间人数 - 1（房主），即所有非房主成员均为候选者
+   * 设为固定数值时，候选列表长度不超过该值（按优先级截取前 N 个）
+   */
+  readonly maxCandidates?: number;
+  /** 竞赛式继位的梯度延迟（ms，默认 3000）。候选者 i 的等待时间 = i * successionDelay */
+  readonly successionDelay?: number;
+  /** requestId 碰撞重试上限（默认 5）。超过上限抛出 REQUEST_ID_CONFLICT 错误 */
+  readonly requestIdRetryLimit?: number;
+  /**
+   * 房主端 request 拦截器（外部卡点）
+   *
+   * 房主收到管理员 request 并从队列取出处理时，优先调用此函数。
+   * - resolve → 允许执行（继续后续校验和操作）
+   * - reject(error) → 拒绝执行（error.message 作为拒绝原因回复给管理员）
+   *
+   * @param request - 管理员发来的请求消息
+   * @param from - 发送者 peerId（从 PeerEntry.peerId 获取，不可伪造）
+   *
+   * 不传则默认全部允许。
+   * 适用场景：业务侧弹窗确认、频率限制、自定义业务规则校验等。
+   */
+  readonly requestInterceptor?: (request: RequestMessage, from: string) => Promise<void>;
+}
+
+interface RtcRoomOptions {
+  // 以下为权限系统新增配置项（其余已有字段如 roomId、signaling 等省略）
+  /** 行为开关 */
+  readonly switches?: RoomSwitches;
+  /** 权限系统参数配置（仅 enablePermissions=true 时生效） */
+  readonly parameters?: PermissionParameters;
+}
+```
+
+**`enablePermissions: true` 时**，房主/管理员由组网自动协商：
+- **房主**：第一个进入房间的用户自动成为房主
+- **管理员**：由房主通过 `addAdmin()` 指派
+- **`__room_ctrl__` channel**：所有用户都建立，默认只读；房主/管理员拥有写权限
+
+### 新增 RtcRoom 属性与方法
+
+```typescript
+interface RtcRoom<UserEvents> {
+  // 以下为权限系统新增属性与方法（enablePermissions=true 时可用）
+
+  // ── 权限控制 ──
+
+  /** 当前房主 peerId */
+  readonly hostId: string;
+  /** 当前管理员列表（含房主） */
+  readonly adminIds: readonly string[];
+  /** 本地 peer 是否有管理权限（getter: adminIds.includes(localPeerId)） */
+  readonly hasAdminPermission: boolean;
+  /** 本地 peer 是否为房主（getter: hostId === localPeerId） */
+  readonly isHost: boolean;
+
+  /** 踢出指定 peer（需管理权限，不可踢房主，管理员间不可互踢） */
+  kick: (targetPeerId: string, reason?: string) => Promise<void>;
+
+  /** 禁言（三层粒度），target 类型见附录 B */
+  mute: (target: (string & {}) | '*', scope?: MuteScope) => void;
+
+  /** 解除禁言（admin 不可自解禁） */
+  unmute: (target: (string & {}) | '*', scope?: MuteScope) => void;
+
+  /** 查询某 peer 的禁言状态 */
+  getMuteState: (targetPeerId: string) => MuteState;
+
+  /** 转让房主（仅房主可调用） */
+  transferHost: (targetPeerId: string) => void;
+
+  /** 添加管理员（仅房主可调用） */
+  addAdmin: (targetPeerId: string) => void;
+
+  /** 移除管理员（仅房主可调用） */
+  removeAdmin: (targetPeerId: string) => void;
+
+  /**
+   * 待完结缓冲区中的请求列表（已被房主接受但尚未收到 result 的 request，只读）
+   */
+  readonly awaitingRequests: readonly RequestMessage[];
+
+  /**
+   * 取消所有排队中（尚未发送）的 request（仅管理员端有效）
+   * @returns cancelled - 被取消的请求列表；inflight - 当前正在等待 ack 的请求（不可取消），无则为 null
+   */
+  cancelPendingRequests: () => { cancelled: RequestMessage[]; inflight: RequestMessage | null };
+}
+```
+
+### 三层禁言粒度
+
+```typescript
+/**
+ * 禁言范围
+ * - 不传 scope：用户级全禁（所有 channel 所有事件）
+ * - 传 { channel }：channel 级（该 channel 的自定义事件 + 原始数据均禁）
+ * - 传 { channel, event }：事件级（仅禁该 channel 的特定自定义事件）
+ */
+interface MuteScope {
+  /** 目标 channel label。省略表示所有 channel */
+  readonly channel?: string;
+  /** 目标自定义事件名。省略表示 channel 下所有事件（含原始数据） */
+  readonly event?: string;
+}
+
+/**
+ * 组合键解析结果
+ */
+interface ParsedRule {
+  /** 解析后的 channel（全禁时为 undefined） */
+  readonly channel?: string;
+  /** 解析后的 event（channel 级时为 undefined） */
+  readonly event?: string;
+}
+
+/**
+ * 禁言状态查询结果
+ */
+interface MuteState {
+  /** 是否被禁言（任一层最终命中即为 true） */
+  readonly muted: boolean;
+  /** room 层对该用户生效的禁言规则（已过滤 __room_ctrl__、已排除被豁免的） */
+  readonly roomRules: ParsedRule[];
+  /** room 层的豁免规则 */
+  readonly roomExemptions: ParsedRule[];
+  /** user 层对该用户生效的禁言规则（已过滤 __room_ctrl__、已排除被豁免的） */
+  readonly userRules: ParsedRule[];
+  /** user 层的豁免规则 */
+  readonly userExemptions: ParsedRule[];
+}
+```
+
+### 禁言数据结构（组合键两层策略）
+
+```typescript
+/**
+ * 组合键分隔符（NULL 字符）
+ * - 用户不可能在 channel/event 名中使用 \0
+ * - JSON 合法（序列化为 \u0000），无歧义
+ * - 无冲突，无需约束业务侧 channel/event 命名
+ */
+const MUTE_SEP = '\0';
+
+/**
+ * 构建匹配目标字符串
+ * - buildTarget()             → '\0'        — 全禁标记（匹配一切）
+ * - buildTarget('chat')       → 'chat\0'    — channel 级
+ * - buildTarget('chat', 'msg') → 'chat\0msg' — event 级
+ */
+function buildTarget(channel?: string, event?: string): string {
+  if (!channel) return MUTE_SEP;
+  if (!event) return channel + MUTE_SEP;
+  return channel + MUTE_SEP + event;
+}
+
+/**
+ * 解析组合键规则为结构化信息
+ */
+function parseRule(rule: string): ParsedRule {
+  if (rule === MUTE_SEP) return { };
+  const sepIndex = rule.indexOf(MUTE_SEP);
+  if (sepIndex === -1) return { };
+  const channel = rule.slice(0, sepIndex);
+  const event = rule.slice(sepIndex + 1);
+  if (!event) return { channel };
+  return { channel, event };
+}
+
+/**
+ * 禁言规则集（单层）
+ * rules 和 exemptions 均为组合键字符串数组，通过 startsWith 前缀匹配判断
+ */
+interface MuteRuleSet {
+  /** 禁言规则列表 */
+  rules: string[];
+  /** 豁免规则列表（优先于 rules） */
+  exemptions: string[];
+}
+
+/**
+ * 禁言注册表（两层结构）
+ * - room：全房间禁言策略（对所有人生效，host 免疫，admin 是否免疫由开关决定）
+ * - users：用户级禁言策略（key = peerId）
+ *
+ * 用户层优先级高于房间层——用户层有明确结论（禁言或豁免）时直接返回，不再查询房间层
+ */
+interface MuteRegistry {
+  /** 全房间禁言策略 */
+  room: MuteRuleSet;
+  /** 用户级禁言策略（key = peerId） */
+  users: Record<string, MuteRuleSet>;
+}
+```
+
+**规则格式总结**：
+
+| 粒度 | 组合键格式 | 示例 | startsWith 匹配范围 |
+|------|-----------|------|---------------------|
+| 全禁 | `\0` | `'\0'` | 匹配一切（所有 channel 所有 event） |
+| channel 级 | `channel\0` | `'chat\0'` | 匹配该 channel 的所有 event |
+| event 级 | `channel\0event` | `'chat\0message'` | 仅匹配该 channel 的该 event |
+
+### 新增事件
+
+```typescript
+interface RoomBuiltinEvents {
+  // 以下为权限系统新增事件（enablePermissions=true 时触发）
+
+  /** 有人被踢出（所有端收到） */
+  'member-kicked': { peerId: string; from: string; reason?: string };
+
+  /** 禁言状态变更（所有端收到）。peerId 为目标用户 ID，全房间禁言时为 '*' */
+  'member-muted': { peerId: string; scope?: MuteScope; from: string };
+  'member-unmuted': { peerId: string; scope?: MuteScope; from: string };
+
+  /** 房主变更（所有端收到） */
+  'host-changed': { prevHost: string; newHost: string };
+
+  /** 管理员变更（所有端收到） */
+  'admin-added': { peerId: string; from: string };
+  'admin-removed': { peerId: string; from: string };
+
+  /** 本地被踢出 */
+  'kicked': { from: string; reason?: string };
+
+  /** 本地被禁言/解禁 */
+  'muted': { scope?: MuteScope; from: string };
+  'unmuted': { scope?: MuteScope; from: string };
+
+  /** 检测到越权广播 */
+  'forbidden-broadcast-detected': { peerId: string; event: string };
+
+  /** 管理员 request 超时 */
+  'request-timeout': { requestId: string; action: string };
+
+  /** 内部错误（所有内部 throwError 均会先 dispatch 此事件再抛出） */
+  'error': RoomErrorEvent;
+
+  /** 管理员 request 最终执行结果（收到 result 报文） */
+  'request-result': RequestResultEvent;
+}
+
+/**
+ * request-result 事件 payload——按 success 做 discriminated union
+ */
+type RequestResultEvent =
+  | { success: true; requestId: string; action: string; target: string; scope?: MuteScope }
+  | { success: false; requestId: string; action: string; target: string; scope?: MuteScope; error: string };
+
+/**
+ * error 事件 payload——按 code 做 discriminated union
+ * TypeScript 可通过 code 字段 narrowing 推导出对应的 payload 形状，类型提示更严谨
+ */
+type RoomErrorEvent =
+  | { code: 'PERMISSION_DISABLED'; error: Error; message: string; context: 'permissions' }
+  | { code: 'PERMISSION_DENIED'; error: Error; message: string; context: 'kick' | 'mute' | 'unmute' | 'addAdmin' | 'removeAdmin' | 'transferHost'; target: string }
+  | { code: 'FORBIDDEN_BROADCAST'; error: Error; message: string; context: 'assertControlPermission'; from: string; eventType: string }
+  | { code: 'MUTED'; error: Error; message: string; context: 'send'; channel?: string; event?: string }
+  | { code: 'ILLEGAL_OPERATION'; error: Error; message: string; context: 'kick' | 'mute' | 'unmute' | 'transferHost' | 'addAdmin' | 'removeAdmin' | 'batch' | 'getMuteState'; target?: string; rawData?: unknown }
+  | { code: 'REQUEST_TIMEOUT'; error: Error; message: string; context: 'request'; requestId: string; action: string }
+  | { code: 'REQUEST_REJECTED'; error: Error; message: string; context: 'request'; requestId: string; action: string; reason: string }
+  | { code: 'REQUEST_ID_CONFLICT'; error: Error; message: string; context: 'requestId' }
+  | { code: 'SYNC_STATE_INVALID'; error: Error; message: string; context: 'syncState'; rawData?: unknown };
+```
+
+### 新增错误类型
+
+新增错误类与现有 `RoomInvalidStateError`、`RoomTimeoutError` 等保持一致的模式，统一放置于 `errors/` 目录并通过 `errors/index.ts` 导出。
+
+```typescript
+/** 权限系统未启用时调用权限 API */
+class RoomPermissionDisabledError extends Error {
+  readonly code = 'PERMISSION_DISABLED';
+}
+
+/** 无写权限（ctrlChannelWritable 为 false） */
+class RoomPermissionDeniedError extends Error {
+  readonly code = 'PERMISSION_DENIED';
+}
+
+/** 被禁言时尝试发送消息 */
+class RoomMutedError extends Error {
+  readonly code = 'MUTED';
+}
+
+/** 操作目标不合法（踢房主、管理员互踢、自解禁等） */
+class RoomIllegalOperationError extends Error {
+  readonly code = 'ILLEGAL_OPERATION';
+}
+
+/** 收到越权广播（发送方无写权限） */
+class RoomForbiddenBroadcastError extends Error {
+  readonly code = 'FORBIDDEN_BROADCAST';
+}
+
+/** 管理员 request ack 超时 */
+class RoomRequestTimeoutError extends Error {
+  readonly code = 'REQUEST_TIMEOUT';
+}
+
+/** 管理员 request 被房主拒绝（ack(success=false)，如权限不足/队列满/校验失败） */
+class RoomRequestRejectedError extends Error {
+  readonly code = 'REQUEST_REJECTED';
+}
+
+/** sync-state 数据校验失败（结构不匹配、字段类型错误等） */
+class RoomSyncStateInvalidError extends Error {
+  readonly code = 'SYNC_STATE_INVALID';
+}
+```
+
+**错误 dispatch 原则**：所有内部 throwError 在抛出前，先 `dispatch('error', payload)`，其中 payload 为 `RoomErrorEvent` 联合类型中的某一项。业务侧可通过 `code` 字段 switch-case 并获得精确的类型推导，无需每个调用点都 try-catch。
+
+```typescript
+// 业务侧使用示例
+room.on('error', (event) => {
+  switch (event.code) {
+    case RoomMutedError.code:
+      // TypeScript 自动推导 event.channel / event.event 可用
+      toast(`发送被拦截：channel=${event.channel}`)
+      break
+    case RoomForbiddenBroadcastError.code:
+      // TypeScript 自动推导 event.from / event.eventType 可用
+      console.warn(`越权广播：${event.from} → ${event.eventType}`)
+      break
+    case RoomRequestTimeoutError.code:
+      // TypeScript 自动推导 event.requestId / event.action 可用
+      toast(`操作超时：${event.action}`)
+      break
+  }
+})
+```
+
+**注意**：`error` 事件**仅本地 dispatch**，不通过 `__room_ctrl__` channel 或任何 DataChannel 传输。Error 对象不可序列化，且错误处理属于本地行为。
+
+### 传输方式：房间管理 channel（`__room_ctrl__`）
+
+权限控制消息通过独立的 `__room_ctrl__` DataChannel 传输，**不走信令服务器**。
+
+**channel 创建方式**：`__room_ctrl__` channel 与默认业务 DataChannel 使用相同的创建方式——由 Offerer 端创建，Answerer 端通过 `ondatachannel` 事件接收。`enablePermissions=true` 时，在创建默认业务 channel 的同一时机额外创建 `__room_ctrl__` channel。
+
+**channel 传输配置**：`__room_ctrl__` channel 使用**可靠有序模式**（`ordered: true`，不设置 `maxRetransmits` / `maxPacketLifeTime`，即默认可靠传输），确保权限控制消息不丢失、不乱序。
+
+**channel 读写模型**：
+- **所有用户**：`enablePermissions=true` 时均建立 `__room_ctrl__` channel，默认只读（仅接收控制消息）
+- **管理员/房主**：拥有写权限，可通过该 channel 发送控制消息
+- **普通用户被提升为管理员**：获得该 channel 的写权限
+- **管理员被移除**：失去该 channel 的写权限（回退为只读）
+
+```typescript
+/**
+ * 房间管理 channel 标识
+ */
+const ROOM_CTRL_CHANNEL = '__room_ctrl__';
+
+/**
+ * 序列化禁言注册表（与 MuteRegistry 结构完全一致，所有字段本身就是 JSON 兼容类型）
+ */
+type SerializedMuteRegistry = MuteRegistry;
+
+/**
+ * 通过 __room_ctrl__ channel 传输的所有消息类型
+ *
+ * 按传输方式分为：
+ * - 广播（房主 → 所有端）：batch（含 kick/mute/unmute/host-transfer/admin-add/admin-remove/sync-state）
+ * - 单播（房主 → 特定管理员）：request-ack、request-result
+ * - 单播（管理员 → 房主）：request
+ */
+type ControlChannelMessage = RoomControlEvent | RequestMessage | RequestAck | RequestResult;
+
+/** 房间控制事件（广播消息，通过 batch 合并广播给所有端） */
+type RoomControlEvent =
+  | { type: 'kick'; target: string; from: string; reason?: string }
+  | { type: 'mute'; target: string; from: string; scope?: MuteScope }
+  | { type: 'unmute'; target: string; from: string; scope?: MuteScope }
+  | { type: 'host-transfer'; prevHost: string; newHost: string; timestamp: number; elapsedSinceDisconnect: number }
+  | { type: 'admin-add'; target: string; from: string }
+  | { type: 'admin-remove'; target: string; from: string }
+  | { type: 'sync-state'; muteRegistry: SerializedMuteRegistry; adminIds: string[]; hostId: string; memberJoinOrder: string[]; kickedPeerIds: string[]; hostCandidates: string[] }
+
+/** 管理员 → 房主的操作请求（单播） */
+interface RequestMessage {
+  type: 'request';
+  requestId: string;        // 唯一标识，仅用于匹配 ack。格式 `${peerId}:${随机串}`，无结构化语义，不做解析
+  action: 'kick' | 'mute' | 'unmute';
+  target: string;
+  scope?: MuteScope;
+  reason?: string;
+}
+
+/** 房主 → 管理员的 ack 响应（表示已接受该 request 进入队列，管理员收到 ack 后队列流转，可发送下一个 request） */
+interface RequestAck {
+  type: 'request-ack';
+  requestId: string;        // 对应 request 的 requestId
+  success: boolean;         // true = 已接受入队；false = 拒绝（权限不足 / 队列满）
+  error?: string;           // success=false 时的拒绝原因
+}
+
+/**
+ * 房主 → 管理员的 result 响应（通知请求的最终执行结果）
+ * 房主从 requestQueue 取出 request 并执行后，向发起该 request 的管理员单播 result 报文。
+ * 管理员据此获得操作最终成功/失败的反馈。
+ */
+interface RequestResult {
+  type: 'request-result';
+  requestId: string;        // 对应 request 的 requestId
+  action: 'kick' | 'mute' | 'unmute';  // 原始请求的 action
+  target: string;           // 原始请求的 target
+  scope?: MuteScope;        // 原始请求的 scope（mute/unmute 时）
+  success: boolean;         // true = 执行成功；false = 执行失败
+  error?: string;           // success=false 时的失败原因（如 requestInterceptor 拒绝、校验失败等）
+}
+```
+
+所有控制消息通过 `__room_ctrl__` channel 传输。所有用户都能接收（只读），仅房主/管理员可发送（写权限）。接收方在 channel 的 message handler 中处理控制消息，不透传给用户事件系统。
+
+**`from` 字段语义**：控制消息中的 `from` 字段含义统一——在广播消息（`RoomControlEvent`）中，`from` 为执行操作的管理员/房主的 peerId；在接收方校验时，`from` 从 `PeerEntry.peerId` 获取（建连时确定的对端身份，不可伪造），两者应一致。`RequestMessage` 中不包含 `from`/`by` 字段，因为房主端通过 `PeerEntry.peerId` 确定发送者身份。
+
+**requestId 生成规则**：格式为 `${localPeerId}:${随机字符串}`，仅用于匹配 ack 响应，不会被解析或拆分。peerId 前缀仅为可读性和调试便利，无结构化语义。若生成的 requestId 与本地已有的 pending request 碰撞（队列内冲突检测），则重新生成随机部分，最多重试 `parameters.requestIdRetryLimit ?? 5` 次；超过重试上限则抛出 `REQUEST_ID_CONFLICT` 错误（此场景在随机字符串长度足够时极不可能发生，属于防御性兜底）。
+
+**管理员串行 request 队列**：管理员本地维护一个串行化的 request 队列（复用 `src/shared/priority-queue` 的入队/出队能力，当前场景所有 request 优先级相同，按入队顺序 FIFO 处理，不使用优先级能力），前一个 request 的 ack 返回或超时后，即可发送下一个 request。**收到 ack 表示队列流转**（房主已接受入队），管理员可继续发送下一个 request。
+
+**待完结缓冲区（awaitingResult）**：管理员收到 `ack(success=true)` 后，该 request 从发送队列移入**待完结缓冲区**（`awaitingResult: RequestMessage[]`）。收到对应 `request-result` 报文后才从缓冲区移除（任务真正完结）。房主变更时（收到 `host-changed` 事件），缓冲区中尚未收到 result 的 request **自动重发给新房主**（重新进入发送队列头部，保持原 requestId，新房主视为新 request 处理）。这保证了 transferHost / 继位场景下管理员的操作不会静默丢失。
+
+**最终执行结果通过 result 报文异步通知**——房主从队列取出 request 并执行后，向发起该 request 的管理员单播 `request-result` 报文，携带原始请求信息和成功/失败原因。支持 `cancelPendingRequests()` 取消所有排队中（尚未发送）的 request，返回 `{ cancelled: RequestMessage[]; inflight: RequestMessage | null }`（cancelled 为被取消的请求列表，inflight 为当前正在等待 ack 的请求，不可取消，无则为 null）。待完结缓冲区通过 `room.awaitingRequests` 只读属性暴露。
+
+**cancelPendingRequests 触发时机**：
+- 管理员被移除（收到 admin-remove 事件且 target === localPeerId）时自动调用，同时销毁 request 队列和待完结缓冲区
+- 用户主动调用（业务侧决定放弃排队中的操作和待完结缓冲区中的请求）
+- 管理员升级为房主时：发送队列中的 pending 请求 + 待完结缓冲区中的请求，统一移入房主端 requestQueue 作为待处理项（因为此时自己就是执行者，绕过 requestInterceptor，但按**新角色（host）的权限**进行目标合法性校验——升级后权限层级提升，原先作为 admin 不可执行的操作在成为 host 后可能变为合法）
+- 管理员降级（被 removeAdmin）后：自动调用 cancelPendingRequests + 销毁 request 队列和待完结缓冲区
+
+**房主端 request 队列**：房主本地维护一个 FIFO 队列（复用 `src/shared/priority-queue` 的入队/出队能力，当前场景不使用优先级能力），用于缓存已收到的 request。队列容量上限由 `parameters.maxPendingRequests`（默认 64）控制，超限时立即回复 `ack(success=false, error='queue full')`。房主收到 request 后校验写权限和队列容量，通过则回复 `ack(success=true)` 并将 request 入队，逐个从队列取出处理（调用 requestInterceptor → 校验 → 执行）。仅房主端初始化此队列，非房主不创建，避免不必要开销。transferHost 时旧房主销毁 requestQueue（清空残留 request，不回复 result——管理员端通过待完结缓冲区的 host-changed 重发机制恢复），新房主初始化 requestQueue。
+
+**管理员端 host-changed 重发机制**：管理员收到 `host-changed` 事件时，检查本地待完结缓冲区（awaitingResult）中是否有未收到 result 的 request。若有，将这些 request **自动重新入队到发送队列头部**（保持原 requestId），向新房主重发。新房主视为全新 request 处理（校验 + ack + 入队 + 执行）。若新房主回复 `ack(success=false)`（如权限已变更），管理员正常处理错误。
+
+**管理员升级为房主的完整流程**（transferHost 使当前管理员成为新房主，或竞赛式继位胜出时）：
+1. 收集本地管理员队列状态：发送队列中的 pending 请求 + 待完结缓冲区（awaitingResult）中未收到 result 的请求
+2. 销毁管理员端 request 队列和待完结缓冲区
+3. 初始化房主端 requestQueue
+4. 将步骤 1 收集的所有请求统一移入房主端 requestQueue 作为待处理项（标记 `from = localPeerId`）
+5. 房主处理这些 self request 时：**绕过 requestInterceptor**，但按**新角色（host）的权限**进行目标合法性校验 → 执行。升级后权限层级提升，原先作为 admin 不可执行的操作（如踢其他管理员）在成为 host 后变为合法，这是 by design 的——待处理请求以**执行时刻的角色权限**为准
+
+## 内部实现
+
+### 房主协商（组网自动产生）
+
+```text
+performJoin 完成后（仅 switches.enablePermissions === true 时执行）:
+  0. assertPermissionsEnabled()（前置开关断言）
+  1. 建立 __room_ctrl__ DataChannel（所有用户均建立，默认只读）
+  2. roomSignaling.join 返回 existingMembers
+  3. 若 existingMembers 为空（无人在房间）→ 本地为第一个进房 → 自动成为房主:
+     ctx.hostId = localPeerId
+     ctx.adminIds.push(localPeerId)
+     ctx.ctrlChannelWritable = true（房主获得写权限）
+     若 switches.defaultRoomMute === true:
+       ctx.muteRegistry.room = { rules: ['\0'], exemptions: [] }
+  4. 若 existingMembers 非空 → 等待房主通过 __room_ctrl__ channel 下发 sync-state
+
+注意：hostId 初始可为空字符串，收到 sync-state 后填充。
+
+defaultRoomMute 生效时机说明：
+  - 仅在**房主首次创建房间**时生效（步骤 3 中处理）
+  - 后续加入的用户通过 sync-state 接收 muteRegistry（已包含全房间禁言状态），无需额外处理
+  - 所有成员离开后房间自动销毁；后续以相同 roomId 加入视为**全新房间**，
+    新房间的首任房主会重新应用 defaultRoomMute 配置（全新的房主协商、空的状态）
+  - 即：defaultRoomMute 在每次房间从零创建时都会生效，不限于"首次使用该 roomId"
+
+房主进入后立即触发 sync-state 广播（新 peer 连接时房主自动下发），
+其余端通过 sync-state 接收到 muteRegistry 即包含全房间禁言状态，无需额外处理。
+
+房间关闭语义：所有成员离开后房间自动关闭销毁，不存在重新进入旧房间的可能。
+即使后续有用户以相同 roomId 加入，也视为一个全新的房间（全新的房主协商、空的状态）。
+```
+
+### 新增 RoomContext 字段
+
+```typescript
+interface RoomContext {
+  // 以下为权限系统新增字段（enablePermissions=true 时初始化）
+  // 所有源状态字段均使用 JSON 兼容类型（string[] / Record），便于序列化和 sync-state 传输
+
+  // ── 源状态（由 sync-state 覆盖） ──
+  hostId: string;
+  /** 管理员列表（含房主） */
+  adminIds: string[];
+  /** 禁言注册表（两层结构：room 层 + users 层） */
+  muteRegistry: MuteRegistry;
+  /** 按加入顺序记录成员（数组保持插入顺序） */
+  memberJoinOrder: string[];
+  /** 被踢用户缓存（阻止断线重连绕过 kick，房间生命周期内有效） */
+  kickedPeerIds: string[];
+  /** 房主候选列表（房主端生成，按优先级排序，用于竞赛式继位） */
+  hostCandidates: string[];
+  /** 行为开关 */
+  readonly switches: RoomSwitches;
+
+  // ── 房主端 request 队列（仅 isHost 时初始化，非房主不创建，避免不必要开销） ──
+
+  /**
+   * 房主端待处理 request 队列（复用 `src/shared/priority-queue`，仅使用入队/出队能力，无优先级需求）
+   * 按接收顺序 FIFO 处理，房主逐个从队列取出并执行
+   * 仅在 isHost === true 时初始化，transferHost 时旧房主销毁、新房主初始化
+   */
+  requestQueue?: PriorityQueue<RequestMessage & { from: string }>;
+
+  // ── 派生状态（getter + 缓存，sync-state 后清缓存） ──
+
+  /**
+   * 本地 peer 是否拥有 __room_ctrl__ channel 写权限（getter）
+   * 计算逻辑：adminIds.includes(localPeerId) && !checkMute(ctx, localPeerId, '__room_ctrl__')
+   * host 永远为 true（免疫禁言）
+   * 注意：__room_ctrl__ 仅在用户层具名匹配，房间层的全禁标记不影响该 channel
+   */
+  readonly ctrlChannelWritable: boolean;
+
+  /**
+   * 本地 peer 是否为房主（getter）
+   * 计算逻辑：hostId === localPeerId
+   */
+  readonly isHost: boolean;
+
+  /**
+   * 本地 peer 是否有管理权限（getter）
+   * 计算逻辑：adminIds.includes(localPeerId)
+   */
+  readonly hasAdminPermission: boolean;
+}
+```
+
+**派生状态缓存机制**：
+
+```text
+所有 getter 采用统一的缓存策略：
+  - 首次读取时计算并缓存结果
+  - 收到 sync-state 后清除所有派生状态缓存
+  - 下次读取时重新计算并缓存
+
+invalidateCache():
+  清除 ctrlChannelWritable / isHost / hasAdminPermission 的缓存值
+  （在 sync-state 处理完成后调用）
+
+ctrlChannelWritable getter:
+  if (cache.ctrlChannelWritable !== undefined) return cache.ctrlChannelWritable
+  if (localPeerId === ctx.hostId) → cache = true（host 永远可写）
+  else → cache = adminIds.includes(localPeerId) && !checkMute(ctx, localPeerId, '__room_ctrl__')
+  return cache.ctrlChannelWritable
+```
+
+### 前置开关断言
+
+所有权限和角色相关的逻辑（API 调用、事件处理）在入口处统一断言开关：
+
+```text
+function assertPermissionsEnabled(ctx):
+  if (!ctx.switches.enablePermissions):
+    const err = new RoomPermissionDisabledError('权限系统未启用')
+    dispatch('error', { error: err, code: 'PERMISSION_DISABLED', message: '权限系统未启用', context: 'permissions' })
+    throwError('permissions', '权限系统未启用，请设置 switches.enablePermissions = true', RoomPermissionDisabledError)
+```
+
+### 越权广播检测（断言模式，全局守卫）
+
+`__room_ctrl__` channel 收到消息时统一断言写权限：
+
+```text
+function assertControlPermission(ctx, from, eventType):
+  // 前置：断言权限系统已启用
+  assertPermissionsEnabled(ctx)
+
+  // 空窗期特殊豁免：hostId 为空时允许 host-transfer 事件通过（竞赛式继位场景）
+  // 此时由 tiebreaker 逻辑负责校验合法性，不在全局守卫中拦截
+  if (ctx.hostId === '' && eventType === 'host-transfer'):
+    return  // 放行，后续由 host-transfer handler 中的 tiebreaker 校验
+
+  // 确定所需权限级别
+  requiredLevel = getRequiredPermissionLevel(eventType)
+    - 'host-transfer' | 'admin-add' | 'admin-remove' → 'host'
+    - 其余 → 'admin'
+
+  // 断言写权限
+  if (requiredLevel === 'host' && from !== ctx.hostId):
+    → 越权！
+  if (requiredLevel === 'admin' && !ctx.adminIds.includes(from)):
+    → 越权！
+
+  // 越权处理（断言失败）:
+  1. dispatch('forbidden-broadcast-detected', { peerId: from, event: eventType })
+  2. const err = new RoomForbiddenBroadcastError(...)
+     dispatch('error', { code: 'FORBIDDEN_BROADCAST', error: err, message: '...', context: 'assertControlPermission', from, eventType })
+  3. if (switches.autoDisconnectOnForbiddenBroadcast !== false):
+       dispose 与 from 的 controller + 从 peers 移除
+  4. throwError（RoomForbiddenBroadcastError，阻断后续一切逻辑，调用方无需重复处理）
+```
+
+**关键**：断言失败直接 throw，后续 handler 代码不会执行。外部无需 if-else 判断合法性，降低圈复杂度。
+
+### performLeave（离开房间）
+
+`performLeave` 是纯本地操作，用于断开所有 P2P 连接并清理本地状态。被 kick 时由 target 端调用，也可由用户主动离开时调用。
+
+```text
+performLeave():
+  1. 断开所有 P2P 连接（close 所有 PeerConnection + DataChannel）
+  2. 清理本地状态（peers、memberJoinOrder、muteRegistry、hostId 等归零）
+  3. 销毁 requestQueue（若存在）+ 清空 awaitingResult 缓冲区
+  4. 清除竞选计时器（若存在）
+  5. dispatch('left')（本地事件，通知业务层）
+```
+
+**关键特性**：
+- **不发送任何消息**：不通过 `__room_ctrl__` channel 或任何 DataChannel 发送消息，因此**无需禁言检测**
+- **不广播 `member-left`**：其他端通过底层连接断开事件（ICE disconnected / DataChannel close）自行检测该 peer 离开
+- **被 kick 时调用**：target 收到 kick 事件后调用 `performLeave()`，效果等同主动离开
+- **主动离开时调用**：用户调用 `room.leave()` 时内部委托给 `performLeave()`
+
+### kick 流程
+
+```text
+房主/管理员调用 kick(targetPeerId, reason):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.ctrlChannelWritable === true（无写权限则报错）
+  2. 房主免疫：target === hostId → 报错（房主不可被踢）
+  3. 管理员互踢防护：target 在 adminIds 中 且 localPeerId !== hostId → 报错
+  4. 若 localPeerId === hostId（房主直接执行）:
+     a. 从 ctx.memberJoinOrder 中移除 targetPeerId
+     b. ctx.kickedPeerIds.push(targetPeerId)
+        // 注意：必须在广播之前更新缓存，防止 target 在广播送达前断线重连绕过检测
+        // 重连校验只在房主端执行，其他端的 kickedPeerIds 副本仅用于本地状态一致性，不参与重连拦截决策
+     c. 广播给所有已连接 peer（含 target）:
+        { type: 'batch', events: [{ type: 'kick', target, from: localPeerId, reason }, { type: 'sync-state', ...payload }] }
+     d. dispose target 对应 peer 的 controller + 从 peers 移除
+     e. dispatch('member-kicked', { peerId: target, from: localPeerId, reason })
+  5. 若 localPeerId !== hostId（管理员向房主发送请求）:
+     将 request 加入本地串行队列（前一个 request 的 ack 返回或超时后即可发送下一个）
+     通过 __room_ctrl__ channel 发送给房主: { type: 'request', requestId, action: 'kick', target, reason }
+     等待 ack 响应（超时时间 = parameters.requestTimeout ?? 5000ms，超时则 dispatch('request-timeout', { requestId, action }) + throwError）
+     收到 ack 后队列流转（允许发送下一个 request）。最终执行结果通过 result 报文异步通知
+
+房主收到 request(action=kick) 消息:
+  注意：from 从 PeerEntry.peerId 获取（建连时确定的对端身份），是唯一可信的发送者标识
+  1. 校验 from 的 ctrlChannelWritable（断言写权限）
+  2. 若写权限校验失败 → 回复 ack: { type: 'request-ack', requestId, success: false, error: '无写权限' }
+  3. 断言队列未满: requestQueue.size >= maxPendingRequests → 回复 ack: { type: 'request-ack', requestId, success: false, error: 'queue full' }
+  4. 写权限校验通过且队列未满 → 回复 ack: { type: 'request-ack', requestId, success: true }（表示已接受）
+  5. 将 request（附带 from）加入房主端 requestQueue
+  6. 从队列取出处理时：
+     a. 调用 requestInterceptor（外部卡点，默认通过）
+     b. 若卡点拒绝 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'kick', target, success: false, error: '拦截器拒绝: ...' }
+     c. 校验 target 合法性（不可踢房主、管理员不可踢管理员等）
+     d. 若校验失败 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'kick', target, success: false, error: '校验失败: ...' }
+     e. 校验通过 → 执行 kick 操作:
+        - 从 ctx.memberJoinOrder 中移除 targetPeerId
+        - ctx.kickedPeerIds.push(targetPeerId)
+        - 广播给所有已连接 peer（含 target）: { type: 'batch', events: [{ type: 'kick', target, from, reason }, { type: 'sync-state', ...payload }] }
+        - dispose target 的 controller + 从 peers 移除
+        - 单播 result 给发起管理员:
+          { type: 'request-result', requestId, action: 'kick', target, success: true }
+        - dispatch('member-kicked', { peerId: target, from, reason })
+
+target 收到 batch 中的 kick 事件（target === localPeerId）:
+  1. dispatch('kicked', { from, reason }) + performLeave()
+  注意：performLeave() 仅断开所有 P2P 连接并清理本地状态，不通过任何 channel 发送消息，因此无需禁言检测
+
+其他端收到 batch 消息:
+  按序处理 events 数组中的每个事件（kick → sync-state）
+
+收到 kick 事件（非 target）:
+  主动断开与 target 的连接 + 移除 target peer entry + dispatch('member-kicked', { peerId, from, reason })
+  （源状态如 memberJoinOrder 由后续 sync-state 统一覆盖，无需手动操作）
+
+管理员收到 request-result 消息:
+  1. 根据 requestId 匹配本地已发送的 request（若匹配不到则忽略）
+  2. 若 success === true → dispatch('request-result', { success: true, requestId, action, target, scope })
+  3. 若 success === false → dispatch('request-result', { success: false, requestId, action, target, scope, error })
+```
+
+#### kick 时序图
+
+**房主直接 kick：**
+
+```mermaid
+sequenceDiagram
+  participant Host as 房主
+  participant Target as 被踢用户
+  participant Others as 其他端（含 Admin）
+
+  Host->>Host: kick(target) — 校验权限、更新 memberJoinOrder/kickedPeerIds
+  Host->>Target: batch [kick, sync-state]（广播）
+  Host->>Others: batch [kick, sync-state]（广播）
+  Host->>Host: dispose target controller
+  Target->>Target: dispatch('kicked') + performLeave()
+  Others->>Others: 断开与 target 的连接 + dispatch('member-kicked')
+  Others->>Others: sync-state 覆盖源状态
+```
+
+**管理员 request kick（两阶段：ack + result）：**
+
+```mermaid
+sequenceDiagram
+  participant Admin as 管理员
+  participant Host as 房主
+  participant Target as 被踢用户
+  participant Others as 其他端
+
+  Admin->>Host: request { action: 'kick', target, requestId }
+  Host->>Host: 校验写权限 + 队列容量
+  Host->>Admin: request-ack { requestId, success: true }
+  Note over Admin: ack 收到，队列流转，可发下一个 request
+  Note over Admin: request 移入 awaitingResult 缓冲区
+  Host->>Host: 从 requestQueue 取出 → requestInterceptor → 校验 → 执行
+  Host->>Target: batch [kick, sync-state]（广播）
+  Host->>Others: batch [kick, sync-state]（广播）
+  Host->>Admin: request-result { requestId, success: true }
+  Note over Admin: 从 awaitingResult 移除，dispatch('request-result')
+  Target->>Target: dispatch('kicked') + performLeave()
+  Others->>Others: 断开与 target 的连接 + sync-state 覆盖
+```
+
+### mute 流程
+
+```text
+房主/管理员调用 mute(targetPeerId, scope?):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.ctrlChannelWritable === true（无写权限则报错）
+  2. 目标确定:
+     - targetPeerId === '*' → 操作房间层（room）
+     - 其他值 → 操作用户层（users[target]）
+  3. 权限层级校验（host → admin → user 单向管理链）：
+     - target !== '*' 且 target === hostId → 报错（房主不可被禁言）
+     - target !== '*' 且 adminIds.includes(target) 且 localPeerId !== hostId → 报错（管理员不可禁言其他管理员，仅房主可操作管理员）
+  4. __room_ctrl__ channel 禁言权限校验：
+     - scope.channel === '__room_ctrl__' 且 localPeerId !== hostId → 报错（仅房主可禁言管理 channel）
+  5. 若 localPeerId === hostId（房主直接执行）:
+     a. 更新本地 muteRegistry:
+        ruleKey = buildTarget(scope?.channel, scope?.event)
+        若 target === '*'（操作房间层）:
+          - scope 未传 → room.rules = ['\0'], room.exemptions = []（全禁，清空豁免）
+          - 传 scope → 若 room.rules 不含 ruleKey 则 push；移除 room.exemptions 中被 ruleKey 覆盖的条目（startsWith）
+        若 target !== '*'（操作用户层）:
+          userRuleSet = ensureUserRuleSet(ctx.muteRegistry.users, target)
+          - scope 未传 → userRuleSet.rules = ['\0'], userRuleSet.exemptions = []
+          - 传 scope → 若 userRuleSet.rules 不含 ruleKey 则 push；移除 userRuleSet.exemptions 中被 ruleKey 覆盖的条目
+     b. 合并广播: { type: 'batch', events: [{ type: 'mute', target, from: localPeerId, scope }, { type: 'sync-state', ...payload }] }
+     c. dispatch('member-muted', { peerId: target, scope, from: localPeerId })
+  6. 若 localPeerId !== hostId（管理员向房主发送请求）:
+     将 request 加入本地串行队列（前一个 request 的 ack 返回或超时后即可发送下一个）
+     通过 __room_ctrl__ channel 发送给房主: { type: 'request', requestId, action: 'mute', target, scope }
+     等待 ack 响应（超时时间 = parameters.requestTimeout ?? 5000ms，超时则 dispatch('request-timeout', { requestId, action }) + throwError）
+     收到 ack 后队列流转（允许发送下一个 request）。最终执行结果通过 result 报文异步通知
+
+房主收到 request(action=mute) 消息:
+  注意：from 从 PeerEntry.peerId 获取（建连时确定的对端身份）
+  1. 校验 from 的 ctrlChannelWritable（断言写权限）
+  2. 若写权限校验失败 → 回复 ack: { type: 'request-ack', requestId, success: false, error: '无写权限' }
+  3. 断言队列未满: requestQueue.size >= maxPendingRequests → 回复 ack: { type: 'request-ack', requestId, success: false, error: 'queue full' }
+  4. 写权限校验通过且队列未满 → 回复 ack: { type: 'request-ack', requestId, success: true }（表示已接受）
+  5. 将 request（附带 from）加入房主端 requestQueue
+  6. 从队列取出处理时：
+     a. 调用 requestInterceptor（外部卡点，默认通过）
+     b. 若卡点拒绝 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'mute', target, scope, success: false, error: '拦截器拒绝: ...' }
+     c. 校验目标合法性（不可禁言房主、管理员不可禁言管理员、__room_ctrl__ 禁言仅房主可操作等）
+     d. 若校验失败 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'mute', target, scope, success: false, error: '校验失败: ...' }
+     e. 校验通过 → 执行 mute 操作:
+        - 更新本地 muteRegistry（同步骤 5a）
+        - 合并广播给所有端: { type: 'batch', events: [{ type: 'mute', target, from, scope }, { type: 'sync-state', ...payload }] }
+        - 单播 result 给发起管理员:
+          { type: 'request-result', requestId, action: 'mute', target, scope, success: true }
+        - dispatch('member-muted', { peerId: target, scope, from })
+
+非房主端收到 mute 事件（通过 batch）:
+  1. 仅 dispatch 事件，不操作 muteRegistry 等源状态（由后续 sync-state 统一覆盖）
+  2. 被禁言方（target === localPeerId 或 target === '*' 且受影响）:
+     dispatch('muted', { scope, from })
+  3. 其他方 dispatch('member-muted', { peerId, scope, from })
+
+发送拦截（本地被禁言时）:
+  broadcast/send/broadcastTo/sendTo/sendRaw/broadcastRaw 在发送前:
+    isMuted = checkMute(ctx, localPeerId, channelLabel, eventName)
+    if (isMuted):
+      throwError('send', 'muted: ...', RoomMutedError)
+
+注意：channel 禁言仅影响写权限（发送拦截），消息接收不受影响。
+被禁言用户仍能正常接收该 channel 的消息。
+```
+
+禁言匹配逻辑（`checkMute`）：
+
+```text
+checkMute(ctx, peerId, channel?, event?):
+  // host 永远免疫
+  if (peerId === ctx.hostId) return false
+
+  // __room_ctrl__ 特殊处理：仅用户级具名匹配，跳过 room 层
+  if (channel === '__room_ctrl__'):
+    userRuleSet = ctx.muteRegistry.users[peerId]
+    if (!userRuleSet) return false
+    target = buildTarget('__room_ctrl__', event)
+    return matchRuleSet(userRuleSet, target)
+
+  target = buildTarget(channel, event)
+
+  // 第一优先级：用户层（细粒度高 → 优先级高）
+  userRuleSet = ctx.muteRegistry.users[peerId]
+  if (userRuleSet):
+    userResult = evaluateRuleSet(userRuleSet, target)
+    if (userResult !== 'no_match'):
+      // 用户层有明确结论（禁言 or 豁免）→ 直接返回，不看房间层
+      return userResult === 'muted'
+
+  // 第二优先级：房间层（仅在用户层无匹配时才看）
+  if (ctx.switches.roomMuteAffectsAdmin || !ctx.adminIds.includes(peerId)):
+    return matchRuleSet(ctx.muteRegistry.room, target)
+
+  return false
+
+/**
+ * 规则粒度等级（数值越大 = 粒度越细 = 优先级越高）
+ * - 全禁（'\0'）= 0
+ * - channel 级（'channel\0'，以 \0 结尾）= 1
+ * - event 级（'channel\0event'，含 \0 但不以 \0 结尾）= 2
+ */
+getRuleGranularity(rule: string): 0 | 1 | 2
+  if (rule === MUTE_SEP): return 0               // 全禁标记
+  if (rule.endsWith(MUTE_SEP)): return 1         // channel 级（以 \0 结尾）
+  return 2                                        // event 级（含 \0 但不以 \0 结尾）
+
+/**
+ * 三态评估（用于用户层）
+ * 返回 'muted' | 'exempt' | 'no_match'
+ *
+ * 核心原则：禁言规则和豁免规则是**同级**的，分别独立匹配后比较粒度优先级。
+ * 粒度判断基于规则结构（是否含 event、是否以 \0 结尾），而非字符串长度。
+ * - event 级（粒度 2）> channel 级（粒度 1）> 全禁级（粒度 0）
+ * - 同等粒度时豁免优先（防御性设计：宁可漏禁不可误禁）
+ */
+evaluateRuleSet(ruleSet: MuteRuleSet, target: string):
+  // 分别找到最高粒度的匹配规则和匹配豁免
+  matchedRule = findHighestGranularityMatch(ruleSet.rules, target)
+  matchedExemption = findHighestGranularityMatch(ruleSet.exemptions, target)
+
+  if (!matchedRule && !matchedExemption): return 'no_match'
+  if (matchedRule && !matchedExemption): return 'muted'
+  if (!matchedRule && matchedExemption): return 'exempt'
+
+  // 两者都匹配时，比较粒度等级
+  ruleGranularity = getRuleGranularity(matchedRule)
+  exemptionGranularity = getRuleGranularity(matchedExemption)
+  if (ruleGranularity > exemptionGranularity): return 'muted'
+  if (exemptionGranularity > ruleGranularity): return 'exempt'
+  // 同等粒度时豁免优先
+  return 'exempt'
+
+/**
+ * 在规则列表中找到粒度最高的前缀匹配项
+ * 返回匹配到的规则字符串，无匹配返回 null
+ *
+ * 粒度判断通过 getRuleGranularity（基于规则结构），而非字符串长度——
+ * 避免 channel 名过长时（如 'very-long-channel-name\0'）误判为比短 event 规则更高优先级
+ */
+findHighestGranularityMatch(rules: string[], target: string): string | null
+  matched = rules.filter(rule => target.startsWith(rule))
+  if (matched.length === 0): return null
+  return matched.reduce((best, cur) =>
+    getRuleGranularity(cur) > getRuleGranularity(best) ? cur : best
+  )
+
+/**
+ * 二态匹配（用于房间层）
+ * 复用 evaluateRuleSet 保证逻辑一致性
+ */
+matchRuleSet(ruleSet: MuteRuleSet, target: string): boolean
+  return evaluateRuleSet(ruleSet, target) === 'muted'
+```
+
+### unmute 流程
+
+```text
+房主/管理员调用 unmute(targetPeerId, scope?):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.ctrlChannelWritable === true（无写权限则报错）
+  2. 权限层级校验（host → admin → user 单向管理链）：
+     - target !== '*' 且 target === hostId → 报错（房主不可被解禁——房主本身免疫禁言，解禁无意义，明确拒绝避免产生无效广播）
+     - target === localPeerId 且 localPeerId !== hostId → 报错（admin 不可自解禁）
+     - adminIds.includes(target) 且 localPeerId !== hostId → 报错（管理员不可解禁其他管理员，仅房主可操作管理员）
+  3. __room_ctrl__ channel 解禁权限校验：
+     - scope.channel === '__room_ctrl__' 且 localPeerId !== hostId → 报错（仅房主可操作管理 channel 的禁言）
+  4. 目标确定:
+     - targetPeerId === '*' → 操作房间层（room）
+     - 其他值 → 操作用户层（users[target]）
+  5. 若 localPeerId === hostId（房主直接执行）:
+     a. 更新 muteRegistry:
+        ruleKey = buildTarget(scope?.channel, scope?.event)
+        若 target === '*'（操作房间层）:
+          - scope 未传 → room.rules = [], room.exemptions = []（清空整个房间层，全部解禁）
+          - 传 scope → 查找 room.rules 中是否有精确匹配 ruleKey 的规则：
+            - 有精确规则 → 直接删除（真正解禁）
+            - 无精确规则但被更粗粒度规则覆盖（room.rules.some(rule => ruleKey.startsWith(rule))）→ 添加 ruleKey 到 room.exemptions（bypass）
+        若 target !== '*'（操作用户层）:
+          userRuleSet = ctx.muteRegistry.users[target]
+          若 userRuleSet 不存在 → 无操作，return
+          - scope 未传 → delete ctx.muteRegistry.users[target]（清空该用户整个规则集）
+          - 传 scope → 查找 userRuleSet.rules 中是否有精确匹配 ruleKey 的规则：
+            - 有精确规则 → 直接删除
+            - 无精确规则但被更粗规则覆盖 → 添加 ruleKey 到 userRuleSet.exemptions
+          - 若规则集为空（rules.length === 0 && exemptions.length === 0）→ delete ctx.muteRegistry.users[target]（清理空条目）
+     b. 合并广播: { type: 'batch', events: [{ type: 'unmute', target, from: localPeerId, scope }, { type: 'sync-state', ...payload }] }
+     c. dispatch('member-unmuted', { peerId: target, scope, from: localPeerId })
+  6. 若 localPeerId !== hostId（管理员向房主发送请求）:
+     将 request 加入本地串行队列（前一个 request 的 ack 返回或超时后即可发送下一个）
+     通过 __room_ctrl__ channel 发送给房主: { type: 'request', requestId, action: 'unmute', target, scope }
+     等待 ack 响应（超时时间 = parameters.requestTimeout ?? 5000ms，超时则 dispatch('request-timeout', { requestId, action }) + throwError）
+     收到 ack 后队列流转（允许发送下一个 request）。最终执行结果通过 result 报文异步通知
+
+房主收到 request(action=unmute) 消息:
+  注意：from 从 PeerEntry.peerId 获取（建连时确定的对端身份）
+  1. 校验 from 的 ctrlChannelWritable（断言写权限）
+  2. 若写权限校验失败 → 回复 ack: { type: 'request-ack', requestId, success: false, error: '无写权限' }
+  3. 断言队列未满: requestQueue.size >= maxPendingRequests → 回复 ack: { type: 'request-ack', requestId, success: false, error: 'queue full' }
+  4. 写权限校验通过且队列未满 → 回复 ack: { type: 'request-ack', requestId, success: true }（表示已接受）
+  5. 将 request（附带 from）加入房主端 requestQueue
+  6. 从队列取出处理时：
+     a. 调用 requestInterceptor（外部卡点，默认通过）
+     b. 若卡点拒绝 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'unmute', target, scope, success: false, error: '拦截器拒绝: ...' }
+     c. 校验合法性（自解禁防护、管理员不可解禁管理员、__room_ctrl__ 解禁仅房主可操作等）
+     d. 若校验失败 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action: 'unmute', target, scope, success: false, error: '校验失败: ...' }
+     e. 校验通过 → 执行 unmute 操作:
+        - 更新 muteRegistry（同步骤 5a）
+        - 合并广播给所有端: { type: 'batch', events: [{ type: 'unmute', target, from, scope }, { type: 'sync-state', ...payload }] }
+        - 单播 result 给发起管理员:
+          { type: 'request-result', requestId, action: 'unmute', target, scope, success: true }
+        - dispatch('member-unmuted', { peerId: target, scope, from })
+```
+
+### transferHost 流程
+
+```text
+房主调用 transferHost(targetPeerId):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.isHost === true（仅房主可转让）
+  2. prevHost = ctx.hostId
+  3. 原子操作（以下步骤不可分割）:
+     a. 从 ctx.adminIds 中移除 prevHost（移除旧房主的管理员身份，旧房主降级为普通用户）
+     b. ctx.hostId = targetPeerId
+     c. ctx.adminIds.push(targetPeerId)（新房主加入管理员）
+     d. 销毁旧房主 requestQueue：清空队列中所有残留 request（这些 request 的 ack 已在入队前回复过，无需再通知管理员），
+        然后置空 ctx.requestQueue
+  4. 旧房主禁言立即生效：muteRegistry 中已有的针对 prevHost 的禁言条目，
+     转让后 prevHost 不再享有 host 免疫，这些条目立即生效（checkMute 自然命中）
+  5. 合并广播: { type: 'batch', events: [{ type: 'host-transfer', prevHost, newHost, timestamp: Date.now(), elapsedSinceDisconnect: 0 }, { type: 'sync-state', ...payload }] }
+     // 注意：transferHost 是房主主动转让，非竞赛继位，timestamp 和 elapsedSinceDisconnect 仅用于类型一致性，接收方通过 prevHost === ctx.hostId 判断合法性，不走 tiebreaker
+  6. invalidateCache()
+  7. dispatch('host-changed', { prevHost, newHost })
+
+注意：新房主的 requestQueue 初始化不在旧房主的原子操作中——新房主收到 sync-state 后，
+在 sync-state 处理逻辑的第 3 步中检测到 isHost === true 且 requestQueue 未初始化，
+此时自动初始化 requestQueue。详见「状态同步与合并广播」中 sync-state 处理逻辑。
+
+非房主端收到 host-transfer 事件（通过 batch）:
+  1. 校验 prevHost === ctx.hostId（防止伪造，不匹配则忽略该事件）
+  2. 临时更新本地 hostId: ctx.hostId = newHost（使后续 sync-state 的 from 校验能通过）
+  3. dispatch('host-changed', { prevHost, newHost })
+  （完整源状态由后续 sync-state 统一覆盖）
+```
+
+### 候选列表生成
+
+房主端在以下时机重新计算 `hostCandidates` 并通过 sync-state 同步：
+
+- 成员变动（peer-connected / member-left / kick）
+- 管理员变动（addAdmin / removeAdmin）
+
+```text
+computeHostCandidates():
+  maxLen = parameters.maxCandidates ?? (ctx.memberJoinOrder.length - 1)
+
+  // 收集有效候选者：排除房主自身 + 排除被禁言 __room_ctrl__ channel 的用户
+  eligible = ctx.memberJoinOrder.filter(peerId =>
+    peerId !== ctx.hostId &&
+    !checkMute(ctx, peerId, '__room_ctrl__')
+  )
+
+  // 排序策略：管理员优先 → 按 memberJoinOrder 顺序
+  admins = eligible.filter(id => ctx.adminIds.includes(id))
+  nonAdmins = eligible.filter(id => !ctx.adminIds.includes(id))
+  sorted = [...admins, ...nonAdmins]
+
+  // 截取前 maxLen 个
+  return sorted.slice(0, maxLen)
+```
+
+### 房主离开自动继位（竞赛式）
+
+```text
+检测到 hostId 对应的 peer 已离开（member-left 事件触发）:
+  1. 所有 peer 立即进入「房主空窗期」:
+     prevHost = ctx.hostId
+     ctx.hostId = ''（置空）
+     disconnectTimestamp = Date.now()（记录房主断连时刻，用于后续 tiebreaker 校验）
+     invalidateCache()
+     dispatch('host-changed', { prevHost, newHost: '' })
+     注意：空窗期内所有本地管理请求（kick/mute/unmute/addAdmin/removeAdmin/transferHost）
+     进入本地缓冲区（不发出），待房主正式确认后按序发出
+
+  2. 各 peer 检查自己是否在 hostCandidates 中:
+     myIndex = ctx.hostCandidates.indexOf(localPeerId)
+     if (myIndex === -1) → 不参与竞选，等待继任广播
+
+  3. 候选者启动竞选计时器:
+     delay = myIndex * (parameters.successionDelay ?? 3000)
+     // index=0 的候选者 delay=0，立即执行 performSuccession（不等待）
+     successionTimer = setTimeout(delay, performSuccession)
+
+  4. performSuccession（竞选计时器到期，执行继位声明）:
+     now = Date.now()
+     elapsed = now - disconnectTimestamp（房主断连到发出声明的时间）
+     a. ctx.hostId = localPeerId
+     b. ctx.adminIds.push(localPeerId)（新房主加入管理员）
+     c. 初始化 requestQueue
+     d. 处理本地缓冲区中的挂起请求（作为新房主直接执行）
+     e. 重新计算: ctx.hostCandidates = computeHostCandidates()
+     f. ctx.memberJoinOrder = ctx.memberJoinOrder.filter(id => id !== prevHost)
+     g. invalidateCache()
+     h. 合并广播: { type: 'batch', events: [
+          { type: 'host-transfer', prevHost, newHost: localPeerId, timestamp: now, elapsedSinceDisconnect: elapsed },
+          buildSyncStatePayload()
+        ] }
+     i. dispatch('host-changed', { prevHost, newHost: localPeerId })
+
+  5. 收到其他候选者的 host-transfer 广播时:
+     先进行合法性校验（见下方 tiebreaker 规则），通过后再 clearTimeout(successionTimer)
+     后续由 batch handler 中的 host-transfer + sync-state 逻辑统一处理
+
+tiebreaker 规则（收到 host-transfer 时的合法性校验）:
+  收到 host-transfer 事件后：
+    1. **时序合法性校验**：计算 newHost 在旧 hostCandidates 中的 index（记为 senderIndex），
+       判断 `payload.elapsedSinceDisconnect >= senderIndex * successionDelay`：
+       - 若不满足 → 该候选者在其合法窗口期之前就发出了声明，视为**越权广播**：
+         dispatch('forbidden-broadcast-detected', { peerId: newHost, event: 'host-transfer' })
+         断开与该越权用户的所有连接（走越权广播处理流程）
+         不停止本地竞选计时
+       - 若满足 → 继续下一步
+    2. **优先级比较**（本地 hostId 已非空，即已有继任者——此分支仅发生在连续收到多个 host-transfer 时，此时本地竞选计时器已被首次接受时 clear，不存在"不停止计时"的情况）：
+       比较两个 host-transfer 的 **elapsedSinceDisconnect**（从检测到断连到发出声明的响应时间）：
+       - 若新收到的 host-transfer 的 elapsedSinceDisconnect 更小 → 接受（响应更快，覆盖本地 hostId）
+       - 否则 → 忽略（当前继任者响应更快）
+       - 相等时比较 hostCandidates 中的 index，index 更小者优先（确定性兜底）
+       注：elapsedSinceDisconnect 完全基于各端本地时钟计算（`Date.now() - disconnectTimestamp`），不依赖跨端时钟同步，无时钟偏移问题。它代表 peer 的响应速度——响应越快的 peer 网络状况越好，越适合作为房主
+    3. **首次收到**（本地 hostId 为空）：
+       时序校验通过后直接接受，clearTimeout
+  注意：tiebreaker 比较的是**触发继位前最后一次 sync-state 中的 hostCandidates**
+  注意：disconnectTimestamp 从本地检测到 member-left(hostId) 时记录
+  注意：时序合法性和优先级比较均使用 elapsedSinceDisconnect（发送方自报的响应时间，纯本地时钟计算，无跨端时钟偏移问题）
+
+**败者处理**：竞赛失败的候选者（计时器被 clear 或 tiebreaker 比较失败）**保持原有角色不变**——原来是管理员仍为管理员，原来是普通用户仍为普通用户。其本地 request 队列和待完结缓冲区也维持原状，由后续 sync-state 覆盖源状态后自然恢复正常工作流。
+
+边缘决策说明：
+  竞赛机制天然具备网络质量筛选能力——因延迟/断连导致错过竞选窗口的候选者默认视为放弃。
+  这是 by design 的：网络不稳定的 peer 成为房主会导致房间管理不可靠，竞赛让「能最快广播的 peer」胜出，等价于选择当前网络状况最好的候选者。
+  候选列表长度默认为房间总人数 - 1，保证所有非房主成员都有竞选机会，免除"所有候选者都超时"的兜底逻辑。用户可通过 parameters.maxCandidates 配置固定长度。
+
+successionDelay 默认值说明：
+  默认 3000ms 是工具方的**保守策略**——为网络分区检测、ICE 超时等场景预留足够的冲突窗口。
+  index=0 的候选者 delay=0ms 不等待直接竞选，实际空窗期仅取决于连接断开检测延迟。
+  业务侧可根据实际场景通过 `parameters.successionDelay` 配置更激进的延迟（如 500~1000ms），
+  在可控的网络环境中缩短继位耗时。
+
+**网络分区（脑裂）场景**：极端情况下，若网络分区导致不同分区各自产生继任者（脑裂），此场景依赖**重连后 sync-state 强制覆盖 + tiebreaker**来最终一致——当分区恢复、peer 重新建立 P2P 连接时，两个"房主"互相发现对方，通过 tiebreaker（比较 elapsedSinceDisconnect，响应更快者优先）确定唯一房主。败者**保持原有角色**（原来是 admin 就还是 admin，原来是 user 就还是 user），其本地 request 队列和待完结缓冲区维持原状，不销毁不清空。胜者向所有端下发 sync-state 强制覆盖，败者的 requestQueue（若因竞选临时初始化）在收到 sync-state 时由 `requestQueue 生命周期管理`逻辑自动销毁（检测到 isHost === false 且 requestQueue 已存在 → 销毁）。
+```
+
+#### 竞赛式继位时序图
+
+```mermaid
+sequenceDiagram
+  participant Host as 房主（离开）
+  participant C0 as 候选者 0（Admin）
+  participant C1 as 候选者 1
+  participant Others as 其他非候选端
+
+  Host--xC0: 连接断开
+  Host--xC1: 连接断开
+  Host--xOthers: 连接断开
+
+  Note over C0,Others: 所有端检测到 host 离开 → 进入空窗期（hostId 置空）
+
+  C0->>C0: delay = 0 * successionDelay = 0ms → 立即 performSuccession
+  C0->>C1: batch [host-transfer(timestamp, elapsed), sync-state]
+  C0->>Others: batch [host-transfer(timestamp, elapsed), sync-state]
+
+  C1->>C1: 收到 host-transfer → 时序合法性校验通过 → clearTimeout
+  C1->>C1: 接受 C0 为新房主，sync-state 覆盖源状态
+  Others->>Others: 接受 C0 为新房主，sync-state 覆盖源状态
+
+  Note over C0: C0 成为新房主，初始化 requestQueue
+  Note over C1: C1 保持原有角色不变（败者不降级）
+```
+
+### getMuteState 查询逻辑
+
+```text
+getMuteState(ctx, targetPeerId):
+  0. assertPermissionsEnabled(ctx)
+
+  emptyState = { muted: false, roomRules: [], roomExemptions: [], userRules: [], userExemptions: [] }
+
+  // 不在房间内 → 返回空状态
+  if (!ctx.memberJoinOrder.includes(targetPeerId)): return emptyState
+
+  // host 免疫
+  if (targetPeerId === ctx.hostId): return emptyState
+
+  result = { ...emptyState }
+
+  // 收集用户层（过滤 __room_ctrl__）
+  userRuleSet = ctx.muteRegistry.users[targetPeerId]
+  if (userRuleSet):
+    result.userRules = userRuleSet.rules
+      .filter(r => !isCtrlChannelRule(r))
+      .map(parseRule)
+    result.userExemptions = userRuleSet.exemptions
+      .filter(r => !isCtrlChannelRule(r))
+      .map(parseRule)
+
+  // 收集房间层（过滤 __room_ctrl__，admin 免疫时跳过）
+  if (ctx.switches.roomMuteAffectsAdmin || !ctx.adminIds.includes(targetPeerId)):
+    result.roomRules = ctx.muteRegistry.room.rules
+      .filter(r => !isCtrlChannelRule(r))
+      .map(parseRule)
+    result.roomExemptions = ctx.muteRegistry.room.exemptions
+      .filter(r => !isCtrlChannelRule(r))
+      .map(parseRule)
+
+  // 计算最终 muted 状态：存在任何生效的禁言规则即为 true
+  result.muted = result.userRules.length > 0 || result.roomRules.length > 0
+
+  return result
+
+isCtrlChannelRule(rule: string): boolean
+  return rule.startsWith('__room_ctrl__\0')
+```
+
+### memberJoinOrder 维护
+
+```text
+memberJoinOrder: string[]
+记录所有成员的加入顺序（数组保持插入顺序），用于候选列表生成时的排序依据。
+
+维护时机：
+  - performJoin 成功后：if (!memberJoinOrder.includes(localPeerId)) memberJoinOrder.push(localPeerId)
+  - 收到 existingMembers 时：按返回顺序依次 push（push 前 includes 校验去重）
+  - peer-connected 事件触发时：if (!memberJoinOrder.includes(newPeerId)) memberJoinOrder.push(newPeerId)（房主端在 sync-state 中同步）
+  - member-left / kick 后：从 memberJoinOrder 中移除 peerId
+
+sync-state 扩展：
+  - 房主下发 sync-state 时携带 memberJoinOrder: ctx.memberJoinOrder
+  - 新 peer 收到后直接覆盖本地：ctx.memberJoinOrder = payload.memberJoinOrder
+```
+
+### serialize / deserialize（MuteRegistry 序列化）
+
+> 由于 `MuteRegistry` 的所有字段本身就是 JSON 兼容类型（`string[]` + `Record<string, MuteRuleSet>`），serialize/deserialize 的主要职责是**数据校验**而非类型转换。
+
+```text
+serialize(muteRegistry: MuteRegistry) → SerializedMuteRegistry:
+  return { room: { ...muteRegistry.room }, users: { ...muteRegistry.users } }
+
+deserialize(data: unknown) → MuteRegistry:
+  assertDataShape(data, 'muteRegistry')
+  return data as MuteRegistry
+
+/**
+ * 断言数据类型（基于 `src/shared/data-handler` 的 dataHandler 函数实现）
+ * 校验失败时 dispatch error 事件 + throwError
+ */
+assertDataShape(data: unknown, context: string):
+  // 顶层必须是 object 且含 room + users
+  if (typeof data !== 'object' || data === null):
+    onAssertFail(`${context}：期望 object`)
+  if (!('room' in data) || !('users' in data)):
+    onAssertFail(`${context}：缺少 room 或 users 字段`)
+
+  // room 必须是 MuteRuleSet
+  assertRuleSet(data.room, `${context}.room`)
+
+  // users 必须是 Record<string, MuteRuleSet>
+  if (typeof data.users !== 'object' || data.users === null):
+    onAssertFail(`${context}.users：期望 object`)
+  for [key, value] of Object.entries(data.users):
+    assertRuleSet(value, `${context}.users[${key}]`)
+
+assertRuleSet(value: unknown, path: string):
+  if (typeof value !== 'object' || value === null):
+    onAssertFail(`${path}：期望 object`)
+  if (!Array.isArray(value.rules) || !value.rules.every(r => typeof r === 'string')):
+    onAssertFail(`${path}.rules：期望 string[]`)
+  if (!Array.isArray(value.exemptions) || !value.exemptions.every(r => typeof r === 'string')):
+    onAssertFail(`${path}.exemptions：期望 string[]`)
+
+function onAssertFail(message: string):
+  const err = new RoomSyncStateInvalidError(message)
+  dispatch('error', { code: 'SYNC_STATE_INVALID', error: err, message, context: 'syncState', rawData: data })
+  throwError('deserialize', message, RoomSyncStateInvalidError)
+```
+
+### 管理员操作
+
+```text
+addAdmin(targetPeerId):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.isHost === true（仅房主可指派管理员）
+  1.1. 前置校验：若 ctx.adminIds.includes(targetPeerId) → 静默返回（幂等，目标已是管理员）
+  2. ctx.adminIds.push(targetPeerId)
+  3. 合并广播: { type: 'batch', events: [{ type: 'admin-add', target, from: localPeerId }, { type: 'sync-state', ...payload }] }
+  4. invalidateCache()
+  5. dispatch('admin-added', { peerId, from: localPeerId })
+
+非房主端收到 admin-add 事件（通过 batch）:
+  1. 仅 dispatch('admin-added', { peerId: target, from })
+  （源状态 adminIds 由后续 sync-state 统一覆盖）
+
+removeAdmin(targetPeerId):
+  0. assertPermissionsEnabled(ctx)
+  1. 断言 ctx.isHost === true（仅房主可移除管理员）
+  1.1. 前置校验：若 !ctx.adminIds.includes(targetPeerId) → 静默返回（幂等，目标本就不是管理员）
+  2. ctx.adminIds = ctx.adminIds.filter(id => id !== targetPeerId)
+  3. 合并广播: { type: 'batch', events: [{ type: 'admin-remove', target, from: localPeerId }, { type: 'sync-state', ...payload }] }
+  4. invalidateCache()
+  5. dispatch('admin-removed', { peerId, from: localPeerId })
+
+非房主端收到 admin-remove 事件（通过 batch）:
+  1. 仅 dispatch('admin-removed', { peerId: target, from })
+  （源状态 adminIds 由后续 sync-state 统一覆盖）
+```
+
+> 注：addAdmin / removeAdmin / transferHost 仅 host 可调用（`ctx.isHost === true`），而 host 永远免疫禁言，因此无需额外检查禁言状态。管理员的管理操作（kick / mute / unmute）通过 `ctrlChannelWritable` getter 控制——该 getter 综合考虑 adminIds 和 `__room_ctrl__` channel 的禁言状态。
+
+### 状态同步与合并广播
+
+**核心原则**：所有权限操作最终由房主执行并合并广播，将控制事件与 sync-state 合为一个 batch chunk 发送，减少 channel 流量。
+
+**管理员操作流向**：
+- 房主直接操作 → 本地执行 + 合并广播 batch
+- 管理员操作 → 向房主发 request → 房主校验后执行 + 合并广播 batch
+
+**batch 消息格式**：
+
+```typescript
+/**
+ * batch 消息格式
+ *
+ * **重要约束**：events 数组的最后一个元素**必须**是 sync-state。
+ * 接收方按序处理 events，先处理控制事件（dispatch 通知），最后通过 sync-state 覆盖源状态。
+ * 若 sync-state 不在末尾，会导致中间态不一致（控制事件 handler 中读到的状态已被覆盖）。
+ */
+interface BatchMessage {
+  type: 'batch';
+  events: [...RoomControlEvent[], SyncStateEvent];  // 最后一个元素**必须**是 sync-state
+}
+```
+
+**batch 运行时断言**：发送 batch 前、接收 batch 后均断言 `events[events.length - 1].type === 'sync-state'`，不满足则 throwError（`RoomIllegalOperationError`），阻断后续逻辑。
+
+```text
+assertBatchShape(batch):
+  if (!batch.events?.length || batch.events[batch.events.length - 1].type !== 'sync-state'):
+    throwError('batch', 'batch 消息的最后一个元素必须是 sync-state', RoomIllegalOperationError)
+```
+
+```text
+buildSyncStatePayload():
+  return {
+    type: 'sync-state',
+    hostId: ctx.hostId,
+    adminIds: ctx.adminIds,
+    muteRegistry: serialize(ctx.muteRegistry),
+    memberJoinOrder: ctx.memberJoinOrder,
+    kickedPeerIds: ctx.kickedPeerIds,
+    hostCandidates: ctx.hostCandidates
+  }
+
+新 peer 连接后（peer-connected 事件，仅房主执行）:
+  0. 校验 newPeerId 是否在 kickedPeerIds 中:
+     若 ctx.kickedPeerIds.includes(newPeerId) → 拒绝连接（dispose 该 peer 的 controller），不加入 memberJoinOrder
+  1. ctx.memberJoinOrder.push(newPeerId)
+  2. 单播给新 peer: { type: 'batch', events: [buildSyncStatePayload()] }
+     注：即使只有单条 sync-state，也统一使用 batch 包装，保持接收方处理路径一致（始终走 batch handler）
+
+断线重连后（peer-reconnected 事件，仅房主执行）:
+  0. 校验 reconnectedPeerId 是否在 kickedPeerIds 中:
+     若 ctx.kickedPeerIds.includes(reconnectedPeerId) → 拒绝重连（dispose 该 peer 的 controller）
+  重连的 peer 可能在断线期间错过了状态变更，房主应主动同步：
+  1. 单播给重连 peer: { type: 'batch', events: [buildSyncStatePayload()] }
+
+成员离开后（member-left 事件，仅房主执行）:
+  1. ctx.memberJoinOrder = ctx.memberJoinOrder.filter(id => id !== leftPeerId)
+  2. 广播: { type: 'batch', events: [buildSyncStatePayload()] }
+
+收到 batch 消息:
+  按序处理 events 数组中的每个事件。
+
+  收到 host-transfer 事件时:
+    1. 校验 prevHost === ctx.hostId（防止伪造，不匹配则忽略该事件）
+    2. 临时更新本地 hostId: ctx.hostId = newHost（使后续 sync-state 的 from 校验能通过）
+    3. dispatch('host-changed', { prevHost, newHost })
+
+  收到 sync-state 时:
+    校验逻辑：
+      - 若本地 hostId 为空字符串（首次同步）→ 信任 payload.hostId，用 payload.hostId 校验 from
+      - 若本地 hostId 非空 → 断言 from === ctx.hostId（防止伪造）
+    处理：
+      1. 直接覆盖本地源状态（不合并，以房主为准）:
+         ctx.hostId = payload.hostId
+         ctx.adminIds = [...payload.adminIds]
+         ctx.muteRegistry = deserialize(payload.muteRegistry)
+         ctx.memberJoinOrder = [...payload.memberJoinOrder]
+         ctx.kickedPeerIds = [...payload.kickedPeerIds]
+         ctx.hostCandidates = [...payload.hostCandidates]
+      2. invalidateCache()（清除所有派生状态缓存）
+      3. requestQueue 生命周期管理:
+         - 若 ctx.isHost === true 且 ctx.requestQueue 未初始化 → 初始化 requestQueue
+         - 若 ctx.isHost === false 且 ctx.requestQueue 已存在 → 销毁 requestQueue
+           （清空残留 request，这些 request 的 ack 已在入队前回复过，无需再通知管理员）
+      4. 若自己在 muteRegistry 中 → dispatch('muted', { scope: getMuteState(localPeerId), from: payload.hostId })
+
+房主收到 request 消息（管理员发来的操作请求）:
+  1. 断言 from 的写权限: 读取 from 对应的 ctrlChannelWritable 计算结果
+     （ctx.adminIds.includes(from) && !checkMute(ctx, from, '__room_ctrl__')）
+  2. 若写权限校验失败 → 回复 ack: { type: 'request-ack', requestId, success: false, error: '无写权限' }
+  3. 断言队列未满: requestQueue.size >= maxPendingRequests → 回复 ack: { type: 'request-ack', requestId, success: false, error: 'queue full' }
+  4. 写权限校验通过且队列未满 → 回复 ack: { type: 'request-ack', requestId, success: true }（表示已接受）
+  5. 将 request 加入房主端 requestQueue（FIFO）
+  6. 从队列取出处理时：
+     若 from === localPeerId（self request，从管理员升级迁移而来）:
+       绕过 requestInterceptor，但按新角色（host）的权限进行目标合法性校验 → 执行
+     否则：
+     a. 调用 requestInterceptor（外部卡点，默认通过）
+     b. 若卡点拒绝 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action, target, success: false, error: '拦截器拒绝: ...' }
+     c. 校验 request 目标合法性
+     d. 若校验失败 → 单播 result 给发起管理员:
+        { type: 'request-result', requestId, action, target, success: false, error: '校验失败: ...' }
+     e. 校验通过 → 执行对应操作逻辑（kick/mute/unmute）+ 合并广播 batch + 单播 result:
+        { type: 'request-result', requestId, action, target, success: true }
+```
+
+## 时序图
+
+### 管理员 kick 流程（request → ack → 执行）
+
+```mermaid
+sequenceDiagram
+    participant Admin as 管理员
+    participant Host as 房主
+    participant Others as 其他成员（含管理员）
+    participant Target as 目标用户
+
+    Admin->>Host: request { requestId, action: 'kick', target, reason }
+    Host->>Host: 校验 from 写权限 + 队列容量
+    alt 校验通过
+        Host->>Admin: request-ack { requestId, success: true }
+        Host->>Host: 入队 requestQueue
+        Admin->>Admin: 收到 ack，request 完成，队列流转（进入待完结缓冲区）
+        Host->>Host: requestInterceptor（外部卡点）
+        alt 卡点通过 + 校验通过
+            Host->>Host: 移除 target 从 memberJoinOrder + 添加 target 到 kickedPeerIds
+            Host->>Target: batch [kick, sync-state]（广播给所有端，含 Target）
+            Host->>Others: batch [kick, sync-state]（广播给所有端，含 Admin）
+            Host->>Host: dispose(target)
+            Host->>Admin: request-result { requestId, success: true }（单播）
+            Target->>Target: dispatch('kicked') + performLeave()
+            Others->>Others: 断开与 target 的连接 + dispatch('member-kicked') + 覆盖源状态
+            Admin->>Admin: dispatch('request-result') → 从待完结缓冲区移除
+        else 卡点拒绝 / 校验失败
+            Host->>Admin: request-result { requestId, success: false, error }（单播）
+            Admin->>Admin: dispatch('request-result') → 从待完结缓冲区移除
+        end
+    else 校验失败
+        Host->>Admin: request-ack { requestId, success: false, error }
+        Admin->>Admin: dispatch('error') + throwError
+    end
+```
+
+### 房主直接 mute 流程
+
+```mermaid
+sequenceDiagram
+    participant Host as 房主
+    participant PeerA as 成员 A（被禁言）
+    participant PeerB as 成员 B
+
+    Host->>Host: 更新 muteRegistry
+    Host->>PeerA: batch [mute, sync-state]
+    Host->>PeerB: batch [mute, sync-state]
+    Host->>Host: dispatch('member-muted')
+    PeerA->>PeerA: dispatch('muted') + 覆盖源状态
+    PeerB->>PeerB: dispatch('member-muted') + 覆盖源状态
+    Note over PeerA: 后续 send/broadcast 被拦截<br/>throwError(RoomMutedError)
+```
+
+### 新成员加入 + 状态同步
+
+```mermaid
+sequenceDiagram
+    participant New as 新成员
+    participant Host as 房主
+    participant Existing as 已有成员
+
+    New->>Host: 建立 P2P 连接（含 __room_ctrl__ channel）
+    Host->>Host: memberJoinOrder.push(newPeerId)
+    Host->>New: batch [sync-state]（单播）
+    New->>New: 覆盖本地源状态（hostId, adminIds, muteRegistry, memberJoinOrder）
+    New->>New: invalidateCache()
+    Note over New: 首次同步：hostId 为空 →<br/>信任 payload.hostId<br/>新成员根据 adminIds<br/>自动获得对应权限（通过 getter 派生）
+```
+
+### 房主离开 → 竞赛式继位
+
+```mermaid
+sequenceDiagram
+    participant OldHost as 旧房主（离开）
+    participant C1 as 候选者 1（index=0）
+    participant C2 as 候选者 2（index=1）
+    participant PeerD as 普通成员 D
+
+    OldHost--xC1: P2P 连接断开
+    OldHost--xC2: P2P 连接断开
+    OldHost--xPeerD: P2P 连接断开
+
+    C1->>C1: 检测 member-left(hostId)
+    C2->>C2: 检测 member-left(hostId)
+    PeerD->>PeerD: 检测 member-left(hostId)
+
+    Note over C1,PeerD: 所有端置空 hostId，进入房主空窗期<br/>管理请求进入本地缓冲区（不发出），待房主确认后按序发出
+
+    C1->>C1: myIndex=0, delay=0ms, 立即 performSuccession
+    C2->>C2: myIndex=1, delay=3000ms, 启动计时器
+
+    C1->>C1: 初始化房主状态 + 计算新候选列表
+    C1->>C2: batch [host-transfer, sync-state]
+    C1->>PeerD: batch [host-transfer, sync-state]
+
+    C2->>C2: 收到 host-transfer → clearTimeout（停止竞选）
+    C2->>C2: 覆盖源状态 + dispatch('host-changed')
+    PeerD->>PeerD: 覆盖源状态 + dispatch('host-changed')
+    C1->>C1: dispatch('host-changed')
+```
+
+### transferHost 流程
+
+```mermaid
+sequenceDiagram
+    participant Host as 房主（旧）
+    participant Target as 新房主
+    participant PeerB as 成员 B
+
+    Host->>Host: adminIds 移除 self + hostId = target + adminIds.push(target)
+    Host->>Target: batch [host-transfer, sync-state]
+    Host->>PeerB: batch [host-transfer, sync-state]
+    Host->>Host: invalidateCache() + dispatch('host-changed')
+    Target->>Target: 覆盖源状态 + dispatch('host-changed')
+    PeerB->>PeerB: 覆盖源状态 + dispatch('host-changed')
+    Note over Host: 旧房主降级为普通用户
+```
+
+### defaultRoomMute 场景下新成员加入
+
+```mermaid
+sequenceDiagram
+    participant New as 新成员
+    participant Host as 房主（defaultRoomMute=true）
+    participant Existing as 已有成员（已被全房间禁言）
+
+    Note over Host: 房间创建时已执行 mute('*')<br/>muteRegistry.room.rules = ['\0']
+    New->>Host: 建立 P2P 连接（含 __room_ctrl__ channel）
+    Host->>Host: memberJoinOrder.push(newPeerId)
+    Host->>New: batch [sync-state]（单播）
+    Note over New: sync-state 包含 muteRegistry<br/>其中 room.rules = ['\0']（全禁标记）
+    New->>New: 覆盖本地源状态
+    New->>New: invalidateCache()
+    New->>New: checkMute(self, channel) → true
+    Note over New: 新成员自动受全房间禁言约束<br/>后续 send/broadcast 被拦截
+```
+
+## 设计决策
+
+### 模块架构
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 模块定位 | rtc-room 的**子模块**（`src/shared/rtc-room/permissions/`） | 权限是房间能力的一部分，非独立实体；子模块保持物理内聚，避免平级模块间循环依赖 |
+| 解耦方式 | transport 接口（6 个方法） | 权限逻辑不直接依赖 DataChannel/PeerConnection 实现，单向依赖 |
+| 发送拦截 | rtc-room core 调用 `permissionController.checkSendPermission()` | 一行守卫调用，耦合极低，禁言逻辑完全内聚于权限子模块 |
+| API 暴露 | rtc-room 对外接口不变，内部委托 permissionController | 零破坏性，用户无感知 |
+| 懒加载 | `enablePermissions=false` 时不初始化权限子模块 | tree-shaking 友好，无额外运行时开销 |
+| 可测试性 | 权限子模块可 mock transport 纯内存测试 | 无需 WebRTC 环境，测试更快更稳定 |
+
+### 配置与开关
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 权限系统启用 | `enablePermissions` 显式开关（默认 false） | 房间可控性由调用方决定，非默认行为 |
+| 前置开关断言 | 所有权限/角色 API 入口断言 `assertPermissionsEnabled()` | 统一守卫，未启用时明确报错 |
+| 配置方式 | `switches` 通用行为开关对象 | 不仅限于权限，后续可扩展更多开关 |
+| 默认房间禁言 | `defaultRoomMute` 开关（默认 false） | 房主 join 成功后若 `defaultRoomMute=true`，自动执行 `mute('*')` 并通过 sync-state 同步给所有端 |
+| 越权广播断连 | **配置开关** `autoDisconnectOnForbiddenBroadcast`（默认 true） | 用户可控 |
+
+### 角色与权限
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 房主产生 | **组网协商**：首个进房用户自动为房主 | 无需外部配置，自然语义 |
+| 房主标识 | `hostId: string` | 所有端共享同一 ID，接收方可校验合法性 |
+| 房主冗余 | **hostId 同时存在于 adminIds** | 基本权限校验只需 `adminIds.includes(from)`，降低心智 |
+| 房主免疫 | **不可被禁言/踢出** | 最高权限保障 |
+| isHost / hasAdminPermission | **getter + 缓存** | 可从源状态计算，无需手动维护 |
+| 管理员操作 | 仅房主可指派/移除，管理员间无法互操作（host → admin → user 单向管理链，仅上游可管理下游） | 权限层级清晰，防止管理员间互相干扰 |
+| admin 自解禁 | **禁止** | 防止管理员绕过禁言 |
+| 房主离开继承 | **竞赛式继位**：房主在任时维护候选列表（hostCandidates），房主离开后候选者按优先级梯度延迟竞选，最快广播者胜出 | 天然筛选网络质量最好的 peer，级联容错（前序超时后续自动顶上），无需全端状态完全一致 |
+| 候选列表生成 | 优先管理员 → 按 memberJoinOrder 顺序，排除被禁言 `__room_ctrl__` 的用户 | 管理员优先保证管理连续性，排除无法写控制通道的用户 |
+| 候选列表长度 | 默认 = 房间人数 - 1，支持 `maxCandidates` 配置固定长度 | 默认所有人都有竞选机会，免除兜底逻辑 |
+| 竞赛延迟 | `idx * successionDelay`（默认 3000ms） | 3s 梯度平衡"快速继位"与"避免脑裂"，可配置 |
+| tiebreaker | 比较 elapsedSinceDisconnect（响应时间），更小者优先；相等时 hostCandidates index 更小者优先 | 响应更快 = 网络状况更好 = 更适合作为房主，纯本地时钟计算无偏移 |
+| 竞选声明 payload | 携带 `timestamp`（发出时刻）和 `elapsedSinceDisconnect`（断连到发出声明的响应时间） | elapsedSinceDisconnect 同时用于时序合法性校验和 tiebreaker 优先级比较（响应更快 = 优先级更高），完全基于本地时钟计算无跨端偏移。timestamp 仅用于调试/日志可读性 |
+| 败者处理 | 保持原有角色（admin 仍为 admin，user 仍为 user），队列和缓冲区维持原状 | 败者由 sync-state 覆盖自然恢复，requestQueue 由生命周期管理逻辑自动销毁 |
+| 房主空窗期 | 所有端置空 hostId，管理请求进入本地缓冲区（不发出） | 避免向不存在的房主发送 request，待房主正式确认后按序发出 |
+| 房主转让后旧房主身份 | 降级为普通用户（移出 adminIds） | 权限干净交接，如需保留 admin 可由新房主 addAdmin |
+| 转让后禁言生效 | 旧房主降级后 muteRegistry 中已有禁言立即生效 | checkMute 不再命中 host 免疫，自然生效 |
+| 身份校验 | `from` 从 `PeerEntry.peerId` 获取 | 建连时确定的对端身份，不可伪造。控制消息和事件统一使用 `from` 字段标识操作发起者 |
+
+### 禁言机制
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 禁言粒度 | **三层**：用户级 / channel 级 / 事件级 | channel 禁言 = 该 channel 不可写 |
+| channel 禁言效果 | **仅影响写权限**（发送拦截），消息接收不受影响 | 被禁言用户仍能收到消息，只是无法发送 |
+| 禁言发送方 | **抛错** | 调用方明确感知，便于 UI 处理 |
+| 全房间禁言 | `mute('*', scope?)` → key=`'*'` | host 免疫，admin 是否免疫由 `roomMuteAffectsAdmin` 开关决定 |
+| 全房间禁言对 admin | `roomMuteAffectsAdmin` 开关（默认 false） | 灵活控制管理员是否受全房间禁言影响 |
+| `__room_ctrl__` 免通配 | `__room_ctrl__` channel **不受** allMuted / 全房间禁言影响 | 管理 channel 只能被具名禁言（`mute(peerId, { channel: '__room_ctrl__' })`），防止用户级全禁意外剥夺管理能力 |
+| `__room_ctrl__` 禁言/解禁权 | **仅房主**可禁言/解禁他人的 `__room_ctrl__` channel | 管理员不可剥夺或恢复其他管理员的管理 channel 写权限 |
+| 禁言约束管理操作 | `ctrlChannelWritable` getter 为 false 则拒绝 | getter 综合考虑 adminIds + `__room_ctrl__` 禁言状态，单一判断点 |
+| getMuteState 过滤 | 返回值永不包含 `__room_ctrl__` channel 条目 | `__room_ctrl__` 为内部实现细节，对外不可见 |
+| 禁言传播延迟 | 已发出的 request 可能在禁言生效前到达房主 | 房主以收到 request **时刻**的状态校验写权限，禁言 sync-state 尚未覆盖管理员本地时已发送的 request 仍可能被房主拒绝（符合预期） |
+
+### 通信协议
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 传输通道 | **独立房间管理 channel** `__room_ctrl__` | 与业务消息物理隔离，读写分离 |
+| channel 建立 | `enablePermissions=true` 时所有用户都建立 | 全员可接收控制消息（只读），管理员可写 |
+| 操作流向 | 管理员 → request → 房主执行 + 合并广播 | 节省 channel 流量，避免多次广播 |
+| 合并广播 | 控制事件 + sync-state 合为一个 batch chunk | 单次发送，减少 DataChannel 消息数 |
+| 内部/外部事件命名 | 内部 batch 事件用动词原形（`host-transfer`），外部 dispatch 用过去分词（`host-changed`） | 语义不同——内部事件为操作指令，外部事件为状态通知。by design |
+| 越权广播处理 | **断言模式**：dispatch + throw 阻断 | 外部无需重复判断，降低圈复杂度 |
+| kick 送达方式 | 广播通知（batch 含 kick + sync-state，target 和其他端均收到） | kick 是单向通知而非需要确认的请求；target 收到后 performLeave，其他端主动断开与 target 的连接，简化流程 |
+
+### 队列与超时
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| request ack + result 两阶段 | ack 表示已接受入队（队列流转依据），result 报文异步通知最终执行结果（携带原始请求信息和成功/失败原因） | ack 解耦队列流转与执行结果，管理员可快速发送下一个 request；result 提供完整的结果反馈闭环，业务侧可据此更新 UI |
+| 管理员 request 队列 | **串行化**（复用 `src/shared/priority-queue`，不使用优先级能力）：前一个 ack 返回或超时后即可发下一个 | 避免并发 request 导致状态不一致，队列流转仅依赖 ack，不阻塞等待 result |
+| 房主端 request 队列 | FIFO 队列（复用 `src/shared/priority-queue`，不使用优先级能力），仅房主初始化，transferHost 时旧房主销毁+新房主初始化 | 缓存并发 request，逐个处理避免状态冲突；非房主不创建避免无谓开销；转让时保证队列生命周期正确 |
+| 房主端队列上限 | `maxPendingRequests`（默认 64） | 防止恶意/大量管理员并发 request 导致内存无限膨胀 |
+| requestInterceptor 外部卡点 | 房主端配置 async function，resolve=允许，reject=拒绝 | 业务侧可弹窗确认、频率限制、自定义规则校验，不传则默认全部允许 |
+| request 执行时刻权限 | 以**执行时刻的角色和状态**为准，而非发起时刻 | request 在队列中排队期间，target 的角色可能已发生变化（如被提升为 admin、被 kick 等），校验必须基于当前最新状态。这保证了权限判断的实时正确性 |
+| request 超时 | `requestTimeout` 配置（默认 5000ms） | 管理员明确感知操作超时，避免无限等待。超时后管理员端丢弃该 requestId，若房主后续回复 ack 则按 requestId 匹配不到，静默忽略 |
+| requestId 生成 | `${peerId}:${随机串}`，仅用于匹配 ack，碰撞重试上限 `requestIdRetryLimit`（默认 5） | peerId 前缀仅为可读性，无结构化语义；超过重试上限抛 `REQUEST_ID_CONFLICT`（防御性兜底） |
+
+### 状态同步
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| 派生状态 | getter + 缓存，sync-state 后清缓存 | 降低维护难度，消除 ctrlChannelWritable 等字段的手动维护 |
+| 非房主端状态操作 | 控制事件仅 dispatch，不修改源状态 | 源状态统一由 batch 中 sync-state 覆盖，避免中间态不一致 |
+| 状态同步 | **仅房主发出**，通过 batch 合并广播，接收方覆盖（不合并） | 以房主为准，避免多端冲突 |
+| 断线重连 | 重连后房主主动下发 sync-state | 确保断线期间错过的状态变更被同步 |
+| memberJoinOrder | `string[]` | 数组保持插入顺序，JSON 兼容，便于序列化传输。去重由 push 前 includes 校验保证 |
+| 序列化无版本字段 | SerializedMuteRegistry 不含 version | 非持久化房间，不考虑跨版本兼容。不同 SDK 版本的 peer 加入同一房间若结构不匹配，解析时 assertDataShape 报错，由业务侧通知用户刷新页面以同步版本。中长期也不会引入 version 字段 |
+
+### 错误处理
+
+| 决策点 | 选择 | 理由 |
+|--------|------|------|
+| error 事件类型 | `RoomErrorEvent` 按 `code` 做 discriminated union | 业务方通过 code narrowing 获得精确类型推导，IDE 可补全所有字段 |
+| kick 缓存 | `kickedPeerIds: string[]` 通过 sync-state 同步 | 防止被踢用户断线重连绕过检测，房间生命周期内有效 |
+| 房间关闭语义 | 所有成员离开 → 房间自动销毁 | 不存在重入旧房间的可能，重新进入视为全新房间（被踢缓存随之清除） |
+
+## 边界行为
+
+### 权限系统未启用时（`enablePermissions` 为 false 或未设置）
+
+- 不建立 `__room_ctrl__` channel
+- `hostId`、`adminIds`、`isHost`、`hasAdminPermission` 等属性**不暴露**（返回 undefined / 空数组）
+- `kick`、`mute`、`unmute`、`transferHost`、`addAdmin`、`removeAdmin` 调用时直接 throwError（`assertPermissionsEnabled` 断言失败）
+- 消息收发正常，无禁言拦截逻辑
+- 若意外收到 `__room_ctrl__` channel 消息则静默忽略（不触发越权广播检测）
+
+### 全房间禁言事件中的 peerId 字段
+
+`member-muted` / `member-unmuted` 事件的 `peerId` 字段：
+- 针对特定用户时：值为目标用户的 peerId
+- 全房间禁言时：值为 `'*'`（内部 registry 同样使用 `'*'` 作为 key，内外统一）
+
+### 全房间禁言与绕过策略的交互
+
+全房间禁言通过 `room.rules = ['\0']` 实现（全禁标记匹配一切）。`unmute` 在全禁标记存在时的语义是**绕过禁言策略**（bypass）——将对应规则加入 `room.exemptions`，而非删除全禁标记。
+
+- `mute('*')` → `room.rules = ['\0']`, `room.exemptions = []`（全禁，清空所有豁免）
+- `unmute('*', { channel: 'chat' })` → 若 `room.rules` 中无精确匹配 `'chat\0'` 但被 `'\0'` 覆盖 → 将 `'chat\0'` 加入 `room.exemptions`（bypass）。checkMute 匹配时 `exemptions.some(ex => target.startsWith(ex))` 命中则豁免（返回 false）
+- `unmute('*', { channel: 'chat', event: 'message' })` → 将 `'chat\0message'` 加入 `room.exemptions`。checkMute 匹配时该 event 被豁免
+- 对已在 `room.exemptions` 中的 channel 重新 `mute('*', { channel: 'chat' })` → 将 `'chat\0'` 加入 `room.rules`，同时移除 `room.exemptions` 中被 `'chat\0'` 覆盖的条目（`startsWith` 过滤），恢复该 channel 的禁言
+- 对已在 `room.exemptions` 中的 event 重新 `mute('*', { channel: 'chat', event: 'message' })` → 将 `'chat\0message'` 加入 `room.rules`，同时移除 `room.exemptions` 中被覆盖的条目
+- 重新 `mute('*')`（不传 scope） → `room.rules = ['\0']`, `room.exemptions = []`，所有 channel/event 重新被全房间禁言覆盖
+- 后续新创建的 channel **自动被全禁覆盖**——因为新 channel 不在 `room.exemptions` 中，`'\0'` 前缀匹配一切，checkMute 自然命中，无需额外处理
+- `unmute('*')` 不传 scope → `room.rules = []`, `room.exemptions = []`（清空整个房间层，全部解禁）
+
+### admin 被禁言后的行为
+
+- admin 被用户级全禁后，**管理能力不受影响**——因 `__room_ctrl__` channel 仅在用户层具名匹配，用户级全禁标记（`'\0'`）和全房间禁言均不影响该 channel 的写权限。管理能力**只能通过显式禁言 `__room_ctrl__` channel 来剥夺**（即 `mute(peerId, { channel: '__room_ctrl__' })`）
+- admin 被禁言 `__room_ctrl__` channel 后，`ctrlChannelWritable` getter 为 false，失去该 channel 的写权限，无法发送任何控制消息（等同失去管理能力）。**仅房主可禁言/解禁 `__room_ctrl__` channel**
+- channel 禁言仅影响写权限，admin 仍能接收 `__room_ctrl__` channel 的消息（如 sync-state）
+- admin 不可自解禁：调用 `unmute(self)` 时报错
+- 仅 host 可解禁 admin 的 `__room_ctrl__` channel 禁言
+- **host 永远免疫禁言**，其管理操作不受任何约束
+
+### kick 缓存防重连
+
+- kick 成功后，被踢用户的 peerId 加入 `kickedPeerIds` 缓存（房间生命周期内有效）
+- 新 peer 连接 / 断线重连时，房主端校验 peerId 是否在 `kickedPeerIds` 中，命中则拒绝连接（dispose）
+- `kickedPeerIds` 通过 sync-state 同步给所有端，所有端均持有缓存副本
+- 房间关闭销毁后缓存随之清除——后续以相同 roomId 加入视为全新房间，被踢用户可正常加入（视为新用户）
+
+### 房间仅剩一人时
+
+- 该用户即为房主（即使原房主离开后自动继位）
+- 无需广播 host-transfer（无其他 peer 接收）
+- 本地直接更新状态并 dispatch 事件
+
+### 所有成员离开
+
+- 所有成员离开后房间自动关闭销毁
+- 不存在重新进入旧房间的可能
+- 后续以相同 roomId 加入视为全新房间（全新的房主协商、空的权限状态）
+
+### 转让房主后旧房主的禁言
+
+- 转让前 muteRegistry 中如果存在针对旧房主的禁言条目，由于 host 免疫，这些条目不生效
+- 转让后旧房主降级为普通用户，muteRegistry 中已有的禁言条目**立即生效**（checkMute 不再命中 host 免疫分支，自然匹配）
+
+## 后续版本规划
+
+| 计划 | 说明 |
+|------|------|
+| serialize/deserialize 压缩 | 后续版本考虑对 sync-state payload 进行压缩，降低大房间场景下 DataChannel 单帧体积 |
+| memberJoinOrder 冗余优化 | 后续版本考虑在 sync-state 中仅在成员变动时同步 memberJoinOrder，减少每次全量传输的冗余 |
+| sync-state 增量同步 | 后续版本考虑在频繁操作场景下引入增量同步（delta），避免每次全量传输完整 muteRegistry |
+
+## 附录 A 完整版本历史
+
+| 版本 | 日期 | 变更摘要 |
+|------|------|----------|
+| 0.1.0 | 2026/05/18 | 初稿 |
+| 0.2.0 | 2026/05/18 | RTC 传输、房主 ID 化、违法广播检测、管理员角色、接收方丢弃、状态同步 |
+| 0.3.0 | 2026/05/18 | 控制开关聚合、三层禁言粒度、断言式违法检测、房主冗余入 adminIds、继承优先级、状态同步由房主发出、管理员互操作限制 |
+| 0.4.0 | 2026/05/18 | 房主由组网协商产生（首个进房）、配置改为行为开关、isHost 改 getter、全房间禁言、host 免疫、admin 无法自解禁 |
+| 0.5.0 | 2026/05/18 | switches 通用化（非仅权限）、默认房间禁言开关、memberJoinOrder 改 Set、禁言约束权限管理行为 |
+| 0.6.0 | 2026/05/18 | 明确转让后旧房主为普通用户、状态变更均触发全量同步、默认 channel 禁言阻断管理操作、kick 同步清理 memberJoinOrder |
+| 0.7.0 | 2026/05/18 | 权限管理抽离为独立内部 channel、enablePermissions 显式开关（默认 false）、权限 channel 仅对房主/管理员可见 |
+| 0.8.0 | 2026/05/18 | 房间管理 channel 语义修正（所有用户建立、默认只读、管理员可写）、前置开关断言、管理员无 ctrl channel 禁言权、channel 禁言仅影响写权限 |
+| 0.9.0 | 2026/05/18 | 管理操作改为请求→房主合并广播、ctrlChannelWritable 等可计算状态改 getter+缓存、禁言约束改为 ctrlChannelWritable 判断、非房主端不操作源状态（统一由 sync-state 覆盖） |
+| 0.10.0 | 2026/05/18 | request ack 机制、`__room_ctrl__` 免通配匹配、错误类型定义、error dispatch 原则、getMuteState host 免疫、时序图、竞态安全性说明 |
+| 0.11.0 | 2026/05/18 | requestTimeout 配置（默认 5s）、断线重连同步、from 身份校验明确、transferHost 禁言立即生效、管理员串行 request 队列、房间关闭语义、全房间禁言统一用 `*`、移除 `__default__` channel、roomMuteAffectsAdmin 开关、Admin 收 batch 显式说明、压缩/冗余后续版本规划 |
+| 0.12.0 | 2026/05/19 | 评审修复：ctrlChannelWritable 语义与免通配自洽、kick 先送达再 dispose、host-transfer 临时更新 hostId 解决 sync-state 校验、request-ack 校验后立即回复、transferHost 原子操作、mute('*') 显式 API、error 事件 payload 统一、__room_ctrl__ 可靠有序模式、sync-state 增量同步移入后续规划 |
+| 0.13.0 | 2026/05/19 | 评审修复 2：kick 改先单播 target 再广播剩余端、cancelPendingRequests API、继位竞态有序性说明、禁言传播延迟说明、error 事件仅本地说明、mute target union type、deserialize 类型校验、batch sync-state 顺序强约束、requestId 8 位随机串、超时 ack 忽略说明、performLeave 免禁言检测 |
+| 0.14.0 | 2026/05/19 | 评审修复 3：deserialize 统一断言方法 assertDataShape、管理员单向管理链（host→admin→user）强化、房主端 FIFO requestQueue（引入优先级队列）、request 流程改为 ack+result 两阶段（ack 表示已收到、result 表示执行结果）、requestInterceptor 外部卡点配置 |
+| 0.15.0 | 2026/05/19 | 评审修复 4：unmute 补充 target===hostId 校验、kick 单播等待 flush 再 dispose、RequestMessage 移除 by 字段统一用 from、cancelPendingRequests 返回 RequestMessage[]、getMuteState 对不存在 peerId 报错、batch 运行时断言 sync-state 末尾、requestId 拼接 peerId 隔离命名空间+碰撞重试、队列仅复用队列能力无优先级、transferHost 补充 requestQueue 初始化/销毁 |
+| 0.16.0 | 2026/05/19 | 评审修复 5：kick 改用 kick-ack 确认送达（移除 bufferedAmount 等待）、maxPendingRequests 配置（默认 64，超限回复 queue full）、transferHost 原子操作步骤 e 移至 sync-state 处理说明、cancelPendingRequests 返回 `{ cancelled, inflight }`、getMuteState 过滤 `__room_ctrl__` 条目（永不对外暴露）、单条 sync-state 也用 batch 包装说明、requestId 碰撞重试上限 3 次超出报错、error context 定义为 union type 枚举、时序图 request payload 修正 |
+| 0.17.0 | 2026/05/19 | 评审修复 6：可交互参数聚合到 `PermissionParameters` 子对象、request 流程简化为 ack 即完成、unmute('\*', { channel }) 支持部分解禁、设计决策表按主题分组、defaultRoomMute 生效时机说明 |
+| 0.18.0 | 2026/05/19 | 评审修复 7：kick-ack 超时断开所有连接、继位脑裂重连 sync-state 覆盖、forbidden-broadcast 命名、unmute 已知 channel 定义+ignore 方案、getMuteState 返回空状态、cancelPendingRequests 场景补充、defaultRoomMute 时序图、error detail 联合类型、performLeave 集中描述、kick 时序图顺序修正、requestId 约束放宽 |
+| 0.19.0 | 2026/05/19 | 评审修复 8：request 流程改为 ack+result 两阶段（result 报文通知最终执行结果）、host 处理 self request 绕过 requestInterceptor 和前置校验、kick 缓存防重连（kickedPeerIds）、assertDataShape 基于 data-handler 实现、unmute 白名单语义修正为绕过策略（重新 mute 移出白名单、重新 mute(*) 清空白名单）、error 事件改为按 code 做 discriminated union（RoomErrorEvent）、新增 request-fulfilled/request-rejected 事件 |
+| 0.20.0 | 2026/05/20 | 评审修复 9：request-fulfilled/request-rejected 合并为 request-result（success 字段区分）、error 示例改用 Error.code 匹配、房间信息字段全部改用 JSON 兼容类型（Array/Record 替代 Set/Map）、serialize/deserialize 简化为校验+浅拷贝、明确使用 data-handler 的 dataHandler API 进行字段级校验 |
+| 0.21.0 | 2026/05/20 | 房主选举策略重构：竞赛式继位（候选列表 hostCandidates + 梯度延迟竞选 + tiebreaker），替换原确定性算法；新增 maxCandidates / successionDelay 配置；房主空窗期管理请求本地挂起；候选列表排除被禁言 __room_ctrl__ 的用户 |
+| 0.22.0 | 2026/05/20 | 模块架构决策：权限系统作为 rtc-room 子模块独立实现（`permissions/`），通过 PermissionTransport 接口与 core 解耦；新增设计决策「模块架构」分组 |
+| 0.23.0 | 2026/05/20 | 评审修复 10：管理员端待完结缓冲区（awaitingResult）+ host-changed 自动重发、tiebreaker 时序合法性校验（断连时长 vs 下标延迟，不合法走越权广播）、RoomControlEvent 直接引用 RequestResult、PermissionTransport 补充 onMemberReconnect、errors 目录明确放在 room 级别、时序图标注 Others 含 Admin、successionDelay 保守策略说明 |
+| 0.24.0 | 2026/05/21 | 评审修复 11：tiebreaker 优先级比较分支明确计时器已不存在、ControlChannelMessage 聚合类型+广播/单播注释、管理员升级为房主完整流程集中描述、unmute bypass/真正解禁语义注释、memberJoinOrder 去重校验、onMemberReconnect 精确触发条件、新增 RoomSyncStateInvalidError、kick 流程 kickedPeerIds 更新时机注释 |
+| 0.25.0 | 2026/05/21 | 评审修复 12：kick 流程简化为广播通知（移除 kick-ack）、竞赛式继位引入 timestamp/elapsedSinceDisconnect + 败者保持原状 + 空窗期缓冲区、tiebreaker 改用 timestamp 比较、self request 按新角色权限校验、addAdmin/removeAdmin 幂等前置校验、requestId 碰撞重试上限（REQUEST_ID_CONFLICT）、unmute allMuted+channel+event 组合 bypass（ignoredEvents 白名单）、requestQueue 去 readonly、MuteEntry/MuteState 新增 ignoredEvents 字段、PermissionParameters 新增 requestIdRetryLimit 配置、deserialize 补充 ignoredEvents 校验、getMuteState 返回白名单豁免项 |
+| 0.26.0 | 2026/05/21 | 评审修复 13：getMuteState 用户级优先级说明（高细粒度=高优先级）、ControlChannelMessage 拆分 RequestResult 为独立单播类型（RoomControlEvent 仅含广播事件）、补充时序图（kick 直接/request 两阶段、竞赛式继位）、新增 performLeave 独立小节集中描述、defaultRoomMute 生效时机补充（房间从零创建时均生效） |
+| 0.27.0 | 2026/05/22 | 禁言模型重构：MuteEntry 结构体替换为组合键两层策略（MuteRuleSet + MuteRegistry { room, users }），checkMute 从 4 层 if-else 简化为 evaluateRuleSet（三态）/ matchRuleSet（二态）前缀匹配，MuteState 返回 ParsedRule 结构（roomRules/roomExemptions/userRules/userExemptions），serialize/deserialize 简化为 assertRuleSet 校验，分隔符 \0 |
+| 0.28.0 | 2026/05/22 | 评审修复 14：evaluateRuleSet 改为禁言/豁免同级匹配+细粒度优先级比较（matchRuleSet 复用 evaluateRuleSet）、tiebreaker 改用 elapsedSinceDisconnect 比较（纯本地时钟无偏移）、空窗期 assertControlPermission 豁免 host-transfer、getMuteState.muted 改为有效规则数判断、设计决策表补充 request 执行时刻权限声明、awaitingResult 改为 readonly 属性暴露、deserialize 错误码改为 SYNC_STATE_INVALID、移除冗余注释、TS 技巧说明移至附录 |
+
+## 附录 B TypeScript 类型技巧
+
+### `(string & {}) | '*'` 字面量补全保留
+
+`mute` / `unmute` 的 `target` 参数使用 `(string & {}) | '*'` 类型：
+
+- `string & {}` 接受任意非 null/undefined 的 string，保留 IDE 对 `'*'` 字面量的自动补全提示
+- 若直接写 `string | '*'`，TypeScript 会将 `'*'` 拓宽为 string，丢失字面量提示
+- 运行时无额外开销，纯类型层面的技巧

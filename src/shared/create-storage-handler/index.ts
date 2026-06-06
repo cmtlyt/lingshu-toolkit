@@ -1,7 +1,7 @@
 import { $dt, $t, dataHandler } from '@/shared/data-handler';
 import { logger } from '@/shared/logger';
 import { throwError } from '@/shared/throw-error';
-import { isNullOrUndef } from '@/shared/utils/verify';
+import { isNull, isNullOrUndef } from '@/shared/utils';
 
 interface CreateStorageOptions {
   storageType: 'local' | 'session' | 'memory';
@@ -61,10 +61,10 @@ function createStorageHandler<T extends Record<string, any>>(
   const storageData = storage.getItem(validStorageKey);
   const context = {
     data: storageData ? JSON.parse(storageData) : initialData || {},
-    timer: null as number | null,
+    timer: null as ReturnType<typeof setTimeout> | null,
   };
   const clearTimer = () => {
-    if (context.timer !== null) {
+    if (!isNull(context.timer)) {
       clearTimeout(context.timer);
       context.timer = null;
     }

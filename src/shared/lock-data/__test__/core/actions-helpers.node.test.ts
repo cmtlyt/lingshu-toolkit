@@ -374,12 +374,12 @@ describe('actions-helpers / createInitialState + enqueueWrite + clearHoldTimer',
     try {
       const state = createInitialState();
       const fired = vi.fn();
-      state.holdTimer = setTimeout(fired, 100);
+      state.holdTimer = setTimeout(fired, 100) as any;
 
       // 无法直接调 clearHoldTimer（未导出）—— 但 enqueueWrite 也不通过它；
       // 这里通过 state.holdTimer !== null 间接验证 createInitialState 的契约
       expect(state.holdTimer).not.toBeNull();
-      clearTimeout(state.holdTimer);
+      clearTimeout(state.holdTimer as any);
       state.holdTimer = null;
       vi.advanceTimersByTime(200);
       expect(fired).not.toHaveBeenCalled();

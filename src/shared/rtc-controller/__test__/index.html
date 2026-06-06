@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RTC Controller 手动测试</title>
+  <style>
+    * { box-sizing: border-box; padding: 0; margin: 0; }
+    body { padding: 24px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+    h1 { margin-bottom: 8px; font-size: 1.5rem; }
+    .subtitle { margin-bottom: 16px; font-size: 0.85rem; color: #666; }
+    .peer-id { padding: 4px 8px; font-size: 0.8rem; color: #fff; background: #6c757d; border-radius: 4px; }
+    .container { display: grid; grid-template-columns: 1fr; gap: 16px; max-width: 800px; margin: 0 auto; }
+    .panel { padding: 16px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+    .panel h2 { margin-bottom: 12px; font-size: 1.1rem; color: #333; }
+    .status { padding: 8px 12px; margin-bottom: 12px; font-size: 0.9rem; border-radius: 4px; }
+    .status.idle { color: #666; background: #e8e8e8; }
+    .status.signaling { color: #856404; background: #fff3cd; }
+    .status.connecting { color: #004085; background: #cce5ff; }
+    .status.connected { color: #155724; background: #d4edda; }
+    .status.closed { color: #721c24; background: #f8d7da; }
+    .status.disconnected { color: #856404; background: #fff3cd; }
+    .status.failed { color: #721c24; background: #f8d7da; }
+    button { padding: 8px 16px; margin: 4px; font-size: 0.9rem; cursor: pointer; border: none; border-radius: 4px; transition: background 0.2s; }
+    button:disabled { cursor: not-allowed; opacity: 0.5; }
+    .btn-connect { color: #fff; background: #28a745; }
+    .btn-connect:hover:not(:disabled) { background: #218838; }
+    .btn-disconnect { color: #fff; background: #dc3545; }
+    .btn-disconnect:hover:not(:disabled) { background: #c82333; }
+    .btn-send { color: #fff; background: #007bff; }
+    .btn-send:hover:not(:disabled) { background: #0069d9; }
+    .log { height: 250px; padding: 12px; overflow-y: auto; font-family: 'Fira Code', monospace; font-size: 0.8rem; line-height: 1.6; color: #d4d4d4; background: #1e1e1e; border-radius: 4px; }
+    .log .time { color: #6a9955; }
+    .log .event { color: #569cd6; }
+    .log .error { color: #f44747; }
+    .log .data { color: #ce9178; }
+    .log .signaling { color: #dcdcaa; }
+    .message-input { display: flex; gap: 8px; margin-top: 12px; }
+    .message-input input { flex: 1; padding: 8px 12px; font-size: 0.9rem; border: 1px solid #ddd; border-radius: 4px; }
+    .message-input select { min-width: 140px; padding: 8px 12px; font-size: 0.9rem; background: #fff; border: 1px solid #ddd; border-radius: 4px; }
+    .actions { margin-bottom: 12px; }
+    .channel-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; }
+    .channel-actions input { flex: 1; padding: 8px 12px; font-size: 0.9rem; border: 1px solid #ddd; border-radius: 4px; }
+    .btn-channel { color: #fff; background: #6f42c1; }
+    .btn-channel:hover:not(:disabled) { background: #5a32a3; }
+    .channels-info { padding: 8px 12px; margin-top: 8px; font-size: 0.85rem; color: #495057; background: #e9ecef; border-radius: 4px; }
+    .log-title { margin-top: 12px; margin-bottom: 8px; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <h1>🎛️ RTC Controller 跨标签页测试</h1>
+  <p class="subtitle">在两个标签页中打开此页面，任意一端点击 Connect 即可建立 P2P 连接。<span id="peerId" class="peer-id"></span></p>
+  <div class="container">
+    <div class="panel">
+      <h2>连接控制</h2>
+      <div id="status" class="status idle">Phase: idle</div>
+      <div class="actions">
+        <button type="button" id="btnConnect" class="btn-connect" onclick="doConnect()">Connect</button>
+        <button type="button" id="btnDisconnect" class="btn-disconnect" onclick="doDisconnect()" disabled>Disconnect</button>
+      </div>
+      <h3 class="log-title">通道管理</h3>
+      <div class="channel-actions">
+        <input id="channelLabelInput" type="text" placeholder="新通道 label（如 file-transfer）" />
+        <button type="button" class="btn-channel" onclick="doCreateChannel()">创建通道</button>
+      </div>
+      <div id="channelsInfo" class="channels-info">已注册通道：无</div>
+      <div class="message-input">
+        <select id="channelSelect"><option value="">默认通道</option></select>
+        <input id="msgInput" type="text" placeholder="输入消息发送给对端" onkeydown="if(event.key==='Enter'){doSend()}" />
+        <button type="button" class="btn-send" onclick="doSend()">发送</button>
+      </div>
+      <h3 class="log-title">日志</h3>
+      <div id="logPanel" class="log"></div>
+    </div>
+  </div>
+  <script type="module">
+    const CHANNEL_NAME = '__rtc_controller_test_signaling__';
+    const myPeerId = crypto.randomUUID().slice(0, 8);
+    document.getElementById('peerId').textContent = `Peer: ${myPeerId}`;
+
+    // BroadcastChannel 信令：跨标签页通信
+    const signalingChannel = new BroadcastChannel(CHANNEL_NAME);
+
+    function createBroadcastSignaling() {
+      const handlers = [];
+      signalingChannel.addEventListener('message', (event) => {
+        const { from, data } = event.data;
+        if (from === myPeerId) {
+          return;
+        }
+        logMsg('signaling', `← 收到信令: type=${data.type}`);
+        for (const handler of handlers) {
+          handler(data);
+        }
+      });
+      return {
+        send(message) {
+          logMsg('signaling', `→ 发送信令: type=${message.type}`);
+          signalingChannel.postMessage({ from: myPeerId, data: message });
+        },
+        onMessage(callback) {
+          handlers.push(callback);
+          return () => {
+            const idx = handlers.indexOf(callback);
+            if (idx >= 0) {
+              handlers.splice(idx, 1);
+            }
+          };
+        },
+        dispose() {
+          handlers.length = 0;
+        },
+      };
+    }
+
+    let createRtcController;
+    try {
+      const mod = await import('../../index.ts');
+      createRtcController = mod.createRtcController;
+      logMsg('event', '模块加载成功 ✓');
+    } catch (error) {
+      logMsg('error', `模块加载失败: ${error.message}。请通过 vite 等开发服务器打开此文件。`);
+    }
+
+    let controller = null;
+    const signaling = createBroadcastSignaling();
+
+    function updateStatus(phase) {
+      const el = document.getElementById('status');
+      el.className = `status ${phase}`;
+      el.textContent = `Phase: ${phase}`;
+      document.getElementById('btnConnect').disabled = phase !== 'idle';
+      document.getElementById('btnDisconnect').disabled = phase === 'idle' || phase === 'closed';
+    }
+
+    function logMsg(type, message) {
+      const el = document.getElementById('logPanel');
+      if (!el) {
+        return;
+      }
+      const time = new Date().toLocaleTimeString('zh-CN', { hour12: false, fractionalSecondDigits: 3 });
+      const line = document.createElement('div');
+      line.innerHTML = `<span class="time">[${time}]</span> <span class="${type}">${escapeHtml(String(message))}</span>`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    globalThis.doConnect = function doConnect() {
+      if (!createRtcController) {
+        logMsg('error', '模块未加载，无法连接');
+        return;
+      }
+      if (controller) {
+        logMsg('error', '已存在连接实例，请先断开');
+        return;
+      }
+      controller = createRtcController({ signaling, connectTimeout: 30_000 });
+      controller.on('phase-change', (e) => {
+        updateStatus(e.phase);
+        logMsg('event', `phase: ${e.prevPhase} → ${e.phase}`);
+      });
+      controller.on('raw-message', (e) => {
+        logMsg('data', `收到消息: ${e.data}`);
+      });
+      controller.on('error', (e) => {
+        logMsg('error', `错误: ${e.error?.message || e} (${e.context})`);
+      });
+      controller.on('connected', () => {
+        logMsg('event', '🎉 P2P 连接建立成功！');
+      });
+      controller.on('data-channel-ready', (e) => {
+        logMsg('event', `数据通道就绪: label="${e.label}"`);
+        refreshChannelList();
+      });
+      controller.on('data-channel-closed', (e) => {
+        logMsg('event', `数据通道关闭: label="${e.label}"`);
+        refreshChannelList();
+      });
+      logMsg('event', '发起连接...');
+      controller.connect().catch((err) => {
+        logMsg('error', `连接失败: ${err.message}`);
+      });
+    };
+
+    function refreshChannelList() {
+      const select = document.getElementById('channelSelect');
+      const currentValue = select.value;
+      select.innerHTML = '<option value="">默认通道</option>';
+      if (!controller) {
+        document.getElementById('channelsInfo').textContent = '已注册通道：无';
+        return;
+      }
+      const labels = controller.getChannelLabels();
+      for (const label of labels) {
+        const option = document.createElement('option');
+        option.value = label;
+        option.textContent = label;
+        select.appendChild(option);
+      }
+      if (labels.includes(currentValue)) {
+        select.value = currentValue;
+      }
+      document.getElementById('channelsInfo').textContent = labels.length > 0
+        ? `已注册通道(${labels.length})：${labels.join(', ')}`
+        : '已注册通道：无';
+    }
+
+    globalThis.doCreateChannel = function doCreateChannel() {
+      const input = document.getElementById('channelLabelInput');
+      const label = input.value.trim();
+      if (!label) {
+        logMsg('error', '请输入通道 label');
+        return;
+      }
+      if (!controller || controller.phase !== 'connected') {
+        logMsg('error', '未连接，无法创建通道');
+        return;
+      }
+      try {
+        controller.createDataChannel(label);
+        logMsg('event', `创建通道: "${label}"`);
+        input.value = '';
+      } catch (error) {
+        logMsg('error', `创建通道失败: ${error.message}`);
+      }
+    };
+
+    globalThis.doDisconnect = function doDisconnect() {
+      if (controller) {
+        controller.dispose();
+        controller = null;
+        logMsg('event', '已断开连接');
+        updateStatus('closed');
+        refreshChannelList();
+      }
+    };
+
+    globalThis.doSend = function doSend() {
+      const input = document.getElementById('msgInput');
+      const message = input.value.trim();
+      if (!message) {
+        return;
+      }
+      if (!controller || controller.phase !== 'connected') {
+        logMsg('error', '未连接，无法发送');
+        return;
+      }
+      const selectedChannel = document.getElementById('channelSelect').value;
+      try {
+        if (selectedChannel) {
+          controller.send(selectedChannel, message);
+          logMsg('data', `[${selectedChannel}] 发送: ${message}`);
+        } else {
+          controller.send(message);
+          logMsg('data', `发送消息: ${message}`);
+        }
+        input.value = '';
+      } catch (error) {
+        logMsg('error', `发送失败: ${error.message}`);
+      }
+    };
+  </script>
+</body>
+</html>

@@ -61,10 +61,9 @@
   },
   {
     "id": "shared@apiController",
-    "type": "dir",
+    "type": "file",
     "label": "apiController",
-    "name": "api-controller",
-    "collapsed": true
+    "name": "api-controller/index.mdx"
   },
   {
     "id": "shared@tryCall",
@@ -80,9 +79,14 @@
   },
   {
     "id": "shared@lockData",
-    "type": "dir",
+    "type": "file",
     "label": "lockData",
-    "name": "lock-data",
-    "collapsed": true
+    "name": "lock-data/index.mdx"
+  },
+  {
+    "id": "shared@rtcController",
+    "type": "file",
+    "label": "rtcController",
+    "name": "rtc-controller/index.mdx"
   }
 ]

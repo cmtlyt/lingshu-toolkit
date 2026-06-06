@@ -12,6 +12,7 @@
     "moduleResolution": "bundler",
     "useDefineForClassFields": true,
     "allowImportingTsExtensions": true,
+    "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
     }

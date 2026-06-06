@@ -20,7 +20,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber } from '@/shared/utils';
+import { isFunction, isNull, isNumber } from '@/shared/utils';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDriverContext, LockDriverHandle } from '../types';
@@ -103,7 +103,7 @@ function buildLocalHandle(
     onRevokedByDriver: (callback) => {
       revokeCallback = callback;
       // 回放：注册时若已被 revoke 过，立即补发
-      if (revokeReason !== null) {
+      if (!isNull(revokeReason)) {
         try {
           revokeCallback(revokeReason);
         } catch (error) {
@@ -199,7 +199,7 @@ function enqueueWaiter(state: LocalDriverState, ctx: LockDriverContext): Promise
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     function cleanup(): void {
-      if (timeoutId !== null) {
+      if (!isNull(timeoutId)) {
         clearTimeout(timeoutId);
         timeoutId = null;
       }

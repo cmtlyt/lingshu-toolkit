@@ -24,7 +24,7 @@
  */
 
 import { throwError } from '@/shared/throw-error';
-import { isFunction, isNumber, isObject } from '@/shared/utils';
+import { isFunction, isNull, isNumber, isObject } from '@/shared/utils';
 import { withResolvers } from '@/shared/with-resolvers';
 import { ERROR_FN_NAME } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
@@ -131,7 +131,7 @@ function mergeSignalWithTimeout(
   }
 
   function cleanup(): void {
-    if (timeoutId !== null) {
+    if (!isNull(timeoutId)) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }

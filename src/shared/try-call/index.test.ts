@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { tryCall, tryCallFunc } from './index';
+import { tryCall, tryCallAsync, tryCallAsyncFunc, tryCallFunc, tryCallSync, tryCallSyncFunc } from './index';
 
 describe('tryCall', () => {
   test('导出检查', () => {
@@ -321,5 +321,448 @@ describe('tryCall', () => {
     );
 
     expect(finalArgs[0]).toBe('success');
+  });
+});
+
+describe('tryCallSync', () => {
+  test('导出检查', () => {
+    expect(typeof tryCallSync).toBe('function');
+    expect(typeof tryCallSyncFunc).toBe('function');
+  });
+
+  test('tryCallSync 基本使用', () => {
+    expect(tryCallSync(() => 1)).toBe(1);
+    expect(() =>
+      tryCallSync(() => {
+        throw new Error('error');
+      }),
+    ).toThrow(Error);
+    expect(
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        () => 2,
+      ),
+    ).toBe(2);
+    expect(
+      tryCallSync(
+        () => 1,
+        null,
+        (r) => {
+          expect(r).toBe(1);
+        },
+      ),
+    ).toBe(1);
+    expect(
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        () => 2,
+        (r) => {
+          expect(r).toBe(2);
+        },
+      ),
+    ).toBe(2);
+  });
+
+  test('tryCallSyncFunc 基本使用', () => {
+    const fn = tryCallSyncFunc(() => 1);
+    expect(fn()).toBe(1);
+    expect(fn()).toBe(1);
+    const fn3 = tryCallSyncFunc(
+      () => {
+        throw new Error('error');
+      },
+      () => 2,
+    );
+    expect(fn3()).toBe(2);
+    const fn6 = tryCallSyncFunc(() => {
+      throw new Error('error');
+    });
+    expect(() => fn6()).toThrow(Error);
+    const fn_ = tryCallSyncFunc((_a: number, b: number) => {
+      if (_a % b) {
+        throw new Error('error');
+      }
+      return _a / b;
+    });
+    expect(fn_(1, 1)).toBe(1);
+    expect(fn_(1, 0)).toBe(Number.POSITIVE_INFINITY);
+    expect(() => fn_(1, 2)).toThrow(Error);
+    expect(
+      tryCallSyncFunc(
+        () => 1,
+        null,
+        (r) => {
+          expect(r).toBe(1);
+        },
+      )(),
+    ).toBe(1);
+    expect(
+      tryCallSyncFunc(
+        () => {
+          throw new Error('error');
+        },
+        () => 2,
+        (r) => {
+          expect(r).toBe(2);
+        },
+      )(),
+    ).toBe(2);
+  });
+
+  test('边缘情况', () => {
+    // @ts-expect-error test
+    expect(() => tryCallSync(undefined)).toThrow(TypeError);
+    // @ts-expect-error test
+    expect(() => tryCallSyncFunc(undefined)).toThrow(TypeError);
+  });
+
+  test('报错不处理 finally 应该接受错误参数', () => {
+    const testList: any[] = [];
+    expect(() =>
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        undefined,
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).toThrow(Error);
+    expect(testList[0]).toBeInstanceOf(Error);
+  });
+
+  test('执行顺序', () => {
+    const testList: any[] = [];
+    expect(
+      tryCallSync(
+        () => {
+          testList.push(1);
+        },
+        () => {
+          testList.push('error');
+        },
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).toBeUndefined();
+    expect(testList.length).toBe(2);
+    expect(testList).toEqual([1, undefined]);
+    testList.length = 0;
+    expect(
+      tryCallSync(
+        () => {
+          testList.push(1);
+          throw 'test';
+        },
+        (err) => {
+          testList.push('error');
+          return err;
+        },
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).toBe('test');
+    expect(testList.length).toBe(3);
+    expect(testList).toEqual([1, 'error', 'test']);
+  });
+
+  test('onError 中报错', () => {
+    expect(() =>
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        () => {
+          throw new Error('error2');
+        },
+      ),
+    ).toThrow('error2');
+  });
+
+  test('onFinal 中报错', () => {
+    expect(() =>
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        undefined,
+        () => {
+          throw new Error('error2');
+        },
+      ),
+    ).toThrow('error2');
+  });
+
+  test('全报错', () => {
+    const errorList: any = [];
+    expect(() =>
+      tryCallSync(
+        () => {
+          throw new Error('error');
+        },
+        () => {
+          throw new Error('error2');
+        },
+        (r) => {
+          errorList.push(r.message);
+          throw new Error('error3');
+        },
+      ),
+    ).toThrow('error3');
+    expect(errorList).toEqual(['error2']);
+  });
+
+  test('全事件 this 一致', () => {
+    const testList: any[] = new Array(3).fill(null);
+    const testThis = { num: 1 };
+    expect(
+      tryCallSyncFunc(
+        function (this: any) {
+          testList[0] = this;
+          throw new Error('error');
+        },
+        function (this: any) {
+          testList[1] = this;
+        },
+        function (this: any) {
+          testList[2] = this;
+        },
+      ).call(testThis),
+    ).toBeUndefined();
+    expect(testList[0]).toBe(testThis);
+    expect(testList[1]).toBe(testThis);
+    expect(testList[2]).toBe(testThis);
+  });
+});
+
+describe('tryCallAsync', () => {
+  test('导出检查', () => {
+    expect(typeof tryCallAsync).toBe('function');
+    expect(typeof tryCallAsyncFunc).toBe('function');
+  });
+
+  test('tryCallAsync 基本使用', async () => {
+    expect(await tryCallAsync(async () => 1)).toBe(1);
+    await expect(
+      tryCallAsync(async () => {
+        throw new Error('error');
+      }),
+    ).rejects.toThrow(Error);
+    expect(
+      await tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        () => 3,
+      ),
+    ).toBe(3);
+    expect(
+      await tryCallAsync(
+        async () => 1,
+        null,
+        (r) => {
+          expect(r).toBe(1);
+        },
+      ),
+    ).toBe(1);
+    expect(
+      await tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        () => 2,
+        (r) => {
+          expect(r).toBe(2);
+        },
+      ),
+    ).toBe(2);
+  });
+
+  test('tryCallAsyncFunc 基本使用', async () => {
+    const fn2 = tryCallAsyncFunc(async () => 1);
+    expect(await fn2()).toBe(1);
+    const fn4 = tryCallAsyncFunc(
+      async () => {
+        throw new Error('error');
+      },
+      () => 3,
+    );
+    expect(await fn4()).toBe(3);
+    const fn5 = tryCallAsyncFunc(async () => {
+      throw new Error('error');
+    });
+    await expect(fn5()).rejects.toThrow(Error);
+    expect(
+      await tryCallAsyncFunc(
+        async () => 1,
+        null,
+        (r) => {
+          expect(r).toBe(1);
+        },
+      )(),
+    ).toBe(1);
+    expect(
+      await tryCallAsyncFunc(
+        async () => {
+          throw new Error('error');
+        },
+        () => 2,
+        (r) => {
+          expect(r).toBe(2);
+        },
+      )(),
+    ).toBe(2);
+  });
+
+  test('边缘情况', () => {
+    // @ts-expect-error test
+    expect(() => tryCallAsync(undefined)).toThrow(TypeError);
+    // @ts-expect-error test
+    expect(() => tryCallAsyncFunc(undefined)).toThrow(TypeError);
+  });
+
+  test('报错不处理 finally 应该接受错误参数', async () => {
+    const testList: any[] = [];
+    await expect(
+      tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        undefined,
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).rejects.toThrow(Error);
+    expect(testList[0]).toBeInstanceOf(Error);
+  });
+
+  test('执行顺序', async () => {
+    const testList: any[] = [];
+    expect(
+      await tryCallAsync(
+        async () => {
+          testList.push(1);
+        },
+        () => {
+          testList.push('error');
+        },
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).toBeUndefined();
+    expect(testList.length).toBe(2);
+    expect(testList).toEqual([1, undefined]);
+    testList.length = 0;
+    expect(
+      await tryCallAsync(
+        async () => {
+          testList.push(1);
+          throw 'test';
+        },
+        (err) => {
+          testList.push('error');
+          return err;
+        },
+        (r) => {
+          testList.push(r);
+        },
+      ),
+    ).toBe('test');
+    expect(testList.length).toBe(3);
+    expect(testList).toEqual([1, 'error', 'test']);
+  });
+
+  test('onError 中报错', async () => {
+    await expect(
+      tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        () => {
+          throw new Error('error2');
+        },
+      ),
+    ).rejects.toThrow('error2');
+  });
+
+  test('onFinal 中报错', async () => {
+    await expect(
+      tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        undefined,
+        () => {
+          throw new Error('error2');
+        },
+      ),
+    ).rejects.toThrow('error2');
+  });
+
+  test('全报错', async () => {
+    const errorList: any = [];
+    await expect(
+      tryCallAsync(
+        async () => {
+          throw new Error('error');
+        },
+        () => {
+          throw new Error('error2');
+        },
+        (r) => {
+          errorList.push(r.message);
+          throw new Error('error3');
+        },
+      ),
+    ).rejects.toThrow('error3');
+    expect(errorList).toEqual(['error2']);
+  });
+
+  test('全事件 this 一致', async () => {
+    const testList: any[] = new Array(3).fill(null);
+    const testThis = { num: 1 };
+    expect(
+      await tryCallAsyncFunc(
+        async function (this: any) {
+          testList[0] = this;
+          throw new Error('error');
+        },
+        function (this: any) {
+          testList[1] = this;
+        },
+        function (this: any) {
+          testList[2] = this;
+        },
+      ).call(testThis),
+    ).toBeUndefined();
+    expect(testList[0]).toBe(testThis);
+    expect(testList[1]).toBe(testThis);
+    expect(testList[2]).toBe(testThis);
+  });
+
+  test('延迟报错', async () => {
+    vi.useFakeTimers();
+    try {
+      await expect(
+        tryCallAsync(
+          async () => {
+            await vi.advanceTimersByTimeAsync(10);
+            throw new Error('error');
+          },
+          (err) => err.message,
+        ),
+      ).resolves.toBe('error');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

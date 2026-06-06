@@ -16,7 +16,7 @@
  */
 
 import { createError, throwError } from '@/shared/throw-error';
-import { isNumber, isString } from '@/shared/utils';
+import { isNull, isNumber, isString } from '@/shared/utils';
 import { ERROR_FN_NAME, LOCK_PREFIX } from '../constants';
 import { LockAbortedError, LockTimeoutError } from '../errors';
 import type { LockDriverContext, LockDriverHandle } from '../types';
@@ -80,7 +80,7 @@ function buildWaiter(
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   function cleanup(): void {
-    if (timeoutId !== null) {
+    if (!isNull(timeoutId)) {
       clearTimeout(timeoutId);
       timeoutId = null;
     }
@@ -151,7 +151,7 @@ function buildWaiter(
 function acquireForceLock(state: StorageDriverState, waiter: Waiter): void {
   const { name, logger } = state.deps;
   void tryAcquire(state, waiter.token, true).then((grant) => {
-    if (grant === null) {
+    if (isNull(grant)) {
       waiter.abort(
         new LockAbortedError(
           `[@cmtlyt/lingshu-toolkit#${ERROR_FN_NAME}]: force acquire failed after retries (token=${waiter.token})`,
@@ -233,7 +233,7 @@ function acquireNonForceLock(state: StorageDriverState, waiter: Waiter): void {
     return;
   }
   void tryAcquire(state, waiter.token, false).then((grant) => {
-    if (grant !== null) {
+    if (!isNull(grant)) {
       handleFastPathGrant(state, waiter, grant.nonce);
       return;
     }

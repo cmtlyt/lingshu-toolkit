@@ -8,7 +8,12 @@ function getEntrys(namespace: string) {
   return (
     globSync([`src/${namespace}/**/*.ts`], {
       cwd: import.meta.dirname,
-      exclude: [`src/${namespace}/index.ts`, 'src/**/*.test.{ts,tsx,js,jsx}', 'src/**/*.test-d.{ts,tsx,js,jsx}'],
+      exclude: [
+        `src/${namespace}/index.ts`,
+        'src/**/*.test.{ts,tsx,js,jsx}',
+        'src/**/*.test-d.{ts,tsx,js,jsx}',
+        'src/**/__test__/**',
+      ],
     })
       // 兼容 windows, rslib 需要 entry 的路径为 /
       .map((item) => item.replace(/\\/gu, '/'))
@@ -84,5 +89,8 @@ export default defineConfig({
       },
     },
   ],
+  source: {
+    tsconfigPath: path.resolve(import.meta.dirname, 'tsconfig.build.json'),
+  },
   server: { publicDir: false },
 });

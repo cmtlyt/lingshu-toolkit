@@ -1,0 +1,253 @@
+# rtcController
+
+> package version >0.7.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/05/12 16:20:00
+
+信令无关、类型安全、事件驱动的 WebRTC P2P 通信控制器。将连接生命周期管理、泛型事件系统、媒体/数据通道操作聚合为简洁 API，信令交换逻辑完全外部化。
+
+## 特性
+
+- **信令无关**：通过 SignalingAdapter 接口注入信令，适配 WebSocket、HTTP、自定义通道等任意信令方案
+- **类型安全的自定义事件**：泛型参数声明用户事件，`emit` / `on` 全链路类型推断
+- **完整生命周期管理**：7 阶段状态机（idle → signaling → connecting → connected → disconnected → failed → closed）
+- **事件驱动**：14 种内置事件覆盖连接、ICE、媒体、数据通道等所有关键节点
+- **媒体流支持**：addTrack / removeTrack / getRemoteStreams 一站式媒体操作
+- **手动重连能力**：reconnect() 一键重置并重建连接
+- **AbortSignal 支持**：通过 signal 选项实现外部生命周期控制
+
+## 安装
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedRtcController.json
+```
+
+## 用法
+
+```ts
+import { createRtcController } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createRtcController } from '@cmtlyt/lingshu-toolkit/shared/rtc-controller'
+```
+
+## 基础用法
+
+### 创建控制器并建立连接
+
+```ts
+import { createRtcController } from '@cmtlyt/lingshu-toolkit/shared'
+import type { SignalingAdapter } from '@cmtlyt/lingshu-toolkit/shared'
+
+// 实现你自己的信令适配器（WebSocket、HTTP 等）
+const signaling: SignalingAdapter = {
+  send(message) {
+    websocket.send(JSON.stringify(message));
+  },
+  onMessage(callback) {
+    const handler = (event: MessageEvent) => callback(JSON.parse(event.data));
+    websocket.addEventListener('message', handler);
+    return () => websocket.removeEventListener('message', handler);
+  },
+};
+
+const controller = createRtcController({ signaling });
+
+// 监听连接事件
+controller.on('connected', () => console.log('P2P 连接已建立'));
+controller.on('disconnected', ({ reason }) => console.log('断开连接:', reason));
+
+// 发起连接（offerer 端调用）
+await controller.connect();
+```
+
+### 收发原始数据
+
+```ts
+// 发送原始数据（字符串 / ArrayBuffer / Blob）
+controller.send('hello from A');
+
+// 接收原始数据
+controller.on('raw-message', ({ data }) => {
+  console.log('收到原始数据:', data);
+});
+```
+
+## 高级用法
+
+### 类型安全的自定义事件
+
+```ts
+// 声明自定义事件类型
+interface ChatEvents {
+  'chat-message': { text: string; sender: string };
+  'user-joined': { userId: string };
+}
+
+const controller = createRtcController<ChatEvents>({ signaling });
+await controller.connect();
+
+// emit 和 on 的 payload 类型完全推断
+controller.on('chat-message', ({ text, sender }) => {
+  console.log(`${sender}: ${text}`);
+});
+
+controller.emit('chat-message', { text: '你好', sender: 'Alice' });
+```
+
+### 媒体流（音视频通话）
+
+```ts
+const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+for (const track of stream.getTracks()) {
+  controller.addTrack(track, stream);
+}
+
+// 监听远端媒体轨道
+controller.on('track', ({ track, streams }) => {
+  const video = document.querySelector('video');
+  video.srcObject = streams[0];
+});
+```
+
+### AbortSignal 生命周期控制
+
+```ts
+const abortController = new AbortController();
+
+const controller = createRtcController({
+  signaling,
+  signal: abortController.signal,
+});
+
+// 外部 abort 等价于 dispose()
+abortController.abort();
+// controller.phase === 'closed'
+```
+
+### 重连
+
+```ts
+// reconnect 会先清理旧连接，再重新走 connect 流程
+await controller.reconnect();
+```
+
+## API Reference
+
+### createRtcController
+
+```ts
+function createRtcController<UserEvents extends EventMap = EventMap>(
+  options: RtcControllerOptions,
+): RtcController<UserEvents>
+```
+
+#### 参数 (RtcControllerOptions)
+
+| 属性 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| signaling | `SignalingAdapter` | 是 | - | 信令适配器 |
+| rtcConfig | `RTCConfiguration` | 否 | `undefined` | RTCPeerConnection 配置 |
+| dataChannelLabel | `string` | 否 | `'lingshu-rtc'` | 默认数据通道 label |
+| dataChannelOptions | `RTCDataChannelInit` | 否 | `{ ordered: true }` | 默认数据通道配置 |
+| autoCreateDataChannel | `boolean` | 否 | `true` | Offerer 是否自动创建默认数据通道 |
+| connectTimeout | `number` | 否 | `30000` | ICE 连接超时时间（ms） |
+| signal | `AbortSignal` | 否 | `undefined` | 外部生命周期控制 |
+| logger | `LoggerAdapter` | 否 | `undefined` | 自定义日志适配器 |
+
+#### 返回值 (RtcController)
+
+| 属性/方法 | 类型 | 描述 |
+|-----------|------|------|
+| phase | `RtcPhase` | 当前连接阶段（只读） |
+| peerConnection | `RTCPeerConnection \| null` | 底层连接引用（只读） |
+| connect() | `() => Promise<void>` | 发起连接（offerer 端调用） |
+| reconnect() | `() => Promise<void>` | 重置并重新连接 |
+| dispose() | `() => void` | 销毁控制器，释放所有资源 |
+| on(event, handler) | `(event, handler) => () => void` | 注册事件监听，返回取消函数 |
+| once(event, handler) | `(event, handler) => () => void` | 注册一次性事件监听 |
+| off(event, handler) | `(event, handler) => void` | 移除事件监听 |
+| emit(event, payload) | `(event, payload) => void` | 发送自定义事件（仅 UserEvents） |
+| send(data) | `(data) => void` | 通过默认数据通道发送原始数据 |
+| addTrack(track, ...streams) | `(track, ...streams) => RTCRtpSender` | 添加本地媒体轨道 |
+| removeTrack(sender) | `(sender) => void` | 移除本地媒体轨道 |
+| getRemoteStreams() | `() => readonly MediaStream[]` | 获取所有远端媒体流 |
+| createDataChannel(label, opts) | `(label, opts?) => RTCDataChannel` | 创建额外数据通道 |
+| getStats() | `() => Promise<RTCStatsReport>` | 获取连接统计信息 |
+
+#### 类型定义
+
+```ts
+type RtcPhase = 'idle' | 'signaling' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed';
+
+interface SignalingAdapter {
+  send: (message: SignalingMessage) => void | Promise<void>;
+  onMessage: (callback: (message: SignalingMessage) => void) => () => void;
+  dispose?: () => void;
+}
+
+type SignalingMessage =
+  | { type: 'offer'; sdp: string }
+  | { type: 'answer'; sdp: string }
+  | { type: 'ice-candidate'; candidate: RTCIceCandidateInit };
+
+interface LoggerAdapter {
+  warn: (message: string, ...extras: unknown[]) => void;
+  error: (message: string, ...extras: unknown[]) => void;
+  debug?: (message: string, ...extras: unknown[]) => void;
+}
+```
+
+#### 内置事件
+
+| 事件名 | Payload | 描述 |
+|--------|---------|------|
+| phase-change | `{ phase: RtcPhase; prevPhase: RtcPhase }` | 阶段变化 |
+| connected | `undefined` | ICE 连接建立 |
+| disconnected | `{ reason: string }` | 连接断开 |
+| failed | `{ error: Error }` | 连接失败 |
+| closed | `undefined` | 控制器已销毁 |
+| track | `{ track: MediaStreamTrack; streams: readonly MediaStream[] }` | 收到远端媒体轨道 |
+| track-removed | `{ track: MediaStreamTrack }` | 远端轨道移除 |
+| data-channel-ready | `{ channel: RTCDataChannel; label: string }` | 数据通道就绪 |
+| data-channel-closed | `{ label: string }` | 数据通道关闭 |
+| ice-state-change | `{ state: RTCIceConnectionState }` | ICE 状态变化 |
+| ice-gathering-complete | `undefined` | ICE 候选收集完成 |
+| signaling-state-change | `{ state: RTCSignalingState }` | 信令状态变化 |
+| raw-message | `{ data: unknown; channel: RTCDataChannel }` | 收到非事件协议的原始消息 |
+| error | `{ error: Error; context: string }` | 运行时错误 |
+
+### 错误类
+
+| 错误类 | 描述 |
+|--------|------|
+| RtcDisposedError | 控制器已销毁后调用 API |
+| RtcInvalidStateError | 当前阶段不允许的操作 |
+| RtcTimeoutError | 连接超时 |
+| RtcSignalingError | 信令交换失败 |
+| RtcChannelNotReadyError | 数据通道未就绪时发送数据 |
+
+## 注意事项
+
+### ⚠️ Offerer 与 Answerer
+
+只有 **主动调用 `connect()`** 的一端是 Offerer，另一端通过信令适配器自动响应 Offer 成为 Answerer。双方都需要创建控制器并配置同一信令通道。
+
+### ⚠️ 自定义事件与内置事件冲突
+
+如果自定义事件名与内置事件名相同（如 `connected`），类型层面 BuiltinEvents 始终优先；运行时 `emit()` 会忽略冲突事件并打印警告。
+
+### ⚠️ dispose 后不可复用
+
+调用 `dispose()` 后控制器进入 `closed` 阶段，所有后续 API 调用都会抛出 `RtcDisposedError`。如需重新连接，请创建新的控制器实例。
+
+### 🔧 信令适配器设计
+
+信令适配器是一个简单接口，只需实现 `send` 和 `onMessage` 两个方法。`send` 可以是同步或异步的，`onMessage` 返回取消订阅函数。可选的 `dispose` 方法在控制器销毁时自动调用。

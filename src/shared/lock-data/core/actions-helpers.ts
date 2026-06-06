@@ -17,7 +17,7 @@
  */
 
 import { createError, throwError } from '@/shared/throw-error';
-import { isFunction, isObject } from '@/shared/utils';
+import { isFunction, isNull, isObject, isUndef } from '@/shared/utils';
 import type { ResolvedLoggerAdapter } from '../adapters/logger';
 import { DEFAULT_TIMEOUT, ERROR_FN_NAME, LOCK_PREFIX, NEVER_TIMEOUT } from '../constants';
 import { LockAbortedError, LockDisposedError, LockTimeoutError } from '../errors';
@@ -41,7 +41,7 @@ import { anySignal, type SignalLike } from './signal';
  * 详见 `src/shared/lock-data/fixes/standalone-id-leak.md` §3.5
  */
 function buildAcquireName<T extends object>(entry: Entry<T>): string {
-  return entry.lockId === undefined ? `${LOCK_PREFIX}:__local__` : `${LOCK_PREFIX}:${entry.lockId}`;
+  return isUndef(entry.lockId) ? `${LOCK_PREFIX}:__local__` : `${LOCK_PREFIX}:${entry.lockId}`;
 }
 
 interface TokenSeqHolder {
@@ -68,10 +68,10 @@ function issueToken(holder: TokenSeqHolder, id: string): string {
  * 优先级：`callOpts.acquireTimeout` > `options.timeout` > `DEFAULT_TIMEOUT`
  */
 function resolveAcquireTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
-  if (callOpts && callOpts.acquireTimeout !== undefined) {
+  if (callOpts && !isUndef(callOpts.acquireTimeout)) {
     return callOpts.acquireTimeout;
   }
-  if (options.timeout !== undefined) {
+  if (!isUndef(options.timeout)) {
     return options.timeout;
   }
   return DEFAULT_TIMEOUT;
@@ -79,10 +79,10 @@ function resolveAcquireTimeout<T>(options: LockDataOptions<T>, callOpts: ActionC
 
 /** 同 resolveAcquireTimeout，维度换为 holdTimeout */
 function resolveHoldTimeout<T>(options: LockDataOptions<T>, callOpts: ActionCallOptions | undefined): TimeoutValue {
-  if (callOpts && callOpts.holdTimeout !== undefined) {
+  if (callOpts && !isUndef(callOpts.holdTimeout)) {
     return callOpts.holdTimeout;
   }
-  if (options.timeout !== undefined) {
+  if (!isUndef(options.timeout)) {
     return options.timeout;
   }
   return DEFAULT_TIMEOUT;
@@ -110,17 +110,16 @@ interface AcquireSignalBundle {
  * 返回 `dispose`：清理 timer + 内部 anySignal 的监听；调用方在 acquire 完成 / 失败时都要调用
  */
 function buildAcquireSignal(baseSignals: readonly SignalLike[], acquireTimeoutMs: number | null): AcquireSignalBundle {
-  const timeoutController = acquireTimeoutMs === null ? null : new AbortController();
-  const acquireTimer =
-    timeoutController === null
-      ? null
-      : setTimeout(
-          () => timeoutController.abort(new DOMException('acquire timeout', 'TimeoutError')),
-          acquireTimeoutMs as number,
-        );
+  const timeoutController = isNull(acquireTimeoutMs) ? null : new AbortController();
+  const acquireTimer = isNull(timeoutController)
+    ? null
+    : setTimeout(
+        () => timeoutController.abort(new DOMException('acquire timeout', 'TimeoutError')),
+        acquireTimeoutMs as number,
+      );
   const merged = anySignal([...baseSignals, timeoutController ? timeoutController.signal : null]);
   const dispose = (): void => {
-    if (acquireTimer !== null) {
+    if (!isNull(acquireTimer)) {
       clearTimeout(acquireTimer);
     }
     merged.dispose();
@@ -339,7 +338,7 @@ function enqueueWrite<R>(state: ActionsInternalState, task: () => Promise<R>): P
 }
 
 function clearHoldTimer(state: ActionsInternalState): void {
-  if (state.holdTimer !== null) {
+  if (!isNull(state.holdTimer)) {
     clearTimeout(state.holdTimer);
     state.holdTimer = null;
   }
