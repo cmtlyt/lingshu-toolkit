@@ -396,6 +396,12 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
     debounceTimer = undefined;
   };
 
+  /**
+   * 刷新处理队列。
+   *
+   * 当存在待处理变更时串行执行 processHandler, 并在处理期间持续吸收新的触发请求,
+   * 直到 dirty 被消费完成为止。
+   */
   const flushProcessQueue = async () => {
     if (running) {
       return;
@@ -424,11 +430,19 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
     void flushProcessQueue();
   };
 
+  /**
+   * 立即触发处理逻辑, 并清除当前已存在的防抖定时器。
+   */
   const triggerProcessImmediately = () => {
     clearDebounceTimer();
     requestProcess();
   };
 
+  /**
+   * 根据运行模式调度处理逻辑:
+   * - scriptMode 下立即执行
+   * - watch 模式下通过防抖合并短时间内的重复触发
+   */
   const scheduleProcess = () => {
     if (scriptMode) {
       triggerProcessImmediately();
