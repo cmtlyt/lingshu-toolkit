@@ -9,4 +9,5 @@ pluginAutoPatchFile({
   docGenIgnoreEntryCheck: false,
   registryUrl: config.registryUrl,
   metaFile: path.resolve(__dirname, '../meta/toolkit.meta.json'),
+  scriptMode: true,
 });

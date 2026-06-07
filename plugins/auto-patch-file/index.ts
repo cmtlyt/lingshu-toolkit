@@ -15,6 +15,8 @@ interface PluginAutoPatchFileOptions {
   metaFile: string;
   registryUrl?: string;
   docGenIgnoreEntryCheck?: boolean;
+  scriptMode?: boolean;
+  debounceMs?: number;
 }
 
 interface Context {
@@ -379,9 +381,11 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
   }
 
   const ctx = createContext(options);
+  const { scriptMode = false, debounceMs = 100 } = options;
 
   let running = false;
   let dirty = false;
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const enqueueProcess = async () => {
     dirty = true;
@@ -408,14 +412,34 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
     }
   };
 
-  void enqueueProcess();
+  const scheduleProcess = (immediate = false) => {
+    if (immediate || scriptMode) {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+        debounceTimer = undefined;
+      }
+      void enqueueProcess();
+      return;
+    }
+
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined;
+      void enqueueProcess();
+    }, debounceMs);
+  };
+
+  scheduleProcess(true);
 
   return {
     name: '@cmtlyt/lingshu-toolkit:auto-patch-file',
     apply: 'serve',
     async watchChange(id) {
       if (id === ctx.metaFile) {
-        void enqueueProcess();
+        scheduleProcess();
       }
     },
   } satisfies Plugin;
