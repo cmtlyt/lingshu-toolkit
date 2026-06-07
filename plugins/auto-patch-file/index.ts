@@ -387,9 +387,16 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
   let dirty = false;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
-  const enqueueProcess = async () => {
-    dirty = true;
+  const clearDebounceTimer = () => {
+    if (!debounceTimer) {
+      return;
+    }
 
+    clearTimeout(debounceTimer);
+    debounceTimer = undefined;
+  };
+
+  const flushProcessQueue = async () => {
     if (running) {
       return;
     }
@@ -412,27 +419,31 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
     }
   };
 
-  const scheduleProcess = (immediate = false) => {
-    if (immediate || scriptMode) {
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-        debounceTimer = undefined;
-      }
-      void enqueueProcess();
+  const requestProcess = () => {
+    dirty = true;
+    void flushProcessQueue();
+  };
+
+  const triggerProcessImmediately = () => {
+    clearDebounceTimer();
+    requestProcess();
+  };
+
+  const scheduleProcess = () => {
+    if (scriptMode) {
+      triggerProcessImmediately();
       return;
     }
 
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
+    clearDebounceTimer();
 
     debounceTimer = setTimeout(() => {
       debounceTimer = undefined;
-      void enqueueProcess();
+      requestProcess();
     }, debounceMs);
   };
 
-  scheduleProcess(true);
+  triggerProcessImmediately();
 
   return {
     name: '@cmtlyt/lingshu-toolkit:auto-patch-file',
