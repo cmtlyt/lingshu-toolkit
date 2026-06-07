@@ -15,7 +15,6 @@ interface PluginAutoPatchFileOptions {
   metaFile: string;
   registryUrl?: string;
   docGenIgnoreEntryCheck?: boolean;
-  scriptMode?: boolean;
   debounceMs?: number;
 }
 
@@ -381,20 +380,11 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
   }
 
   const ctx = createContext(options);
-  const { scriptMode = false, debounceMs = 100 } = options;
+  const { debounceMs = 100 } = options;
 
   let running = false;
   let dirty = false;
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
-
-  const clearDebounceTimer = () => {
-    if (!debounceTimer) {
-      return;
-    }
-
-    clearTimeout(debounceTimer);
-    debounceTimer = undefined;
-  };
 
   /**
    * 刷新处理队列。
@@ -431,25 +421,12 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
   };
 
   /**
-   * 立即触发处理逻辑, 并清除当前已存在的防抖定时器。
-   */
-  const triggerProcessImmediately = () => {
-    clearDebounceTimer();
-    requestProcess();
-  };
-
-  /**
-   * 根据运行模式调度处理逻辑:
-   * - scriptMode 下立即执行
-   * - watch 模式下通过防抖合并短时间内的重复触发
+   * 通过防抖调度处理逻辑, 合并短时间内的重复触发。
    */
   const scheduleProcess = () => {
-    if (scriptMode) {
-      triggerProcessImmediately();
-      return;
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
     }
-
-    clearDebounceTimer();
 
     debounceTimer = setTimeout(() => {
       debounceTimer = undefined;
@@ -457,7 +434,7 @@ export function pluginAutoPatchFile(options: PluginAutoPatchFileOptions) {
     }, debounceMs);
   };
 
-  triggerProcessImmediately();
+  requestProcess();
 
   return {
     name: '@cmtlyt/lingshu-toolkit:auto-patch-file',
