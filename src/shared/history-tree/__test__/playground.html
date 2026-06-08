@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>History Tree Playground</title>
+<style>
+* { box-sizing: border-box; padding: 0; margin: 0; }
+body { display: flex; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #e2e8f0; background: #0f172a; }
+#sidebar { display: flex; flex-shrink: 0; flex-direction: column; width: 340px; background: #1e293b; border-right: 1px solid #334155; }
+#sidebar h2 { padding: 16px; font-size: 18px; color: #38bdf8; border-bottom: 1px solid #334155; }
+#controls { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-bottom: 1px solid #334155; }
+#controls label { font-size: 13px; color: #94a3b8; }
+#controls input, #controls textarea { width: 100%; padding: 8px 10px; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; color: #e2e8f0; background: #0f172a; border: 1px solid #475569; border-radius: 6px; }
+#controls textarea { height: 60px; }
+.btn { padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; border: none; border-radius: 6px; transition: all .15s; }
+.btn-primary { color: #fff; background: #3b82f6; }
+.btn-primary:hover { background: #2563eb; }
+.btn-secondary { color: #e2e8f0; background: #334155; }
+.btn-secondary:hover { background: #475569; }
+.btn-danger { color: #fff; background: #ef4444; }
+.btn-danger:hover { background: #dc2626; }
+.btn-group { display: flex; gap: 8px; }
+#info { flex: 1; padding: 16px; overflow-y: auto; font-size: 13px; }
+#info h3 { margin-bottom: 8px; font-size: 14px; color: #38bdf8; }
+#info pre { max-height: 200px; padding: 10px; margin-bottom: 12px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; line-height: 1.5; word-break: break-all; white-space: pre-wrap; background: #0f172a; border-radius: 6px; }
+#canvas-area { display: flex; flex: 1; flex-direction: column; }
+#canvas-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #1e293b; border-bottom: 1px solid #334155; }
+#canvas-header span { font-size: 13px; color: #94a3b8; }
+#svg-container { position: relative; flex: 1; overflow: auto; }
+.node-circle { cursor: pointer; transition: all .2s; }
+.node-circle:hover { filter: brightness(1.3); }
+.node-label { font-size: 12px; font-weight: 700; pointer-events: none; }
+.node-data-label { font-size: 10px; pointer-events: none; fill: #94a3b8; }
+.edge { fill: none; stroke: #475569; stroke-width: 2; }
+.edge-path { opacity: .6; fill: none; stroke: #fbbf24; stroke-width: 2.5; }
+.node-current { stroke: #22c55e; stroke-width: 3; }
+.node-root { stroke: #f59e0b; stroke-width: 2; }
+.node-default { stroke: #64748b; stroke-width: 1.5; }
+.node-on-path { stroke: #fbbf24; stroke-width: 2.5; }
+#log { max-height: 120px; padding: 16px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', monospace; font-size: 12px; background: #1e293b; border-top: 1px solid #334155; }
+#log div { padding: 2px 0; color: #94a3b8; }
+#log .log-action { color: #38bdf8; }
+#log .log-error { color: #f87171; }
+</style>
+</head>
+<body>
+<div id="sidebar">
+  <h2>🌳 History Tree</h2>
+  <div id="controls">
+    <div>
+      <label>提交数据 (JSON)</label>
+      <textarea id="commitData">{"title": "v1", "content": "hello"}</textarea>
+    </div>
+    <div class="btn-group">
+      <button type="button" class="btn btn-primary" id="btnCommit">Commit</button>
+      <button type="button" class="btn btn-secondary" id="btnPreset">加载示例</button>
+    </div>
+    <div>
+      <label>切换节点 ID</label>
+      <input id="checkoutId" placeholder="输入节点 id">
+    </div>
+    <div class="btn-group">
+      <button type="button" class="btn btn-secondary" id="btnCheckout">Checkout</button>
+      <button type="button" class="btn btn-danger" id="btnReset">重置</button>
+    </div>
+  </div>
+  <div id="info">
+    <h3>当前节点</h3>
+    <pre id="currentInfo">-</pre>
+    <h3>路径数据 (getPathData)</h3>
+    <pre id="pathInfo">-</pre>
+    <h3>树统计</h3>
+    <pre id="treeStats">-</pre>
+  </div>
+</div>
+<div id="canvas-area">
+  <div id="canvas-header">
+    <span>点击节点可 checkout | 🟢 当前 | 🟡 路径 | 🟠 根节点</span>
+    <span id="sizeLabel">size: 0</span>
+  </div>
+  <!-- biome-ignore lint/a11y/noSvgWithoutTitle: ignore -->
+  <div id="svg-container"><svg id="treeSvg"></svg></div>
+  <div id="log"></div>
+</div>
+
+<script type="module">
+import { createHistoryTree } from '../index.ts';
+
+let tree = createHistoryTree({ initialData: { title: 'v0', content: 'initial' } });
+
+// === DOM refs ===
+const commitDataEl = document.getElementById('commitData');
+const checkoutIdEl = document.getElementById('checkoutId');
+const currentInfoEl = document.getElementById('currentInfo');
+const pathInfoEl = document.getElementById('pathInfo');
+const treeStatsEl = document.getElementById('treeStats');
+const sizeLabelEl = document.getElementById('sizeLabel');
+const logEl = document.getElementById('log');
+const svgEl = document.getElementById('treeSvg');
+const svgContainer = document.getElementById('svg-container');
+
+// === Log ===
+function log(msg, cls = 'log-action') {
+  const div = document.createElement('div');
+  div.className = cls;
+  div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  logEl.prepend(div);
+  while (logEl.children.length > 50) { logEl.removeChild(logEl.lastChild); }
+}
+
+// === 获取路径上的节点 id 集合 ===
+function getPathIds() {
+  const ids = new Set();
+  let cur = tree.getCurrentNode();
+  ids.add(cur.id);
+  while (cur.parentId !== null) {
+    ids.add(cur.parentId);
+    cur = tree.getNode(cur.parentId);
+  }
+  return ids;
+}
+
+// === 树布局算法 ===
+function layoutTree(snapshot) {
+  const { rootId, nodes } = snapshot;
+  const levels = new Map();
+  const queue = [rootId];
+  levels.set(rootId, 0);
+
+  while (queue.length > 0) {
+    const id = queue.shift();
+    const node = nodes[id];
+    for (const childId of node.childrenIds) {
+      levels.set(childId, levels.get(id) + 1);
+      queue.push(childId);
+    }
+  }
+
+  let leafCounter = 0;
+  const positions = new Map();
+
+  function assignX(nodeId) {
+    const node = nodes[nodeId];
+    if (node.childrenIds.length === 0) {
+      positions.set(nodeId, { x: leafCounter, y: levels.get(nodeId) });
+      leafCounter++;
+      return positions.get(nodeId).x;
+    }
+    const childXs = node.childrenIds.map(cid => assignX(cid));
+    const avgX = (Math.min(...childXs) + Math.max(...childXs)) / 2;
+    positions.set(nodeId, { x: avgX, y: levels.get(nodeId) });
+    return avgX;
+  }
+
+  assignX(rootId);
+  return { positions, leafCount: leafCounter };
+}
+
+// === 转义 HTML ===
+function escapeHtml(str) {
+  return str.replace(/&/gu, '&amp;').replace(/</gu, '&lt;').replace(/>/gu, '&gt;').replace(/"/gu, '&quot;');
+}
+
+// === SVG 渲染 ===
+function renderSvg(snapshot) {
+  const { rootId, currentId, nodes } = snapshot;
+  const { positions, leafCount } = layoutTree(snapshot);
+  const pathIds = getPathIds();
+
+  const nodeRadius = 22;
+  const spacingX = 80;
+  const spacingY = 90;
+  const paddingX = 60;
+  const paddingY = 50;
+
+  const maxLevel = Math.max(...[...positions.values()].map(p => p.y));
+  const svgWidth = Math.max(leafCount * spacingX + paddingX * 2, svgContainer.clientWidth);
+  const svgHeight = Math.max((maxLevel + 1) * spacingY + paddingY * 2, svgContainer.clientHeight);
+
+  const toSvgX = (x) => x * spacingX + paddingX;
+  const toSvgY = (y) => y * spacingY + paddingY;
+
+  let html = '';
+
+  // 边
+  for (const [id, pos] of positions) {
+    const node = nodes[id];
+    if (node.parentId !== null) {
+      const parentPos = positions.get(node.parentId);
+      const x1 = toSvgX(parentPos.x);
+      const y1 = toSvgY(parentPos.y);
+      const x2 = toSvgX(pos.x);
+      const y2 = toSvgY(pos.y);
+      const isOnPath = pathIds.has(id) && pathIds.has(node.parentId);
+      const midY = (y1 + y2) / 2;
+      html += `<path class="${isOnPath ? 'edge-path' : 'edge'}" d="M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}" />`;
+    }
+  }
+
+  // 节点
+  for (const [id, pos] of positions) {
+    const sx = toSvgX(pos.x);
+    const sy = toSvgY(pos.y);
+    const isCurrent = id === currentId;
+    const isRoot = id === rootId;
+    const isOnPath = pathIds.has(id);
+
+    let strokeClass = 'node-default';
+    if (isCurrent) { strokeClass = 'node-current'; }
+    else if (isOnPath) { strokeClass = 'node-on-path'; }
+    else if (isRoot) { strokeClass = 'node-root'; }
+
+    const notCurrentColor = isOnPath ? '#713f12' : '#1e293b';
+    const fill = isCurrent ? '#166534' : notCurrentColor;
+    const node = nodes[id];
+    const dataStr = typeof node.data === 'string' ? node.data : JSON.stringify(node.data);
+    const truncated = dataStr.length > 16 ? `${dataStr.slice(0, 14)}…` : dataStr;
+
+    html += `<g class="node-circle" data-id="${id}">`;
+    html += `<circle cx="${sx}" cy="${sy}" r="${nodeRadius}" fill="${fill}" class="${strokeClass}" />`;
+    html += `<text x="${sx}" y="${sy + 1}" text-anchor="middle" dominant-baseline="middle" class="node-label" fill="#fff">v${id}</text>`;
+    html += `<text x="${sx}" y="${sy + nodeRadius + 14}" text-anchor="middle" class="node-data-label">${escapeHtml(truncated)}</text>`;
+    html += '</g>';
+  }
+
+  svgEl.setAttribute('width', svgWidth);
+  svgEl.setAttribute('height', svgHeight);
+  svgEl.innerHTML = html;
+}
+
+// === 信息面板更新 ===
+function updateInfo() {
+  const cur = tree.getCurrentNode();
+  currentInfoEl.textContent = JSON.stringify(cur, null, 2);
+  pathInfoEl.textContent = JSON.stringify(tree.getPathData(), null, 2);
+  treeStatsEl.textContent = [
+    `size: ${tree.size}`,
+    `currentId: ${tree.currentId}`,
+    `rootId: ${tree.getRoot().id}`,
+    `parentData: ${JSON.stringify(tree.parentData)}`,
+  ].join('\n');
+  sizeLabelEl.textContent = `size: ${tree.size}`;
+}
+
+// === onChange 驱动渲染 ===
+function setupOnChange() {
+  tree.onChange((snapshot) => {
+    renderSvg(snapshot);
+    updateInfo();
+  });
+}
+
+// === 初始渲染（onChange 不覆盖初始状态） ===
+function initialRender() {
+  renderSvg(tree.getSnapshot());
+  updateInfo();
+}
+
+// === 按钮事件 ===
+document.getElementById('btnCommit').addEventListener('click', () => {
+  try {
+    const data = JSON.parse(commitDataEl.value.trim());
+    const id = tree.commit(data);
+    log(`commit → ${id} (data: ${JSON.stringify(data)})`);
+  } catch (e) { log(`Error: ${e.message}`, 'log-error'); }
+});
+
+document.getElementById('btnCheckout').addEventListener('click', () => {
+  try {
+    const nodeId = checkoutIdEl.value.trim();
+    tree.checkout(nodeId);
+    log(`checkout → ${nodeId}`);
+  } catch (e) { log(`Error: ${e.message}`, 'log-error'); }
+});
+
+document.getElementById('btnReset').addEventListener('click', () => {
+  tree = createHistoryTree({ initialData: { title: 'v0', content: 'initial' } });
+  setupOnChange();
+  log('Reset tree');
+  initialRender();
+});
+
+document.getElementById('btnPreset').addEventListener('click', () => {
+  tree = createHistoryTree({ initialData: 'd0' });
+  tree.commit('d1');
+  tree.commit('d2');
+  tree.checkout('1');
+  tree.commit('d3');
+  tree.commit('d4');
+  tree.commit('d5');
+  tree.checkout('2');
+  tree.commit('d6');
+  tree.checkout('3');
+  tree.commit('d7');
+  tree.checkout('4');
+  tree.commit('d8');
+  tree.commit('d9');
+  setupOnChange();
+  log('Loaded preset (v0~v9)');
+  initialRender();
+});
+
+// 点击 SVG 节点 checkout
+svgEl.addEventListener('click', (e) => {
+  const group = e.target.closest('[data-id]');
+  if (!group) { return; }
+  const nodeId = group.dataset.id;
+  try {
+    tree.checkout(nodeId);
+    log(`checkout → ${nodeId} (click)`);
+  } catch (err) { log(`Error: ${err.message}`, 'log-error'); }
+});
+
+window.addEventListener('resize', () => renderSvg(tree.getSnapshot()));
+
+// === 启动 ===
+setupOnChange();
+initialRender();
+</script>
+</body>
+</html>
