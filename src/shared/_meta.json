@@ -84,5 +84,11 @@
     "label": "lockData",
     "name": "lock-data",
     "collapsed": true
+  },
+  {
+    "id": "shared@historyTree",
+    "type": "file",
+    "label": "historyTree",
+    "name": "history-tree/index.mdx"
   }
 ]

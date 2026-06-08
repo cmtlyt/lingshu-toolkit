@@ -67,6 +67,11 @@
       "path": "src/shared/priority-queue/index.ts"
     },
     {
+      "name": "sharedHistoryTree",
+      "author": "cmtlyt",
+      "path": "src/shared/history-tree/index.ts"
+    },
+    {
       "name": "sharedLockData",
       "author": "cmtlyt",
       "path": "src/shared/lock-data/index.ts"

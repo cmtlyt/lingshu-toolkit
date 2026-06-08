@@ -1,0 +1,160 @@
+# historyTree
+
+> package version >0.7.1
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/06/08 12:09:00
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedHistoryTree.json
+```
+
+## usage
+
+```ts
+import { createHistoryTree } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createHistoryTree } from '@cmtlyt/lingshu-toolkit/shared/history-tree'
+```
+
+## Features
+
+- 🌳 **树状历史记录**：每次提交产生树节点，回退后提交创建新分支，所有历史永不丢失
+- 🔀 **任意节点切换**：`checkout` 到任意历史节点，基于该节点继续提交
+- 📦 **泛型存储空间**：每个节点关联的数据类型通过泛型 `T` 约束
+- 🔙 **路径回溯**：获取当前节点到根节点路径上的所有存储数据
+- 🆔 **可定制 ID**：支持自定义节点 id 生成策略，默认自增
+- 🪶 **零依赖、框架无关**：纯数据结构，不区分全量/差异，存什么取什么
+
+## Examples
+
+### 基本使用
+
+```ts
+import { createHistoryTree } from '@cmtlyt/lingshu-toolkit/shared'
+
+interface DocState {
+  title: string
+  content: string
+}
+
+const tree = createHistoryTree<DocState>({
+  initialData: { title: 'Untitled', content: '' },
+})
+
+tree.commit({ title: 'My Doc', content: 'Hello' })
+tree.commit({ title: 'My Doc', content: 'Hello World' })
+
+console.log(tree.currentData)
+// { title: 'My Doc', content: 'Hello World' }
+console.log(tree.size) // 3
+```
+
+### 分支创建
+
+```ts
+// 回退到 v1，创建新分支
+tree.checkout(tree.getRoot().childrenIds[0])
+tree.commit({ title: 'Branch', content: 'Alternative' })
+
+// v1 现在有两个子节点
+console.log(tree.getNode(tree.getRoot().childrenIds[0]).childrenIds.length) // 2
+```
+
+### 路径回溯
+
+```ts
+const pathData = tree.getPathData()
+// 返回有序列表：[当前节点数据, 父节点数据, ..., 根节点数据]
+```
+
+### 自定义 ID 生成
+
+```ts
+const tree = createHistoryTree({
+  initialData: { x: 0 },
+  generateId: () => crypto.randomUUID(),
+})
+```
+
+## API
+
+### `createHistoryTree<T>(options): HistoryTree<T>`
+
+创建一棵历史树实例。
+
+#### Options
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `initialData` | `T` | ✅ | 根节点的存储数据 |
+| `generateId` | `() => string` | ❌ | 自定义 id 生成函数，默认自增数字转字符串 |
+
+#### HistoryTree\<T\>
+
+| 属性/方法 | 类型 | 说明 |
+| --- | --- | --- |
+| `commit(data)` | `(data: T) => string` | 提交新节点，返回新节点 id |
+| `checkout(nodeId)` | `(nodeId: string) => void` | 切换到指定节点 |
+| `getPathData()` | `() => T[]` | 当前节点到根节点路径上的数据列表 |
+| `getCurrentNode()` | `() => HistoryNodeInfo<T>` | 获取当前节点信息 |
+| `getNode(nodeId)` | `(nodeId: string) => HistoryNodeInfo<T>` | 获取指定节点信息 |
+| `getRoot()` | `() => HistoryNodeInfo<T>` | 获取根节点信息 |
+| `getSnapshot()` | `() => HistoryTreeSnapshot<T>` | 获取整棵树的快照 |
+| `onChange(listener)` | `(listener: (snapshot: HistoryTreeSnapshot<T>) => void) => () => void` | 注册变更监听器，返回取消订阅函数 |
+| `currentId` | `string` | 当前节点 id |
+| `currentData` | `T` | 当前节点存储数据（getter） |
+| `parentData` | `T \| null` | 父节点存储数据（getter），根节点为 null |
+| `size` | `number` | 节点总数（getter） |
+
+#### HistoryNodeInfo\<T\>
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `id` | `string` | 节点唯一标识 |
+| `data` | `T` | 节点存储数据 |
+| `parentId` | `string \| null` | 父节点 id，根节点为 null |
+| `childrenIds` | `readonly string[]` | 子节点 id 列表 |
+
+#### HistoryTreeSnapshot\<T\>
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `rootId` | `string` | 根节点 id |
+| `currentId` | `string` | 当前节点 id |
+| `nodes` | `Readonly<Record<string, HistoryNodeInfo<T>>>` | 所有节点信息，key 为节点 id |
+
+### 获取快照
+
+```ts
+const snapshot = tree.getSnapshot()
+console.log(snapshot.rootId)     // 根节点 id
+console.log(snapshot.currentId)  // 当前节点 id
+console.log(Object.keys(snapshot.nodes).length) // 节点总数
+```
+
+### 监听变更
+
+```ts
+// 注册监听器，commit / checkout 时自动触发
+const unsubscribe = tree.onChange((snapshot) => {
+  console.log('树已变更', snapshot.currentId)
+  console.log('节点总数', Object.keys(snapshot.nodes).length)
+})
+
+tree.commit({ title: 'v1', content: 'change' }) // 触发回调
+tree.checkout(rootId)                            // 触发回调
+
+// 取消订阅
+unsubscribe()
+tree.commit({ title: 'v2', content: 'silent' }) // 不再触发
+```
