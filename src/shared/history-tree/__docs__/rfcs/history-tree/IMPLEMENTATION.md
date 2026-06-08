@@ -1,15 +1,15 @@
 # history-tree 实施清单
 
-> 基于 RFC v0.1.0（accepted）
+> 基于 RFC v0.2.0（accepted）
 
 ## 文件清单
 
 | 文件 | 职责 |
 | --- | --- |
-| `types.ts` | 类型定义：`HistoryTreeOptions<T>`、`HistoryTree<T>`、`HistoryNodeInfo<T>` |
+| `types.ts` | 类型定义：`HistoryTreeOptions<T>`、`HistoryTree<T>`、`HistoryNodeInfo<T>`、`HistoryTreeSnapshot<T>` |
 | `core.ts` | 核心实现：`createHistoryTree` 函数 |
 | `index.ts` | 入口：re-export `createHistoryTree` 及类型 |
-| `__test__/history-tree.test.ts` | 单元测试：覆盖 12 个场景 |
+| `__test__/history-tree.node.test.ts` | 单元测试：覆盖 17 个场景 |
 
 ## 实施步骤
 
@@ -30,6 +30,12 @@ HistoryNodeInfo<T> {
   readonly childrenIds: readonly string[]
 }
 
+HistoryTreeSnapshot<T> {
+  readonly rootId: string
+  readonly currentId: string
+  readonly nodes: Readonly<Record<string, HistoryNodeInfo<T>>>
+}
+
 HistoryTree<T> {
   commit(data: T): string
   checkout(nodeId: string): void
@@ -37,6 +43,8 @@ HistoryTree<T> {
   getCurrentNode(): HistoryNodeInfo<T>
   getNode(nodeId: string): HistoryNodeInfo<T>
   getRoot(): HistoryNodeInfo<T>
+  getSnapshot(): HistoryTreeSnapshot<T>
+  onChange(listener: (snapshot: HistoryTreeSnapshot<T>) => void): () => void
   readonly currentId: string
   get currentData(): T
   get parentData(): T | null
@@ -76,12 +84,14 @@ interface HistoryNode<T> {
 - **`currentData` getter**：取 `nodes.get(currentId).data`
 - **`parentData` getter**：取当前节点的 `parentId`，为 `null` 返回 `null`，否则取父节点 `data`
 - **`size` getter**：返回 `nodes.size`
+- **`getSnapshot()`**：遍历 `nodes` Map，将每个节点转为 `HistoryNodeInfo` 副本，组装为 `{ rootId, currentId, nodes: Record }` 返回
+- **`onChange(listener)`**：内部维护 `listeners: Set`，将 listener 加入 Set，返回取消订阅函数（从 Set 中移除）。`commit` 和 `checkout` 操作完成后调用 `notifyListeners()`，无监听器时跳过快照构建（零开销）
 - **错误处理**：使用 `throwError('history-tree', ...)` — 来自 `shared/throw-error`
 
 ### 3. index.ts — 入口
 
 - re-export `createHistoryTree` from `./core`
-- re-export 类型 `HistoryTreeOptions`、`HistoryTree`、`HistoryNodeInfo` from `./types`
+- re-export 类型 `HistoryTreeOptions`、`HistoryTree`、`HistoryNodeInfo`、`HistoryTreeSnapshot` from `./types`
 
 ### 4. __test__/history-tree.test.ts — 测试用例
 
@@ -99,6 +109,12 @@ interface HistoryNode<T> {
 | 10 | 自定义 id | 传入 generateId，验证节点使用自定义 id |
 | 11 | 重复 id | generateId 返回重复 id 时抛错 |
 | 12 | 边界情况 | 只有根节点时的 getPathData（只含一个元素）、checkout 到当前节点（无异常） |
+| 13 | getSnapshot | 返回包含所有节点的完整快照，rootId / currentId / nodes 正确 |
+| 14 | getSnapshot 副本隔离 | 快照中 childrenIds 为副本，后续 commit 不影响已获取的快照 |
+| 15 | onChange - commit | commit 后监听器收到最新快照 |
+| 16 | onChange - checkout | checkout 后监听器收到最新快照 |
+| 17 | onChange - 多监听器 | 注册多个 listener 均被通知 |
+| 18 | onChange - 取消订阅 | 调用 unsubscribe 后不再触发回调 |
 
 ## 依赖
 

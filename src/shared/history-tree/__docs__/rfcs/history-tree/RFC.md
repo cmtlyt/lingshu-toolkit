@@ -6,7 +6,7 @@
 >
 > create time: 2026/06/08 12:09:00
 >
-> rfc version: 0.1.0
+> rfc version: 0.2.0
 >
 > scope: `src/shared/history-tree`
 
@@ -15,7 +15,7 @@
 | 版本 | 日期 | 变更摘要 |
 | --- | --- | --- |
 | 0.1.0 | 2026/06/08 | 初稿：树状历史记录数据结构、全量/差异存储、分支切换与创建、路径回溯 API |
-| X.Y.Z | YYYY/MM/DD | 一句话变更摘要；涉及字段 / 协议变更时列明新增、删除、重命名 |
+| 0.2.0 | 2026/06/08 | 新增 `getSnapshot()` 获取整棵树快照、`onChange(listener)` 变更监听、`HistoryTreeSnapshot<T>` 类型 |
 
 ## 背景与动机
 
@@ -46,7 +46,7 @@
 - **不**实现数据的自动合并（diff/patch/merge），不区分全量/差异存储
 - **不**实现持久化（序列化/反序列化留给调用方或后续扩展）
 - **不**实现并发安全（单线程使用场景）
-- **不**实现事件系统 / 订阅机制（保持核心精简，后续可扩展）
+- **不**实现复杂事件系统（仅提供 `onChange` 监听变更，不区分 commit/checkout 等具体事件类型）
 - **不**限制树的深度或分支数量
 
 ## 名词约定
@@ -130,6 +130,19 @@ interface HistoryTree<T> {
   getRoot(): HistoryNodeInfo<T>
 
   /**
+   * 获取整棵树的快照，包含所有节点信息、根节点 id 和当前节点 id
+   */
+  getSnapshot(): HistoryTreeSnapshot<T>
+
+  /**
+   * 注册变更监听器，当 commit / checkout 导致树状态变化时触发
+   * 回调参数为最新的快照
+   *
+   * @returns 取消订阅函数
+   */
+  onChange(listener: (snapshot: HistoryTreeSnapshot<T>) => void): () => void
+
+  /**
    * 获取当前节点的 id
    */
   readonly currentId: string
@@ -168,6 +181,21 @@ interface HistoryNodeInfo<T> {
 
   /** 子节点 id 列表 */
   readonly childrenIds: readonly string[]
+}
+```
+
+### 树快照
+
+```ts
+interface HistoryTreeSnapshot<T> {
+  /** 根节点 id */
+  readonly rootId: string
+
+  /** 当前节点 id */
+  readonly currentId: string
+
+  /** 所有节点信息，key 为节点 id */
+  readonly nodes: Readonly<Record<string, HistoryNodeInfo<T>>>
 }
 ```
 
@@ -221,7 +249,7 @@ const tree = createHistoryTree({
 
 结合用户提供的示例说明分支创建的完整流程：
 
-```
+```text
 v0 ──→ v1 ──┬──→ v2 ──→ v6
              │
              └──→ v3 ──┬──→ v4 ──┬──→ v5
@@ -290,7 +318,7 @@ tree.getPathData()
 
 ## 目录与文件规划
 
-```
+```text
 src/shared/history-tree/
 ├── RFC.md              # 本文档
 ├── index.ts            # 入口：导出 createHistoryTree
@@ -317,6 +345,11 @@ src/shared/history-tree/
 10. **自定义 id 生成**：传入 `generateId`，验证节点使用自定义 id
 11. **重复 id 检测**：`generateId` 返回重复 id 时抛错
 12. **边界情况**：只有根节点时的 `getPathData`、checkout 到当前节点（无操作）
+13. **getSnapshot**：返回包含所有节点的快照、快照为独立副本不影响原树
+14. **onChange - commit 触发**：commit 后监听器收到最新快照
+15. **onChange - checkout 触发**：checkout 后监听器收到最新快照
+16. **onChange - 多监听器**：注册多个 listener 均被通知
+17. **onChange - 取消订阅**：调用 unsubscribe 后不再触发回调
 
 ## 使用示例
 

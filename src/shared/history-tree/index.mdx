@@ -109,6 +109,8 @@ const tree = createHistoryTree({
 | `getCurrentNode()` | `() => HistoryNodeInfo<T>` | 获取当前节点信息 |
 | `getNode(nodeId)` | `(nodeId: string) => HistoryNodeInfo<T>` | 获取指定节点信息 |
 | `getRoot()` | `() => HistoryNodeInfo<T>` | 获取根节点信息 |
+| `getSnapshot()` | `() => HistoryTreeSnapshot<T>` | 获取整棵树的快照 |
+| `onChange(listener)` | `(listener: (snapshot: HistoryTreeSnapshot<T>) => void) => () => void` | 注册变更监听器，返回取消订阅函数 |
 | `currentId` | `string` | 当前节点 id |
 | `currentData` | `T` | 当前节点存储数据（getter） |
 | `parentData` | `T \| null` | 父节点存储数据（getter），根节点为 null |
@@ -122,3 +124,37 @@ const tree = createHistoryTree({
 | `data` | `T` | 节点存储数据 |
 | `parentId` | `string \| null` | 父节点 id，根节点为 null |
 | `childrenIds` | `readonly string[]` | 子节点 id 列表 |
+
+#### HistoryTreeSnapshot\<T\>
+
+| 属性 | 类型 | 说明 |
+| --- | --- | --- |
+| `rootId` | `string` | 根节点 id |
+| `currentId` | `string` | 当前节点 id |
+| `nodes` | `Readonly<Record<string, HistoryNodeInfo<T>>>` | 所有节点信息，key 为节点 id |
+
+### 获取快照
+
+```ts
+const snapshot = tree.getSnapshot()
+console.log(snapshot.rootId)     // 根节点 id
+console.log(snapshot.currentId)  // 当前节点 id
+console.log(Object.keys(snapshot.nodes).length) // 节点总数
+```
+
+### 监听变更
+
+```ts
+// 注册监听器，commit / checkout 时自动触发
+const unsubscribe = tree.onChange((snapshot) => {
+  console.log('树已变更', snapshot.currentId)
+  console.log('节点总数', Object.keys(snapshot.nodes).length)
+})
+
+tree.commit({ title: 'v1', content: 'change' }) // 触发回调
+tree.checkout(rootId)                            // 触发回调
+
+// 取消订阅
+unsubscribe()
+tree.commit({ title: 'v2', content: 'silent' }) // 不再触发
+```
