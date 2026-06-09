@@ -57,6 +57,7 @@ export interface StateMachineConfig<
   guards?: Record<string, GuardFn<TContext, TAsync>>;
   actions?: Record<string, ActionFn<TContext, TAsync>>;
   onUnhandledEvent?: (state: TStates, eventType: string, context: TContext) => void;
+  onError?: (error: unknown, context: TContext) => void;
   settings?: StateMachineSettings;
 }
 
@@ -100,9 +101,14 @@ export interface InternalState<TStates extends string, TContext extends Record<s
   cyclicCounter: number;
 }
 
-export interface Registries<TStates extends string, TEvents extends string, TContext extends Record<string, unknown>> {
-  states: Record<TStates, StateNode<TStates, TEvents, TContext, boolean>>;
-  guards: Record<string, GuardFn<TContext, boolean>>;
-  actions: Record<string, ActionFn<TContext, boolean>>;
+export interface Registries<
+  TStates extends string,
+  TEvents extends string,
+  TContext extends Record<string, unknown>,
+  TAsync extends boolean = false,
+> {
+  states: Record<TStates, StateNode<TStates, TEvents, TContext, TAsync>>;
+  guards: Record<string, GuardFn<TContext, TAsync>>;
+  actions: Record<string, ActionFn<TContext, TAsync>>;
   onUnhandledEvent: ((state: TStates, eventType: string, context: TContext) => void) | undefined;
 }

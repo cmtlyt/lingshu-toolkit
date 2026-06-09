@@ -34,7 +34,7 @@
 # 1. 跑带 coverage 的测试（生成 coverage/coverage-final.json）
 #    纯 node 测试（*.node.test.ts）→ 用 test:lib:ci，更快且不启动浏览器
 pnpm test:lib:ci src/shared/<module-name> --coverage.enabled
-#    含浏览器测试 → 用 test --run
+#    含浏览器测试 → 用 test:ci
 pnpm test:ci src/shared/<module-name> --coverage.enabled
 
 # 2. 分析未覆盖项

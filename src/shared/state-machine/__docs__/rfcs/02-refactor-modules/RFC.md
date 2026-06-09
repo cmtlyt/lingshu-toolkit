@@ -22,7 +22,7 @@
 
 ### 目标文件结构
 
-```
+```text
 src/shared/state-machine/
 ├── types.ts              # 所有类型定义（~90 行）
 ├── helpers.ts            # 基础辅助函数（~80 行）

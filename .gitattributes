@@ -24,6 +24,7 @@
 Dockerfile text eol=lf
 Makefile text eol=lf
 .env* text eol=lf
+*.svg text eol=lf
 
 # ==========================================
 # 3. 强制使用 CRLF 的文件（仅限 Windows 专属）
@@ -40,7 +41,6 @@ Makefile text eol=lf
 *.jpeg binary
 *.gif binary
 *.ico binary
-*.svg binary
 *.pdf binary
 *.zip binary
 *.gz binary

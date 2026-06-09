@@ -1,16 +1,7 @@
 import { throwError } from '@/shared/throw-error';
 import { buildMachineApi, drainAsyncQueue, drainSyncQueue, processEventSync } from './engine';
 import { checkCyclic, enqueueOrWarn, FN_NAME, resolveActionRefs, runActionsAsync, runActionsSync } from './helpers';
-import type {
-  ActionFn,
-  EventPayload,
-  GuardFn,
-  InternalState,
-  Registries,
-  StateMachine,
-  StateMachineConfig,
-  StateNode,
-} from './types';
+import type { EventPayload, InternalState, Registries, StateMachine, StateMachineConfig } from './types';
 
 export function createStateMachine<
   TStates extends string,
@@ -41,9 +32,9 @@ export function createStateMachine<
   };
 
   const reg: Registries<TStates, TEvents, TContext> = {
-    guards: guardRegistry as Record<string, GuardFn<TContext, boolean>>,
-    actions: actionRegistry as Record<string, ActionFn<TContext, boolean>>,
-    states: states as Record<TStates, StateNode<TStates, TEvents, TContext, boolean>>,
+    guards: guardRegistry as any,
+    actions: actionRegistry as any,
+    states: states as any,
     onUnhandledEvent: config.onUnhandledEvent,
   };
 
@@ -52,7 +43,9 @@ export function createStateMachine<
   if (initEntryActions.length > 0) {
     const initEvent: EventPayload = { type: '__init__' };
     if (isAsync) {
-      void runActionsAsync(initEntryActions, internal.context, initEvent);
+      void runActionsAsync(initEntryActions, internal.context, initEvent).catch((error) => {
+        config.onError?.(error, internal.context);
+      });
     } else {
       runActionsSync(initEntryActions, internal.context, initEvent);
     }

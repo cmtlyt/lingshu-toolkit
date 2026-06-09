@@ -303,7 +303,7 @@ function s5_init() {
     },
   });
   unsub5 = m5.subscribe((event) => {
-    log('s5', `[订阅] ${event.previousState} → ${event.currentState} (via ${event.event.type})`, 'ok');
+    log('s5', `[订阅] ${event.from} → ${event.to} (via ${event.event.type})`, 'ok');
   });
   updateState('s5', m5);
   log('s5', '开关机创建 + 已订阅', 'ok');

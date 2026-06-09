@@ -4,7 +4,7 @@
 
 RFC 和实施清单放在对应工具的 `__docs__/rfcs/<编号-功能>/` 目录下，每个功能/特性一个独立目录，按递归编号排序：
 
-```
+```text
 src/{namespace}/{tool-name}/
 ├── __docs__/
 │   └── rfcs/

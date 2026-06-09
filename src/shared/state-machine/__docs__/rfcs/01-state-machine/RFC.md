@@ -93,7 +93,7 @@ const config = {
 
 `trigger()` 方法不直接执行转换，而是将事件推入队列，由统一的事件循环串行消费：
 
-```
+```text
 trigger(event) → enqueue(event) → loop: dequeue → resolve transition → execute guards → execute actions → update state
 ```
 

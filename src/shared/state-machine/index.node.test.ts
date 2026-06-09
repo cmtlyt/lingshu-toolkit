@@ -465,6 +465,7 @@ describe('createStateMachine', () => {
     });
 
     test('should support async guard', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const machine = createStateMachine({
         initial: 'idle',
         context: {},
@@ -487,11 +488,15 @@ describe('createStateMachine', () => {
         },
       });
 
-      expect(await machine.trigger({ type: 'GO' })).toBe(true);
+      const triggerPromise = machine.trigger({ type: 'GO' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await triggerPromise).toBe(true);
       expect(machine.getState()).toBe('done');
+      vi.useRealTimers();
     });
 
     test('should support async action', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const log: string[] = [];
       const machine = createStateMachine({
         initial: 'idle',
@@ -515,8 +520,11 @@ describe('createStateMachine', () => {
         },
       });
 
-      await machine.trigger({ type: 'GO' });
+      const triggerPromise = machine.trigger({ type: 'GO' });
+      await vi.advanceTimersByTimeAsync(0);
+      await triggerPromise;
       expect(log).toEqual(['async-action']);
+      vi.useRealTimers();
     });
 
     test('should reject transition when async guard returns false', async () => {
@@ -537,6 +545,7 @@ describe('createStateMachine', () => {
     });
 
     test('should execute onEntry for initial state in async mode', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
       const log: string[] = [];
       createStateMachine({
         initial: 'idle',
@@ -550,11 +559,10 @@ describe('createStateMachine', () => {
           },
         },
       });
-      // Give async entry time to complete
-      await new Promise((resolve) => {
-        setTimeout(resolve, 10);
-      });
+      // Flush microtasks to let async onEntry complete
+      await vi.advanceTimersByTimeAsync(0);
       expect(log).toEqual(['async-init-entry']);
+      vi.useRealTimers();
     });
   });
 
@@ -1011,6 +1019,33 @@ describe('createStateMachine', () => {
       expect(result).toBe(true);
       expect(machine.getState()).toBe('idle');
       expect(actionSpy).toHaveBeenCalledOnce();
+    });
+
+    test('async initial onEntry error should call onError callback', async () => {
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+      const errorSpy = vi.fn();
+      const testError = new Error('init-entry-boom');
+
+      createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: { value: 42 },
+        states: {
+          idle: {
+            onEntry: async () => {
+              throw testError;
+            },
+          },
+        },
+        onError: errorSpy,
+      });
+
+      // Flush microtasks to let async onEntry reject and invoke onError
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(errorSpy).toHaveBeenCalledOnce();
+      expect(errorSpy).toHaveBeenCalledWith(testError, { value: 42 });
+      vi.useRealTimers();
     });
   });
 });
