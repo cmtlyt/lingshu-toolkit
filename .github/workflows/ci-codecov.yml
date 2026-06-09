@@ -40,11 +40,18 @@ jobs:
           key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
 
       - name: Install playwright system dependencies
+        timeout-minutes: 5
         run: pnpm exec playwright install-deps chromium
 
       - name: Install playwright browser
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: pnpm exec playwright install chromium
+        timeout-minutes: 10
+        run: |
+          # Heartbeat to prevent GitHub Actions from killing the step due to no output during extraction
+          while true; do echo "$(date '+%H:%M:%S') still installing..."; sleep 30; done &
+          HEARTBEAT_PID=$!
+          pnpm exec playwright install chromium
+          kill $HEARTBEAT_PID 2>/dev/null || true
 
       - name: Run tests
         run: pnpm test:ci --coverage.enabled
