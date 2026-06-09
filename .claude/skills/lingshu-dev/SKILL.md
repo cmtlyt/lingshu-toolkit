@@ -22,6 +22,8 @@ description: "Development workflow for lingshu-toolkit project. Handles adding n
 
 ✅ 唯一合法手段：导出内部函数 + 构造伪输入 + fake timers → 加载 `references/coverage-attack-playbook.md`
 
+**🚨 RFC/实施清单目录规范：** RFC 和实施清单放在 `src/{namespace}/{tool-name}/__docs__/rfcs/{功能}/` 下，每个功能独立目录，不要混放。→ 详细规则加载 `references/rfc-docs-rules.md`
+
 ## Workflow Checklist
 
 **🔀 工作流分支：先判断用户任务类型**

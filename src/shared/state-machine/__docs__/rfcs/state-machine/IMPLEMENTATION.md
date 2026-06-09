@@ -1,6 +1,7 @@
 # 实施清单：stateMachine
 
 > 关联 RFC：[RFC.md](./RFC.md)（v0.1.0, accepted 2026/06/08）
+> 源码：[index.ts](../../../index.ts)
 >
 > 状态：✅ 全部完成（2026/06/09）
 
