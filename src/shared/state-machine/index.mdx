@@ -1,0 +1,304 @@
+# stateMachine
+
+> package version >0.8.0
+>
+> shadcn any version
+>
+> author: cmtlyt
+>
+> update time: 2026/06/09 10:49:00
+
+通用有限状态机，支持表驱动配置、Guard 守卫、Action 动作、事件队列、Context 隔离，同时提供同步和异步两种模式。
+
+## 特性
+
+- **表驱动配置**：声明式定义状态、转换、守卫和动作，无需手写 if/switch
+- **Guard 守卫**：布尔函数控制转换是否允许，支持多规则按序匹配
+- **Action 动作**：完整生命周期链 onExit → transition action → onEntry
+- **事件队列**：FIFO 串行消费，Action 中触发事件自动入队，防止递归
+- **同步/异步双模式**：通过 `async` 配置切换，TypeScript 条件类型自动推断返回值
+- **Context 隔离**：业务数据通过 Context 对象传递，`getContext()` 返回不可变快照
+- **防御性编程**：循环检测、队列溢出保护、disposed 保护、未定义状态校验
+
+## install
+
+```bash title="npm"
+npm i @cmtlyt/lingshu-toolkit
+```
+
+```bash title="shadcn"
+npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedStateMachine.json
+```
+
+## usage
+
+```ts
+import { createStateMachine } from '@cmtlyt/lingshu-toolkit/shared'
+// or
+import { createStateMachine } from '@cmtlyt/lingshu-toolkit/shared/state-machine'
+```
+
+## 基础用法
+
+### 简单状态切换
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: {},
+  states: {
+    idle: { on: { START: { target: 'running' } } },
+    running: { on: { STOP: { target: 'idle' } } },
+  },
+});
+
+machine.getState(); // 'idle'
+machine.trigger({ type: 'START' }); // true
+machine.getState(); // 'running'
+```
+
+### 带 Context 的状态机
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: { count: 0 },
+  states: {
+    idle: {
+      on: {
+        INCREMENT: {
+          target: 'idle',
+          action: (ctx) => {
+            ctx.count++;
+          },
+        },
+      },
+    },
+  },
+});
+
+machine.trigger({ type: 'INCREMENT' });
+machine.getContext().count; // 1
+```
+
+### Guard 守卫
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: { balance: 50 },
+  states: {
+    idle: {
+      on: {
+        PAY: [
+          { target: 'premium', guard: (ctx) => ctx.balance >= 100 },
+          { target: 'basic', guard: (ctx) => ctx.balance >= 10 },
+          { target: 'rejected' },
+        ],
+      },
+    },
+    premium: {},
+    basic: {},
+    rejected: {},
+  },
+});
+
+machine.trigger({ type: 'PAY' }); // true
+machine.getState(); // 'basic'（balance=50，匹配第二条规则）
+```
+
+### 命名守卫和动作
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: { ok: true },
+  states: {
+    idle: {
+      on: { GO: { target: 'done', guard: 'isReady', action: 'logTransition' } },
+    },
+    done: {},
+  },
+  guards: {
+    isReady: (ctx) => ctx.ok,
+  },
+  actions: {
+    logTransition: (_ctx, event) => {
+      console.log(`Handled: ${event.type}`);
+    },
+  },
+});
+```
+
+## 高级用法
+
+### 异步模式
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: {},
+  async: true,
+  states: {
+    idle: {
+      on: {
+        GO: {
+          target: 'done',
+          guard: async () => {
+            // 异步校验
+            return true;
+          },
+          action: async () => {
+            // 异步动作
+          },
+        },
+      },
+    },
+    done: {},
+  },
+});
+
+// 异步模式下 trigger 返回 Promise<boolean>
+const result = await machine.trigger({ type: 'GO' });
+```
+
+### 生命周期动作
+
+```ts
+const log: string[] = [];
+
+const machine = createStateMachine({
+  initial: 'a',
+  context: {},
+  states: {
+    a: {
+      on: {
+        GO: {
+          target: 'b',
+          action: () => { log.push('transition'); },
+        },
+      },
+      onExit: () => { log.push('exit-a'); },
+    },
+    b: {
+      onEntry: () => { log.push('enter-b'); },
+    },
+  },
+});
+
+machine.trigger({ type: 'GO' });
+// log: ['exit-a', 'transition', 'enter-b']
+```
+
+### 订阅状态变化
+
+```ts
+const machine = createStateMachine({
+  initial: 'idle',
+  context: {},
+  states: {
+    idle: { on: { GO: { target: 'done' } } },
+    done: {},
+  },
+});
+
+const unsubscribe = machine.subscribe((event) => {
+  console.log(`${event.from} → ${event.to}`);
+});
+
+machine.trigger({ type: 'GO' }); // 输出: idle → done
+unsubscribe();
+```
+
+### Final 状态
+
+```ts
+const machine = createStateMachine({
+  initial: 'active',
+  context: {},
+  states: {
+    active: { on: { FINISH: { target: 'done' } } },
+    done: { final: true },
+  },
+});
+
+machine.trigger({ type: 'FINISH' }); // true
+machine.trigger({ type: 'FINISH' }); // false（final 状态拒绝一切事件）
+```
+
+## API
+
+### createStateMachine
+
+```ts
+function createStateMachine<TStates, TEvents, TContext, TAsync>(
+  config: StateMachineConfig<TStates, TEvents, TContext, TAsync>,
+): StateMachine<TStates, TEvents, TContext, TAsync>
+```
+
+#### Config 参数
+
+| 属性 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| initial | TStates | 是 | - | 初始状态，必须是 states 中已定义的 key |
+| context | TContext | 是 | - | 业务数据对象 |
+| async | boolean | 否 | false | 是否启用异步模式 |
+| states | Record\<TStates, StateNode\> | 是 | - | 状态定义表 |
+| guards | Record\<string, GuardFn\> | 否 | {} | 命名守卫注册表 |
+| actions | Record\<string, ActionFn\> | 否 | {} | 命名动作注册表 |
+| onUnhandledEvent | Function | 否 | - | 未匹配事件回调 |
+| settings | StateMachineSettings | 否 | - | 防御性配置 |
+
+#### StateNode
+
+| 属性 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| on | Record\<TEvents, TransitionConfig \| TransitionConfig[]\> | 否 | 事件到转换的映射 |
+| onEntry | ActionRef \| ActionRef[] | 否 | 进入状态时执行的动作 |
+| onExit | ActionRef \| ActionRef[] | 否 | 离开状态时执行的动作 |
+| final | boolean | 否 | 是否为终止状态 |
+
+#### TransitionConfig
+
+| 属性 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| target | TStates | 否 | 目标状态（省略则保持当前状态） |
+| guard | string \| GuardFn | 否 | 守卫函数或命名守卫 |
+| action | ActionRef \| ActionRef[] | 否 | 转换时执行的动作 |
+
+#### Settings
+
+| 属性 | 类型 | 默认值 | 描述 |
+|------|------|--------|------|
+| maxQueueSize | number | 100 | 事件队列最大长度 |
+| maxCyclicCount | number | 10 | 同一事件连续触发阈值 |
+
+#### 返回值
+
+| 方法 | 签名 | 描述 |
+|------|------|------|
+| trigger | (event: EventPayload) => boolean \| Promise\<boolean\> | 触发事件，返回是否成功转换 |
+| getState | () => TStates | 获取当前状态 |
+| getContext | () => Readonly\<TContext\> | 获取 Context 不可变快照 |
+| matches | (state: TStates) => boolean | 判断是否处于指定状态 |
+| getAvailableEvents | () => TEvents[] | 获取当前状态可用事件列表 |
+| subscribe | (listener) => () => void | 订阅状态变化，返回取消函数 |
+| dispose | () => void | 销毁状态机，清理资源 |
+
+## 注意事项
+
+### ⚠️ 同步与异步模式
+
+设置 `async: true` 后，`trigger()` 返回 `Promise<boolean>`，Guard 和 Action 均可使用 async 函数。同步模式下 `trigger()` 直接返回 `boolean`。TypeScript 会根据 `async` 配置自动推断返回类型，无需手动断言。
+
+### ⚠️ 事件队列与递归保护
+
+在 Action 中调用 `trigger()` 不会立即执行，而是将事件放入队列等待当前转换完成后按 FIFO 顺序处理。队列超过 `maxQueueSize` 时新事件会被丢弃并发出警告。
+
+### ⚠️ 循环检测
+
+同一事件在同一状态连续触发超过 `maxCyclicCount` 次时会抛出错误，防止死循环。可通过 `settings.maxCyclicCount` 调整阈值。
+
+### ⚠️ Disposed 状态
+
+调用 `dispose()` 后状态机不再接受任何事件，队列和订阅均被清理。再次调用 `trigger()` 会抛出错误。

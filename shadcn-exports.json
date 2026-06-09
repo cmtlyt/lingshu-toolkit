@@ -77,6 +77,11 @@
       "path": "src/shared/lock-data/index.ts"
     },
     {
+      "name": "sharedStateMachine",
+      "author": "cmtlyt",
+      "path": "src/shared/state-machine/index.ts"
+    },
+    {
       "name": "reactUseControllableValue",
       "author": "cmtlyt",
       "path": "src/react/use-controllable-value/index.ts"

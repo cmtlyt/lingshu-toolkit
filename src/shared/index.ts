@@ -8,6 +8,7 @@ export * from './data-mixed-manager';
 export * from './history-tree';
 export * from './lock-data';
 export * from './priority-queue';
+export * from './state-machine';
 export * from './throw-error';
 export * from './try-call';
 export * from './types';
