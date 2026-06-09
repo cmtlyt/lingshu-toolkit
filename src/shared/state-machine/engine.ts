@@ -1,4 +1,14 @@
 import { throwError } from '@/shared/throw-error';
+import {
+  checkCyclic,
+  FN_NAME,
+  getCandidates,
+  notifyListeners,
+  resolveActionRefs,
+  resolveGuard,
+  runActionsAsync,
+  runActionsSync,
+} from './helpers';
 import type {
   EventPayload,
   InternalState,
@@ -8,16 +18,6 @@ import type {
   StateNode,
   TransitionConfig,
 } from './types';
-import {
-  FN_NAME,
-  checkCyclic,
-  getCandidates,
-  notifyListeners,
-  resolveActionRefs,
-  resolveGuard,
-  runActionsAsync,
-  runActionsSync,
-} from './helpers';
 
 export function executeTransitionSync<
   TStates extends string,
@@ -73,7 +73,11 @@ export function processEventSync<
   TStates extends string,
   TEvents extends string,
   TContext extends Record<string, unknown>,
->(event: EventPayload, internal: InternalState<TStates, TContext>, reg: Registries<TStates, TEvents, TContext>): boolean {
+>(
+  event: EventPayload,
+  internal: InternalState<TStates, TContext>,
+  reg: Registries<TStates, TEvents, TContext>,
+): boolean {
   const stateNode = reg.states[internal.currentState] as StateNode<TStates, TEvents, TContext, boolean>;
   if (stateNode.final) {
     return false;
@@ -139,7 +143,11 @@ export function drainSyncQueue<
   TStates extends string,
   TEvents extends string,
   TContext extends Record<string, unknown>,
->(internal: InternalState<TStates, TContext>, reg: Registries<TStates, TEvents, TContext>, maxCyclicCount: number): void {
+>(
+  internal: InternalState<TStates, TContext>,
+  reg: Registries<TStates, TEvents, TContext>,
+  maxCyclicCount: number,
+): void {
   while (internal.eventQueue.length > 0) {
     const queuedEvent = internal.eventQueue.shift()!;
     checkCyclic(queuedEvent, internal, maxCyclicCount);
@@ -189,7 +197,9 @@ export function buildMachineApi<
       return (isAsync ? triggerAsync(event) : triggerSync(event)) as TAsync extends true ? Promise<boolean> : boolean;
     },
     getState: () => internal.currentState,
-    getContext: () => ({ ...internal.context }),
+    getContext: () => {
+      return { ...internal.context };
+    },
     matches: (state: TStates) => internal.currentState === state,
     getAvailableEvents() {
       const stateNode = reg.states[internal.currentState];

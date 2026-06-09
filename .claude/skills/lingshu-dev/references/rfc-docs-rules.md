@@ -2,16 +2,16 @@
 
 ## 目录结构
 
-RFC 和实施清单放在对应工具的 `__docs__/rfcs/<功能>/` 目录下，每个功能/特性一个独立目录：
+RFC 和实施清单放在对应工具的 `__docs__/rfcs/<编号-功能>/` 目录下，每个功能/特性一个独立目录，按递归编号排序：
 
 ```
 src/{namespace}/{tool-name}/
 ├── __docs__/
 │   └── rfcs/
-│       ├── {feature-a}/        # 功能 A 的 RFC
+│       ├── 01-{feature-a}/     # 功能 A 的 RFC
 │       │   ├── RFC.md
 │       │   └── IMPLEMENTATION.md
-│       └── {feature-b}/        # 功能 B 的 RFC
+│       └── 02-{feature-b}/     # 功能 B 的 RFC
 │           ├── RFC.md
 │           └── IMPLEMENTATION.md
 ├── index.ts
@@ -21,7 +21,8 @@ src/{namespace}/{tool-name}/
 
 ## 命名规则
 
-- **功能目录名**：kebab-case，描述该 RFC 的功能/特性（如 `state-machine`、`refactor-modules`、`hsm-support`）
+- **功能目录名**：`{编号}-{kebab-case功能名}`，编号从 `01` 起递增，描述该 RFC 的功能/特性（如 `01-state-machine`、`02-refactor-modules`、`03-hsm-support`）
+- **编号递增规则**：新建 RFC 时，取当前同级 rfcs 目录下最大编号 +1，保持两位数零填充（01、02、…、99）
 - **RFC 文件**：固定命名 `RFC.md`
 - **实施清单**：固定命名 `IMPLEMENTATION.md`
 - **每个功能独立目录**：不同功能的 RFC 不要混放在同一目录
@@ -67,7 +68,7 @@ src/{namespace}/{tool-name}/
 src/{namespace}/{tool-name}/
 ├── __docs__/
 │   └── rfcs/
-│       └── {feature}/
+│       └── 01-{feature}/
 │           ├── RFC.md                  # 主 RFC（索引 + 修订记录 + 子 RFC 状态）
 │           ├── IMPLEMENTATION.md       # 主实施清单
 │           ├── RFC-{sub-feature-a}.md  # 子 RFC A

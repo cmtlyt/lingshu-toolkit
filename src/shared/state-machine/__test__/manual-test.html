@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>State Machine 手动测试</title>
+<style>
+  * { box-sizing: border-box; padding: 0; margin: 0; }
+              body { padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #e2e8f0; background: #0f172a; }
+              h1 { margin-bottom: 16px; font-size: 1.5rem; color: #38bdf8; }
+              h2 { margin: 16px 0 8px; font-size: 1.1rem; color: #818cf8; }
+              .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+              .card { padding: 16px; background: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+              .card h3 { margin-bottom: 12px; font-size: 0.95rem; color: #67e8f9; }
+              button { padding: 6px 14px; margin: 3px; font-size: 0.85rem; color: white; cursor: pointer; background: #3b82f6; border: none; border-radius: 6px; transition: all 0.15s; }
+              button:hover { background: #2563eb; transform: translateY(-1px); }
+              button:active { transform: translateY(0); }
+              button:disabled { cursor: not-allowed; background: #475569; transform: none; }
+              button.danger { background: #ef4444; }
+              button.danger:hover { background: #dc2626; }
+              button.success { background: #22c55e; }
+              button.success:hover { background: #16a34a; }
+              .state-display { display: inline-block; padding: 4px 12px; font-size: 0.9rem; font-weight: bold; color: #a5b4fc; background: #312e81; border-radius: 20px; }
+              .log { max-height: 200px; padding: 10px; margin-top: 10px; overflow-y: auto; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.8rem; line-height: 1.6; background: #0f172a; border: 1px solid #334155; border-radius: 8px; }
+              .log .ok { color: #4ade80; }
+              .log .err { color: #f87171; }
+              .log .info { color: #94a3b8; }
+              .log .warn { color: #fbbf24; }
+              .status-bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+              .context-display { padding: 6px 10px; font-family: monospace; font-size: 0.85rem; color: #94a3b8; background: #0f172a; border: 1px solid #334155; border-radius: 6px; }
+              #global-log { max-height: 300px; }
+              .section-sep { margin: 20px 0; border: none; border-top: 1px solid #334155; }
+</style>
+</head>
+<body>
+<h1>🔄 State Machine 手动测试面板</h1>
+
+<div class="grid">
+
+<!-- 1. 基础同步转换 -->
+<div class="card">
+  <h3>1. 基础同步转换</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s1-state">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s1_start()">START</button>
+    <button type="button" onclick="s1_pause()">PAUSE</button>
+    <button type="button" onclick="s1_resume()">RESUME</button>
+    <button type="button" onclick="s1_stop()" class="danger">STOP</button>
+    <button type="button" onclick="s1_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s1-log"></div>
+</div>
+
+<!-- 2. Context & Actions -->
+<div class="card">
+  <h3>2. Context 更新 & Actions</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s2-state">-</span>
+    <span class="context-display" id="s2-ctx">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s2_inc()">+1</button>
+    <button type="button" onclick="s2_dec()">-1</button>
+    <button type="button" onclick="s2_reset()" class="success">重置</button>
+  </div>
+  <div class="log" id="s2-log"></div>
+</div>
+
+<!-- 3. Guards -->
+<div class="card">
+  <h3>3. Guards（守卫）</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s3-state">-</span>
+    <span class="context-display" id="s3-ctx">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s3_deposit()">存款 +100</button>
+    <button type="button" onclick="s3_withdraw()">取款 -200（有守卫）</button>
+    <button type="button" onclick="s3_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s3-log"></div>
+</div>
+
+<!-- 4. Async 模式 -->
+<div class="card">
+  <h3>4. Async 异步模式</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s4-state">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s4_fetch()">FETCH（模拟 1s 延迟）</button>
+    <button type="button" onclick="s4_retry()">RETRY</button>
+    <button type="button" onclick="s4_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s4-log"></div>
+</div>
+
+<!-- 5. Subscribe & Dispose -->
+<div class="card">
+  <h3>5. Subscribe / Dispose</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s5-state">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s5_toggle()">TOGGLE</button>
+    <button type="button" onclick="s5_unsub()" class="danger">取消订阅</button>
+    <button type="button" onclick="s5_dispose()" class="danger">Dispose</button>
+    <button type="button" onclick="s5_triggerAfterDispose()" class="danger">Dispose 后触发</button>
+    <button type="button" onclick="s5_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s5-log"></div>
+</div>
+
+<!-- 6. Final State -->
+<div class="card">
+  <h3>6. Final 终止状态</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s6-state">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s6_complete()">COMPLETE → done</button>
+    <button type="button" onclick="s6_tryMore()">尝试继续触发</button>
+    <button type="button" onclick="s6_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s6-log"></div>
+</div>
+
+<!-- 7. Unhandled Event -->
+<div class="card">
+  <h3>7. 未处理事件 & matches()</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s7-state">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s7_unknown()">触发 UNKNOWN 事件</button>
+    <button type="button" onclick="s7_check()">matches('idle')?</button>
+    <button type="button" onclick="s7_avail()">getAvailableEvents()</button>
+    <button type="button" onclick="s7_go()">GO</button>
+    <button type="button" onclick="s7_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s7-log"></div>
+</div>
+
+<!-- 8. 多候选 + 自转换 -->
+<div class="card">
+  <h3>8. 多候选转换 & 自转换</h3>
+  <div class="status-bar">
+    状态：<span class="state-display" id="s8-state">-</span>
+    <span class="context-display" id="s8-ctx">-</span>
+  </div>
+  <div>
+    <button type="button" onclick="s8_attempt()">ATTEMPT（count &lt; 3 自转换, ≥ 3 转 done）</button>
+    <button type="button" onclick="s8_reset()" class="success">重建</button>
+  </div>
+  <div class="log" id="s8-log"></div>
+</div>
+
+</div>
+
+<hr class="section-sep">
+<h2>📋 全局日志</h2>
+<div class="log" id="global-log"></div>
+
+<script type="module">
+import { createStateMachine } from '../index.ts';
+
+const glog = document.getElementById('global-log');
+function log(id, msg, cls = 'info') {
+  const el = document.getElementById(`${id}-log`);
+  const line = `<div class="${cls}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+  if (el) { el.innerHTML += line; el.scrollTop = el.scrollHeight; }
+  glog.innerHTML += `<div class="${cls}">[${id}] ${msg}</div>`;
+  glog.scrollTop = glog.scrollHeight;
+}
+function updateState(id, machine) {
+  document.getElementById(`${id}-state`).textContent = machine.getState();
+}
+function updateCtx(id, machine) {
+  const el = document.getElementById(`${id}-ctx`);
+  if (el) { el.textContent = JSON.stringify(machine.getContext()); }
+}
+
+// ===== 1. 基础同步转换 =====
+let m1;
+function s1_init() {
+  m1 = createStateMachine({
+    initial: 'idle',
+    context: {},
+    states: {
+      idle:    { on: { START: { target: 'running' } } },
+      running: { on: { PAUSE: { target: 'paused' }, STOP: { target: 'idle' } } },
+      paused:  { on: { RESUME: { target: 'running' }, STOP: { target: 'idle' } } },
+    },
+  });
+  updateState('s1', m1);
+  log('s1', '状态机已创建 (idle → running → paused)', 'ok');
+}
+window.s1_start = () => { const r = m1.trigger({ type: 'START' }); log('s1', `START → ${r}`, r ? 'ok' : 'warn'); updateState('s1', m1); };
+window.s1_pause = () => { const r = m1.trigger({ type: 'PAUSE' }); log('s1', `PAUSE → ${r}`, r ? 'ok' : 'warn'); updateState('s1', m1); };
+window.s1_resume = () => { const r = m1.trigger({ type: 'RESUME' }); log('s1', `RESUME → ${r}`, r ? 'ok' : 'warn'); updateState('s1', m1); };
+window.s1_stop = () => { const r = m1.trigger({ type: 'STOP' }); log('s1', `STOP → ${r}`, r ? 'ok' : 'warn'); updateState('s1', m1); };
+window.s1_reset = () => { s1_init(); log('s1', '重建完成', 'ok'); };
+s1_init();
+
+// ===== 2. Context & Actions =====
+let m2;
+function s2_init() {
+  m2 = createStateMachine({
+    initial: 'counter',
+    context: { count: 0 },
+    states: {
+      counter: {
+        on: {
+          INC: { action: (ctx) => { ctx.count++; } },
+          DEC: { action: (ctx) => { ctx.count--; } },
+          RESET_CTX: { action: (ctx) => { ctx.count = 0; } },
+        },
+      },
+    },
+  });
+  updateState('s2', m2); updateCtx('s2', m2);
+  log('s2', '计数器创建 count=0', 'ok');
+}
+window.s2_inc = () => { m2.trigger({ type: 'INC' }); updateCtx('s2', m2); log('s2', `+1 → count=${m2.getContext().count}`, 'ok'); };
+window.s2_dec = () => { m2.trigger({ type: 'DEC' }); updateCtx('s2', m2); log('s2', `-1 → count=${m2.getContext().count}`, 'ok'); };
+window.s2_reset = () => { m2.trigger({ type: 'RESET_CTX' }); updateCtx('s2', m2); log('s2', '重置 → count=0', 'ok'); };
+s2_init();
+
+// ===== 3. Guards =====
+let m3;
+function s3_init() {
+  m3 = createStateMachine({
+    initial: 'ready',
+    context: { balance: 500 },
+    states: {
+      ready: {
+        on: {
+          DEPOSIT:  { action: (ctx, e) => { ctx.balance += e.amount; } },
+          WITHDRAW: [
+            { guard: (ctx, e) => ctx.balance >= e.amount, action: (ctx, e) => { ctx.balance -= e.amount; } },
+          ],
+        },
+      },
+    },
+    onUnhandledEvent: (_s, type) => { log('s3', `事件 ${type} 未被处理（守卫拒绝）`, 'warn'); },
+  });
+  updateState('s3', m3); updateCtx('s3', m3);
+  log('s3', '银行账户 balance=500', 'ok');
+}
+window.s3_deposit = () => { m3.trigger({ type: 'DEPOSIT', amount: 100 }); updateCtx('s3', m3); log('s3', `存款 +100 → balance=${m3.getContext().balance}`, 'ok'); };
+window.s3_withdraw = () => { const r = m3.trigger({ type: 'WITHDRAW', amount: 200 }); updateCtx('s3', m3); log('s3', `取款 -200 → ${r ? '成功' : '被守卫拒绝'}, balance=${m3.getContext().balance}`, r ? 'ok' : 'err'); };
+window.s3_reset = () => { s3_init(); log('s3', '重建完成', 'ok'); };
+s3_init();
+
+// ===== 4. Async =====
+let m4;
+function s4_init() {
+  m4 = createStateMachine({
+    initial: 'idle',
+    async: true,
+    context: {},
+    states: {
+      idle: {
+        on: {
+          FETCH: {
+            target: 'loading',
+            action: async () => { log('s4', '开始加载...', 'info'); },
+          },
+        },
+      },
+      loading: {
+        onEntry: async () => {
+          await new Promise(r => setTimeout(r, 1000));
+          log('s4', '数据加载完成！', 'ok');
+          await m4.trigger({ type: 'DONE' });
+        },
+        on: { DONE: { target: 'success' }, ERROR: { target: 'error' } },
+      },
+      success: { on: { RETRY: { target: 'idle' } } },
+      error:   { on: { RETRY: { target: 'idle' } } },
+    },
+  });
+  updateState('s4', m4);
+  log('s4', '异步状态机已创建', 'ok');
+}
+window.s4_fetch = async () => { log('s4', '触发 FETCH', 'info'); await m4.trigger({ type: 'FETCH' }); updateState('s4', m4); setTimeout(() => updateState('s4', m4), 1200); };
+window.s4_retry = async () => { await m4.trigger({ type: 'RETRY' }); updateState('s4', m4); log('s4', 'RETRY → idle', 'ok'); };
+window.s4_reset = () => { s4_init(); log('s4', '重建完成', 'ok'); };
+s4_init();
+
+// ===== 5. Subscribe / Dispose =====
+let m5;
+let unsub5;
+function s5_init() {
+  m5 = createStateMachine({
+    initial: 'off',
+    context: {},
+    states: {
+      off: { on: { TOGGLE: { target: 'on' } } },
+      on:  { on: { TOGGLE: { target: 'off' } } },
+    },
+  });
+  unsub5 = m5.subscribe((event) => {
+    log('s5', `[订阅] ${event.previousState} → ${event.currentState} (via ${event.event.type})`, 'ok');
+  });
+  updateState('s5', m5);
+  log('s5', '开关机创建 + 已订阅', 'ok');
+}
+window.s5_toggle = () => { try { m5.trigger({ type: 'TOGGLE' }); updateState('s5', m5); } catch (e) { log('s5', `错误：${e.message}`, 'err'); } };
+window.s5_unsub = () => { if (unsub5) { unsub5(); unsub5 = null; log('s5', '已取消订阅', 'warn'); } };
+window.s5_dispose = () => { m5.dispose(); log('s5', 'Dispose 完成', 'warn'); };
+window.s5_triggerAfterDispose = () => { try { m5.trigger({ type: 'TOGGLE' }); } catch (e) { log('s5', `Dispose 后触发：${e.message}`, 'err'); } };
+window.s5_reset = () => { s5_init(); log('s5', '重建完成', 'ok'); };
+s5_init();
+
+// ===== 6. Final State =====
+let m6;
+function s6_init() {
+  m6 = createStateMachine({
+    initial: 'active',
+    context: {},
+    states: {
+      active: { on: { COMPLETE: { target: 'done' } } },
+      done:   { final: true },
+    },
+  });
+  updateState('s6', m6);
+  log('s6', '含终止状态的机器已创建', 'ok');
+}
+window.s6_complete = () => { const r = m6.trigger({ type: 'COMPLETE' }); updateState('s6', m6); log('s6', `COMPLETE → ${r}`, r ? 'ok' : 'warn'); };
+window.s6_tryMore = () => { const r = m6.trigger({ type: 'COMPLETE' }); log('s6', `在 final 状态触发 → ${r}（应为 false）`, r ? 'err' : 'ok'); };
+window.s6_reset = () => { s6_init(); log('s6', '重建完成', 'ok'); };
+s6_init();
+
+// ===== 7. Unhandled Event & matches =====
+let m7;
+function s7_init() {
+  m7 = createStateMachine({
+    initial: 'idle',
+    context: {},
+    states: {
+      idle:   { on: { GO: { target: 'active' } } },
+      active: { on: { BACK: { target: 'idle' } } },
+    },
+    onUnhandledEvent: (state, type) => { log('s7', `⚠️ 状态 "${state}" 无法处理事件 "${type}"`, 'warn'); },
+  });
+  updateState('s7', m7);
+  log('s7', '已创建，含 onUnhandledEvent 回调', 'ok');
+}
+window.s7_unknown = () => { m7.trigger({ type: 'UNKNOWN' }); log('s7', '触发了 UNKNOWN 事件', 'info'); };
+window.s7_check = () => { const r = m7.matches('idle'); log('s7', `matches('idle') = ${r}`, r ? 'ok' : 'info'); };
+window.s7_avail = () => { const events = m7.getAvailableEvents(); log('s7', `可用事件: [${events.join(', ')}]`, 'info'); };
+window.s7_go = () => { m7.trigger({ type: 'GO' }); updateState('s7', m7); log('s7', `GO → ${m7.getState()}`, 'ok'); };
+window.s7_reset = () => { s7_init(); log('s7', '重建完成', 'ok'); };
+s7_init();
+
+// ===== 8. 多候选 + 自转换 =====
+let m8;
+function s8_init() {
+  m8 = createStateMachine({
+    initial: 'trying',
+    context: { count: 0 },
+    states: {
+      trying: {
+        on: {
+          ATTEMPT: [
+            { guard: (ctx) => ctx.count >= 3, target: 'done' },
+            { action: (ctx) => { ctx.count++; } },
+          ],
+        },
+      },
+      done: { final: true },
+    },
+  });
+  updateState('s8', m8); updateCtx('s8', m8);
+  log('s8', '多候选机器创建 (3次后进入 done)', 'ok');
+}
+window.s8_attempt = () => {
+  const r = m8.trigger({ type: 'ATTEMPT' });
+  updateState('s8', m8); updateCtx('s8', m8);
+  const ctx = m8.getContext();
+  log('s8', `ATTEMPT → ${r}, state=${m8.getState()}, count=${ctx.count}`, r ? 'ok' : 'warn');
+};
+window.s8_reset = () => { s8_init(); log('s8', '重建完成', 'ok'); };
+s8_init();
+</script>
+</body>
+</html>

@@ -4,6 +4,8 @@
     "ignoreUnknown": true,
     "includes": [
       "**",
+      "!!.claude",
+      "!**/*.html",
       "!node_modules",
       "!!.netlify",
       "!!.nitro",

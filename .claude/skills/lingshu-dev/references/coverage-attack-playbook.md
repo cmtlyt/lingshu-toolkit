@@ -28,7 +28,21 @@
 
 ### Step A：跑覆盖率 + 扫描未覆盖项
 
-跑「目标模块带 coverage 的测试」生成 `coverage/coverage-final.json`，再用仓库的 coverage 分析脚本扫出每条未覆盖项的「文件 / 行号 / 分支 idx」清单。聚焦单文件时叠加 `--with-source`，把每条未覆盖位置上下文打印出来，便于一眼判断属于哪种命中模式。
+先跑「目标模块带 coverage 的测试」生成 `coverage/coverage-final.json`，再用 `pnpm test:analyze` 扫出每条未覆盖项的「文件 / 行号 / 分支 idx」清单：
+
+```bash
+# 1. 跑带 coverage 的测试（生成 coverage/coverage-final.json）
+#    纯 node 测试（*.node.test.ts）→ 用 test:lib:ci，更快且不启动浏览器
+pnpm test:lib:ci src/shared/<module-name> --coverage.enabled
+#    含浏览器测试 → 用 test --run
+pnpm test:ci src/shared/<module-name> --coverage.enabled
+
+# 2. 分析未覆盖项
+pnpm test:analyze src/shared/<module-name>
+
+# 3. 聚焦单文件时叠加 --with-source，打印上下文
+pnpm test:analyze src/shared/<module-name> --with-source --file=<path-fragment>
+```
 
 关键判定：分析脚本输出 `Files dirty: 0` 表示模块已清零；只要 `dirty > 0` 就继续 Step B。
 
@@ -68,7 +82,7 @@
 
 ### Step E：增量验证（写一批测一批）
 
-每补完一批测试立即重跑 coverage + 分析脚本，看 `Files dirty` 是否在减少。**禁止**一次性写大量 case 攒着跑 —— 因为一旦中间某个 case 的 mock 思路错了，会污染后续 case 的 mock 状态，整批失败时排查成本极高。
+每补完一批测试立即重跑覆盖率测试（纯 node 用 `pnpm test:lib:ci`，含浏览器用 `pnpm test:ci`，均需 `--coverage.enabled`）+ `pnpm test:analyze src/shared/<module-name>`，看 `Files dirty` 是否在减少。**禁止**一次性写大量 case 攒着跑 —— 因为一旦中间某个 case 的 mock 思路错了，会污染后续 case 的 mock 状态，整批失败时排查成本极高。
 
 ### Step F：模块清零后做全局回归（终验）
 

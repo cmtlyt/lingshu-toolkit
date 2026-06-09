@@ -830,4 +830,187 @@ describe('createStateMachine', () => {
       expect(machine.getAvailableEvents()).toEqual([]);
     });
   });
+
+  // ============================================================
+  // Async mode coverage
+  // ============================================================
+  describe('async mode', () => {
+    test('should transition between states (async)', async () => {
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: {},
+        states: {
+          idle: { on: { START: { target: 'running' } } },
+          running: { on: { STOP: { target: 'idle' } } },
+        },
+      });
+
+      const result = await machine.trigger({ type: 'START' });
+      expect(result).toBe(true);
+      expect(machine.getState()).toBe('running');
+    });
+
+    test('async guard that rejects should skip candidate', async () => {
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: { allowed: false },
+        states: {
+          idle: {
+            on: {
+              GO: [{ target: 'blocked', guard: (ctx) => Promise.resolve(ctx.allowed) }, { target: 'fallback' }],
+            },
+          },
+          blocked: {},
+          fallback: {},
+        },
+      });
+
+      const result = await machine.trigger({ type: 'GO' });
+      expect(result).toBe(true);
+      expect(machine.getState()).toBe('fallback');
+    });
+
+    test('async transition to undefined target should throw', async () => {
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: {},
+        states: {
+          idle: {
+            on: { GO: { target: 'nonexistent' as 'idle' } },
+          },
+        },
+      });
+
+      await expect(machine.trigger({ type: 'GO' })).rejects.toThrow('not defined in states');
+    });
+
+    test('async enqueue event when processing', async () => {
+      const order: string[] = [];
+      const machine = createStateMachine({
+        initial: 'a',
+        async: true,
+        context: {},
+        states: {
+          a: {
+            on: {
+              TO_B: {
+                target: 'b',
+                action: () => {
+                  order.push('a->b');
+                },
+              },
+            },
+          },
+          b: {
+            onEntry: () => {
+              order.push('enter_b');
+              void machine.trigger({ type: 'TO_C' });
+            },
+            on: { TO_C: { target: 'c' } },
+          },
+          c: {
+            onEntry: () => {
+              order.push('enter_c');
+            },
+          },
+        },
+      });
+
+      await machine.trigger({ type: 'TO_B' });
+      expect(machine.getState()).toBe('c');
+      expect(order).toContain('enter_b');
+      expect(order).toContain('enter_c');
+    });
+
+    test('async concurrent trigger should enqueue', async () => {
+      let resolveFirst: () => void;
+      const blockingPromise = new Promise<void>((resolve) => {
+        resolveFirst = resolve;
+      });
+
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: {},
+        states: {
+          idle: {
+            on: {
+              SLOW: {
+                target: 'processing',
+                action: async () => {
+                  await blockingPromise;
+                },
+              },
+            },
+          },
+          processing: {
+            on: { NEXT: { target: 'done' } },
+          },
+          done: {},
+        },
+      });
+
+      const firstTrigger = machine.trigger({ type: 'SLOW' });
+      const secondResult = await machine.trigger({ type: 'NEXT' });
+      expect(secondResult).toBe(true);
+
+      resolveFirst!();
+      await firstTrigger;
+      expect(machine.getState()).toBe('done');
+    });
+
+    test('async trigger on final state should return false', async () => {
+      const machine = createStateMachine({
+        initial: 'end',
+        async: true,
+        context: {},
+        states: {
+          end: { final: true },
+        },
+      });
+
+      const result = await machine.trigger({ type: 'ANY' });
+      expect(result).toBe(false);
+      expect(machine.getState()).toBe('end');
+    });
+
+    test('async trigger with unhandled event should return false', async () => {
+      const onUnhandled = vi.fn();
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: {},
+        states: {
+          idle: { on: { KNOWN: { target: 'idle' } } },
+        },
+        onUnhandledEvent: onUnhandled,
+      });
+
+      const result = await machine.trigger({ type: 'UNKNOWN' });
+      expect(result).toBe(false);
+      expect(onUnhandled).toHaveBeenCalledWith('idle', 'UNKNOWN', {});
+    });
+
+    test('async self-transition (no target) should stay in same state', async () => {
+      const actionSpy = vi.fn();
+      const machine = createStateMachine({
+        initial: 'idle',
+        async: true,
+        context: {},
+        states: {
+          idle: {
+            on: { PING: { action: actionSpy } },
+          },
+        },
+      });
+
+      const result = await machine.trigger({ type: 'PING' });
+      expect(result).toBe(true);
+      expect(machine.getState()).toBe('idle');
+      expect(actionSpy).toHaveBeenCalledOnce();
+    });
+  });
 });
