@@ -96,5 +96,11 @@
     "type": "file",
     "label": "stateMachine",
     "name": "state-machine/index.mdx"
+  },
+  {
+    "id": "shared@changeTracker",
+    "type": "file",
+    "label": "changeTracker",
+    "name": "change-tracker/index.mdx"
   }
 ]

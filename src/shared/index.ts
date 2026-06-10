@@ -1,6 +1,7 @@
 export * from './allx';
 export * from './animation';
 export * from './api-controller';
+export * from './change-tracker';
 export * from './condition-merge';
 export * from './create-storage-handler';
 export * from './data-handler';
