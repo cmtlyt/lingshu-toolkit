@@ -16,7 +16,8 @@
     { "name": "priorityQueue", "author": "cmtlyt" },
     { "name": "historyTree", "author": "cmtlyt" },
     { "name": "lockData", "author": "cmtlyt" },
-    { "name": "stateMachine", "author": "cmtlyt" }
+    { "name": "stateMachine", "author": "cmtlyt" },
+    { "name": "changeTracker", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

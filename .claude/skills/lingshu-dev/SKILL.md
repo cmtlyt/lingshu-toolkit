@@ -1,6 +1,6 @@
 ---
 name: lingshu-dev
-description: "Development workflow for lingshu-toolkit project. Handles adding new tools to shared/react/vue namespaces, generating files via pnpm script:gen-file, implementing tool code, and coverage attack (补全测试覆盖率). Use when user wants to add new tool, create new hook, add utility function, develop lingshu-toolkit feature, extend toolkit, implement new functionality, improve test coverage, hit defense branch, fix coverage gaps. Triggers: 'add tool', 'new hook', 'create utility', 'add feature', 'develop toolkit', 'implement function', 'lingshu-toolkit development', 'add shared tool', 'add react hook', 'add vue hook', 'coverage', '覆盖率', '补测试', 'test coverage', 'defense branch', '防御分支'."
+description: "Development workflow for lingshu-toolkit project. Handles adding new tools to shared/react/vue namespaces, generating files via pnpm script:gen-file, implementing tool code, and coverage attack (补全测试覆盖率). Use when user wants to add new tool, create new hook, add utility function, develop lingshu-toolkit feature, extend toolkit, implement new functionality, improve test coverage, hit defense branch, fix coverage gaps. Triggers: 'add tool', 'new hook', 'create utility', 'add feature', 'develop toolkit', 'implement function', 'lingshu-toolkit development', 'add shared tool', 'add react hook', 'add vue hook', 'coverage', '覆盖率', '补测试', 'test coverage', 'defense branch', '防御分支', 'rfc'."
 ---
 
 # Lingshu Toolkit Development
