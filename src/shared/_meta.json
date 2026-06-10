@@ -80,10 +80,9 @@
   },
   {
     "id": "shared@lockData",
-    "type": "dir",
+    "type": "file",
     "label": "lockData",
-    "name": "lock-data",
-    "collapsed": true
+    "name": "lock-data/index.mdx"
   },
   {
     "id": "shared@historyTree",

@@ -12,7 +12,7 @@ export default defineConfig({
   root: path.resolve(import.meta.dirname, 'src'),
   title: 'lingshu',
   route: {
-    exclude: ['**/*.test.{ts,tsx,js,jsx}', '**/*.{ts,tsx,js,jsx}'],
+    exclude: ['**/*.test.{ts,tsx,js,jsx}', '**/*.{ts,tsx,js,jsx}', '**/{IMPLEMENTATION,RFC}.md'],
   },
   lang: 'zh',
   themeConfig: {
