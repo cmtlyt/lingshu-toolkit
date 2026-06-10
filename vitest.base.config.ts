@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
-  plugins: [pluginAutoPatchFile({ registryUrl: config.registryUrl, mateFile: 'meta/toolkit.meta.json' })],
+  plugins: [pluginAutoPatchFile({ registryUrl: config.registryUrl, metaFile: 'meta/toolkit.meta.json' })],
   resolve: { tsconfigPaths: true },
   test: {
     coverage: {
