@@ -37,6 +37,10 @@ export function isProxyable(value: unknown): value is object {
   return value !== null && typeof value === 'object';
 }
 
+export function hasOwn(target: object, prop: string | number | symbol): boolean {
+  return Object.hasOwn(target, prop as string);
+}
+
 export function deepClone<T>(value: T): T {
   if (!isProxyable(value)) {
     return value;

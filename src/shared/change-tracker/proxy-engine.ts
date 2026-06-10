@@ -1,4 +1,4 @@
-import { isProxyable, serializeItems, serializeValue } from './helpers';
+import { hasOwn, isProxyable, serializeItems, serializeValue } from './helpers';
 import type { CustomTypeConfig, Patch, PatchEmitter } from './types';
 
 const ARRAY_MUTATORS = ['push', 'pop', 'shift', 'unshift', 'splice'] as const;
@@ -97,7 +97,7 @@ export function createDeepProxy<T extends object>(
 
       const value = Reflect.get(rawTarget, prop, receiver);
 
-      if (isProxyable(value) && typeof prop === 'string') {
+      if (hasOwn(rawTarget, prop) && isProxyable(value) && typeof prop === 'string') {
         if (!proxyCache.has(prop)) {
           const childPath = [...path, Array.isArray(rawTarget) ? Number(prop) : prop];
           proxyCache.set(prop, createDeepProxy(value as object, childPath, emit, types));
@@ -140,10 +140,12 @@ export function createDeepProxy<T extends object>(
         return Reflect.deleteProperty(rawTarget, prop);
       }
 
-      const fullPath = [...path, Array.isArray(rawTarget) ? Number(prop) : prop];
-      emit({ path: fullPath, op: 'delete', timestamp: Date.now() });
+      if (hasOwn(rawTarget, prop)) {
+        const fullPath = [...path, Array.isArray(rawTarget) ? Number(prop) : prop];
+        emit({ path: fullPath, op: 'delete', timestamp: Date.now() });
+        proxyCache.delete(prop);
+      }
 
-      proxyCache.delete(prop);
       return Reflect.deleteProperty(rawTarget, prop);
     },
   });

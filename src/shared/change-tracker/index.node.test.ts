@@ -716,6 +716,72 @@ describe('防御分支', () => {
     expect(result.items).toHaveLength(3);
     expect(1 in result.items).toBe(false);
   });
+
+  // proxy-engine.ts: get 不代理原型链上的对象属性（使用 createRecorder 避免 deepClone 丢失原型链）
+  test('proxy — get 不代理原型链上的对象属性', () => {
+    const proto = { inherited: { nested: 'proto-value' } };
+    const state = Object.create(proto) as Record<string, unknown>;
+    state.own = 'my-value';
+
+    const recorder = createRecorder(state);
+
+    // 访问原型上的对象属性 — 应返回原始值，不创建子代理
+    const inheritedRef = (recorder.proxy as Record<string, Record<string, string>>).inherited;
+    expect(inheritedRef.nested).toBe('proto-value');
+
+    // 修改原型属性的子属性 — 因为未被代理，不产生 patch
+    inheritedRef.nested = 'modified';
+
+    // 修改自身属性 — 产生 patch
+    recorder.proxy.own = 'changed';
+
+    const patches = recorder.flush();
+    recorder.dispose();
+
+    // 只有自身属性 set 产生 patch
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toEqual(['own']);
+    expect(patches[0].value).toBe('changed');
+  });
+
+  // proxy-engine.ts: set 对原型上已有同名属性仍在自身创建属性（使用 createRecorder）
+  test('proxy — set 对原型同名属性仍在自身创建并产生 patch', () => {
+    const proto = { shared: 'proto' };
+    const state = Object.create(proto) as Record<string, unknown>;
+
+    const recorder = createRecorder(state);
+    recorder.proxy.shared = 'own-value';
+
+    const patches = recorder.flush();
+    recorder.dispose();
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toEqual(['shared']);
+    expect(patches[0].op).toBe('set');
+    expect(patches[0].value).toBe('own-value');
+  });
+
+  // proxy-engine.ts: deleteProperty 对原型链属性不产生 patch（使用 createRecorder）
+  test('proxy — delete 原型链属性不产生 patch', () => {
+    const proto = { inherited: 'proto-value' };
+    const state = Object.create(proto) as Record<string, unknown>;
+    state.own = 'my-value';
+
+    const recorder = createRecorder(state);
+
+    // delete 原型属性 — 不应产生 patch
+    delete recorder.proxy.inherited;
+    // delete 自身属性 — 应产生 patch
+    delete recorder.proxy.own;
+
+    const patches = recorder.flush();
+    recorder.dispose();
+
+    // 只有自身属性的 delete 产生 patch
+    expect(patches).toHaveLength(1);
+    expect(patches[0].op).toBe('delete');
+    expect(patches[0].path).toEqual(['own']);
+  });
 });
 
 // ─── recorder + replay 联动 ──────────────────────────────

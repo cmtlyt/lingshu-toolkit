@@ -353,7 +353,7 @@ interface RecorderInstance<T extends object> {
 
 ### ⚠️ recordTransaction vs createRecorder
 
-- `recordTransaction` 会深拷贝原对象后在副本上操作，**原对象不会被修改**
+- `recordTransaction` 会对原对象创建代理副本（draft），在 draft 上操作，**原对象不会被修改**
 - `createRecorder` 直接在原对象上创建代理，**原对象会被修改**
 
 ### ⚠️ dispose 后禁止操作

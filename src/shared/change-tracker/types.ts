@@ -1,4 +1,4 @@
-type PatchOp = 'set' | 'delete' | 'splice';
+export type PatchOp = 'set' | 'delete' | 'splice';
 
 export interface Patch {
   path: (string | number)[];
