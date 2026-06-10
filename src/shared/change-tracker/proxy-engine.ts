@@ -61,7 +61,7 @@ const arrayMutatorHandlers: Record<
   splice(array, path, args, emit, types) {
     const [start, deleteCount = 0, ...insertItems] = args as [number, number?, ...unknown[]];
     const resolvedStart = start < 0 ? Math.max(array.length + start, 0) : Math.min(start, array.length);
-    const resolvedDeleteCount = Math.min(deleteCount ?? 0, array.length - resolvedStart);
+    const resolvedDeleteCount = Math.min(deleteCount, array.length - resolvedStart);
     emitSplicePatch({ emit, path, index: resolvedStart, deleteCount: resolvedDeleteCount, items: insertItems, types });
     return Array.prototype.splice.apply(array, [resolvedStart, resolvedDeleteCount, ...insertItems]);
   },

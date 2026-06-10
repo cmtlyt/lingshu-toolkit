@@ -1,3 +1,4 @@
+/** biome-ignore-all lint/performance/noDelete: ignore */
 import { describe, expect, test } from 'vitest';
 import type { CustomTypeConfig, Patch } from './index';
 import { createRecorder, recordTransaction, replay } from './index';
@@ -453,6 +454,267 @@ describe('replay', () => {
     const patches: Patch[] = [{ path: ['name'], op: 'splice', index: 0, deleteCount: 0, items: ['x'], timestamp: 1 }];
 
     expect(() => replay(base, patches)).toThrow(/not an array/u);
+  });
+});
+
+// ─── 防御分支覆盖 ────────────────────────────────────────
+
+describe('防御分支', () => {
+  // helpers.ts: serializeValue 有 types 但无匹配 config
+  test('serializeValue — types 存在但无 config 命中时 value 透传', () => {
+    const stringType: CustomTypeConfig<string> = {
+      type: 'StringWrap',
+      is: (v): v is string => typeof v === 'string',
+      serialize: (v) => `wrapped:${v}`,
+      deserialize: (raw) => (raw as string).replace('wrapped:', ''),
+    };
+
+    const state = { count: 42 };
+    const patches = recordTransaction(
+      state,
+      (draft) => {
+        // 数字不匹配 stringType，走 fallthrough
+        draft.count = 100;
+      },
+      { types: [stringType] },
+    );
+
+    expect(patches[0].value).toBe(100);
+    expect(patches[0].type).toBeUndefined();
+  });
+
+  // proxy-engine.ts: symbol prop 在 get/set/delete trap 中直接透传
+  test('proxy — symbol 属性 get/set/delete 透传', () => {
+    const sym = Symbol('test');
+    const state = { [sym]: 'hello' } as Record<symbol | string, unknown>;
+
+    const patches = recordTransaction(state, (draft) => {
+      // symbol get — 不产生 patch
+      const _ = draft[sym];
+      // symbol set — 不产生 patch
+      draft[sym] = 'world';
+      // symbol delete — 不产生 patch
+      delete draft[sym];
+    });
+
+    // symbol 操作不记录 patch
+    expect(patches).toHaveLength(0);
+  });
+
+  // proxy-engine.ts: array length set 透传
+  test('proxy — 数组 length 赋值透传', () => {
+    const state = { items: [1, 2, 3] };
+    const patches = recordTransaction(state, (draft) => {
+      draft.items.length = 1;
+    });
+
+    // length 设置直接透传，不产生 set patch
+    expect(patches.filter((p) => p.op === 'set')).toHaveLength(0);
+  });
+
+  // record.ts: disposed 后 deleteProperty 报错
+  test('createRecorder — disposed 后 delete 操作报错', () => {
+    const state = { name: 'init', age: 20 } as Record<string, unknown>;
+    const recorder = createRecorder(state);
+    recorder.dispose();
+
+    expect(() => {
+      delete recorder.proxy.age;
+    }).toThrow(/disposed/u);
+  });
+
+  // replay.ts: resolvePathParent 路径中间值不是对象
+  test('replay — 路径中间值非对象时报错', () => {
+    const base = { name: 'hello' };
+    const patches: Patch[] = [{ path: ['name', 'nested', 'deep'], op: 'set', value: 'fail', timestamp: 1 }];
+
+    expect(() => replay(base, patches)).toThrow(/not an object/u);
+  });
+
+  // replay.ts: resolvePathParent parent 不是对象（单层 path 但 root 上某值非对象）
+  test('replay — parent 不可达时报错', () => {
+    const base = { a: 'string-value' } as Record<string, unknown>;
+    const patches: Patch[] = [{ path: ['a', 'b'], op: 'set', value: 'fail', timestamp: 1 }];
+
+    expect(() => replay(base, patches)).toThrow(/not an object/u);
+  });
+
+  // replay.ts: deserializeValue 中 typeName 存在但 typeMap 中无对应 config
+  test('replay — 未知 type 名称时 value 透传不反序列化', () => {
+    const base = { value: null as unknown };
+    const patches: Patch[] = [{ path: ['value'], op: 'set', value: 'raw-data', type: 'UnknownType', timestamp: 1 }];
+
+    const result = replay(base, patches);
+    // 未知类型不反序列化，直接使用原始 value
+    expect(result.value).toBe('raw-data');
+  });
+
+  // replay.ts: applyPatch switch default 分支（未知 op）
+  test('replay — 未知 op 类型静默跳过', () => {
+    const base = { name: 'init' };
+    const patches: Patch[] = [{ path: ['name'], op: 'unknown-op' as Patch['op'], value: 'fail', timestamp: 1 }];
+
+    // 不报错，静默忽略
+    const result = replay(base, patches);
+    expect(result.name).toBe('init');
+  });
+
+  // replay.ts: splice patch.items 为 undefined 时使用空数组
+  test('replay — splice patch 无 items 字段时使用空数组', () => {
+    const base = { tags: ['a', 'b', 'c'] };
+    const patches: Patch[] = [{ path: ['tags'], op: 'splice', index: 1, deleteCount: 1, timestamp: 1 }];
+
+    const result = replay(base, patches);
+    expect(result.tags).toEqual(['a', 'c']);
+  });
+
+  // proxy-engine.ts: splice 不传 deleteCount（undefined 分支）
+  test('proxy — splice 只传 start 不传 deleteCount', () => {
+    const state = { items: ['a', 'b', 'c'] };
+    const patches = recordTransaction(state, (draft) => {
+      draft.items.splice(1);
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].index).toBe(1);
+  });
+
+  // proxy-engine.ts: 数组元素按索引 set
+  test('proxy — 数组元素按索引赋值记录 number path', () => {
+    const state = { items: [10, 20, 30] };
+    const patches = recordTransaction(state, (draft) => {
+      draft.items[1] = 99;
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toEqual(['items', 1]);
+    expect(patches[0].value).toBe(99);
+  });
+
+  // proxy-engine.ts: 数组元素按索引 delete
+  test('proxy — 数组元素按索引 delete 记录 number path', () => {
+    const state = { items: [10, 20, 30] };
+    const patches = recordTransaction(state, (draft) => {
+      delete (draft.items as unknown as Record<number, unknown>)[1];
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].op).toBe('delete');
+    expect(patches[0].path).toEqual(['items', 1]);
+  });
+
+  // proxy-engine.ts: 读取原始值属性（非对象、非数组变异方法）
+  test('proxy — 读取原始值属性不创建子代理', () => {
+    const state = { count: 42, flag: true, label: 'hello' };
+    const patches = recordTransaction(state, (draft) => {
+      // 读取原始值 — 不产生 patch
+      const _ = draft.count;
+      const __ = draft.flag;
+      const ___ = draft.label;
+    });
+
+    expect(patches).toHaveLength(0);
+  });
+
+  // record.ts: createRecorder 正常 deleteProperty（非 disposed）
+  test('createRecorder — 正常 delete 操作记录 patch', () => {
+    const state = { name: 'init', age: 20 } as Record<string, unknown>;
+    const recorder = createRecorder(state);
+
+    delete recorder.proxy.age;
+
+    const patches = recorder.flush();
+    expect(patches).toHaveLength(1);
+    expect(patches[0].op).toBe('delete');
+    expect(patches[0].path).toEqual(['age']);
+
+    recorder.dispose();
+  });
+
+  // proxy-engine.ts: 数组内嵌套对象的属性访问（get trap 中 Array.isArray childPath 分支）
+  test('proxy — 数组内嵌套对象属性访问使用数字索引路径', () => {
+    const state = { items: [{ name: 'a' }, { name: 'b' }] };
+    const patches = recordTransaction(state, (draft) => {
+      draft.items[0].name = 'changed';
+    });
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].path).toEqual(['items', 0, 'name']);
+    expect(patches[0].value).toBe('changed');
+  });
+
+  // helpers.ts: serializeItems 有 types 且 items 中有匹配 + 不匹配项混合
+  test('serializeItems — types 存在时混合类型 items 序列化', () => {
+    const dateType: CustomTypeConfig<Date> = {
+      type: 'Date',
+      is: (value): value is Date => value instanceof Date,
+      serialize: (value) => value.toISOString(),
+      deserialize: (raw) => new Date(raw as string),
+    };
+
+    const state = { mixed: [] as unknown[] };
+    const patches = recordTransaction(
+      state,
+      (draft) => {
+        draft.mixed.push(new Date('2026-01-01'), 'plain-string', 42);
+      },
+      { types: [dateType] },
+    );
+
+    expect(patches).toHaveLength(1);
+    expect(patches[0].type).toBe('Date');
+    // Date 被序列化，其他值透传
+    expect(patches[0].items).toEqual(['2026-01-01T00:00:00.000Z', 'plain-string', 42]);
+  });
+
+  // replay.ts: splice patch 中 index 和 deleteCount 为 undefined 时走 ?? 0 分支
+  test('replay — splice patch 缺少 index 和 deleteCount 时使用默认值 0', () => {
+    const base = { tags: ['a', 'b', 'c'] };
+    const patches: Patch[] = [{ path: ['tags'], op: 'splice', items: ['x'], timestamp: 1 }];
+
+    const result = replay(base, patches);
+    // index ?? 0 → 0, deleteCount ?? 0 → 0, 在位置0插入'x'
+    expect(result.tags).toEqual(['x', 'a', 'b', 'c']);
+  });
+
+  // replay.ts: splice items 中包含自定义类型的反序列化
+  test('replay — splice items 带自定义类型反序列化', () => {
+    const dateType: CustomTypeConfig<Date> = {
+      type: 'Date',
+      is: (value): value is Date => value instanceof Date,
+      serialize: (value) => value.toISOString(),
+      deserialize: (raw) => new Date(raw as string),
+    };
+
+    const base = { dates: [new Date('2025-01-01')] };
+    const patches: Patch[] = [
+      {
+        path: ['dates'],
+        op: 'splice',
+        index: 1,
+        deleteCount: 0,
+        items: ['2026-06-10T00:00:00.000Z', '2026-12-25T00:00:00.000Z'],
+        type: 'Date',
+        timestamp: 1,
+      },
+    ];
+
+    const result = replay(base, patches, { types: [dateType] });
+    expect(result.dates).toHaveLength(3);
+    expect(result.dates[1]).toBeInstanceOf(Date);
+    expect(result.dates[1].toISOString()).toBe('2026-06-10T00:00:00.000Z');
+    expect(result.dates[2]).toBeInstanceOf(Date);
+  });
+
+  // replay.ts: delete on array element
+  test('replay — delete 操作在数组元素上', () => {
+    const base = { items: [10, 20, 30] };
+    const patches: Patch[] = [{ path: ['items', 1], op: 'delete', timestamp: 1 }];
+
+    const result = replay(base, patches);
+    // delete array[1] 留一个 hole
+    expect(result.items).toHaveLength(3);
+    expect(1 in result.items).toBe(false);
   });
 });
 

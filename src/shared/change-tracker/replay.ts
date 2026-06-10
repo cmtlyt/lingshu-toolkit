@@ -64,9 +64,10 @@ function applyPatch(target: object, patch: Patch, typeMap: Map<string, CustomTyp
       if (!Array.isArray(arr)) {
         throwError('replay', `Cannot apply splice: value at "${patch.path.join('.')}" is not an array.`);
       }
-      const deserializedItems = patch.items
-        ? patch.items.map((item) => deserializeValue(item, patch.type, typeMap))
-        : [];
+      let deserializedItems: unknown[] = [];
+      if (patch.items) {
+        deserializedItems = patch.items.map((item) => deserializeValue(item, patch.type, typeMap));
+      }
       arr.splice(patch.index ?? 0, patch.deleteCount ?? 0, ...deserializedItems);
       break;
     }
