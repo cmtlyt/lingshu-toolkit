@@ -1,6 +1,5 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import tsConfigPaths from 'vite-tsconfig-paths';
 import { defineConfig } from 'vitest/config';
 import { pluginAutoPatchFile } from './plugins/auto-patch-file';
 import { config } from './scripts/config';
@@ -9,10 +8,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   // Configure Vitest (https://vitest.dev/config/)
-  plugins: [
-    tsConfigPaths(),
-    pluginAutoPatchFile({ registryUrl: config.registryUrl, mateFile: 'meta/toolkit.meta.json' }),
-  ],
+  plugins: [pluginAutoPatchFile({ registryUrl: config.registryUrl, mateFile: 'meta/toolkit.meta.json' })],
+  resolve: { tsconfigPaths: true },
   test: {
     coverage: {
       include: ['src/**'],
@@ -20,7 +17,7 @@ export default defineConfig({
         'src/shared/logger/**',
         'src/**/__test__/*',
         'src/**/*.test.{ts,tsx,js,jsx}',
-        'src/**/*.{mdx,md}',
+        'src/**/*.{mdx,md,json}',
         'src/**/*.test-d.{ts,tsx,js,jsx}',
         'src/{test,public}/**',
       ],

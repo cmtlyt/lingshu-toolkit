@@ -4,6 +4,8 @@
     "ignoreUnknown": true,
     "includes": [
       "**",
+      "!!.claude",
+      "!**/*.html",
       "!node_modules",
       "!!.netlify",
       "!!.nitro",
@@ -811,25 +813,6 @@
         "rules": {
           "correctness": {
             "noUnresolvedImports": "off"
-          }
-        }
-      }
-    },
-    {
-      "includes": ["**/*.html"],
-      "linter": {
-        "rules": {
-          "nursery": {
-            "useGlobalThis": "off",
-            "useErrorCause": "off",
-            "noShadow": "off",
-            "noInlineStyles": "off"
-          },
-          "complexity": {
-            "noExcessiveCognitiveComplexity": "off"
-          },
-          "suspicious": {
-            "useIterableCallbackReturn": "off"
           }
         }
       }

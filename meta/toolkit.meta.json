@@ -15,7 +15,8 @@
     { "name": "tryCall", "author": "cmtlyt" },
     { "name": "priorityQueue", "author": "cmtlyt" },
     { "name": "historyTree", "author": "cmtlyt" },
-    { "name": "lockData", "author": "cmtlyt" }
+    { "name": "lockData", "author": "cmtlyt" },
+    { "name": "stateMachine", "author": "cmtlyt" }
   ],
   "react": [
     { "name": "useControllableValue", "author": "cmtlyt" },

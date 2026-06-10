@@ -4,17 +4,16 @@
  * 文件 / 行号 / 分支，便于针对性补测试。
  *
  * 用法：
- *   esno scripts/analyze-coverage.ts <module-path-fragment> [--with-source] [--file=<path-fragment>]
+ *   pnpm test:analyze <module-path-fragment> [--with-source] [--file=<path-fragment>]
  *
  * 例：
- *   esno scripts/analyze-coverage.ts src/shared/lock-data
- *   esno scripts/analyze-coverage.ts src/shared/lock-data --with-source
- *   esno scripts/analyze-coverage.ts src/shared/lock-data --with-source --file=broadcast-state
+ *   pnpm test:analyze src/shared/lock-data
+ *   pnpm test:analyze src/shared/lock-data --with-source
+ *   pnpm test:analyze src/shared/lock-data --with-source --file=broadcast-state
  *
- * 前置：先跑一次 `pnpm test` 或 `pnpm test:lib`（带 `--coverage.enabled`）生成
- * `coverage/coverage-final.json`；项目里 `pnpm test:ci` 不开启 coverage，所以 CI
- * 模式跑完后此脚本会因找不到 coverage 文件而失败 —— 此时改用 `pnpm test --run`
- * 等带 coverage 的命令重跑一次。
+ * 前置：先跑一次带 coverage 的测试生成 `coverage/coverage-final.json`：
+ *   纯 node 测试 → pnpm test:lib:ci src/shared/<module-name> --coverage.enabled
+ *   含浏览器测试 → pnpm test:ci src/shared/<module-name> --coverage.enabled
  */
 
 import { existsSync, readFileSync } from 'node:fs';

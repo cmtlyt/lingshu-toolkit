@@ -90,5 +90,11 @@
     "type": "file",
     "label": "historyTree",
     "name": "history-tree/index.mdx"
+  },
+  {
+    "id": "shared@stateMachine",
+    "type": "file",
+    "label": "stateMachine",
+    "name": "state-machine/index.mdx"
   }
 ]
