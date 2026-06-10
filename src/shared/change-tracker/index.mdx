@@ -6,7 +6,18 @@
 >
 > author: cmtlyt
 >
-> update time: 2026/06/10 11:35:56
+> update time: 2026/06/10 14:34:00
+
+`changeTracker` 是一个基于 Proxy 的对象变更追踪工具，能够将对象的修改记录为可序列化的 Patch 列表，并支持在任意目标上重放这些变更。适用于状态同步、操作日志、协同编辑、undo/redo 等场景。
+
+## 特性
+
+- **Patch 驱动**：所有变更以结构化的 Patch 记录，支持 JSON 序列化传输
+- **深度追踪**：自动追踪嵌套对象和数组的变更，支持任意层级
+- **数组变异合并**：`push`/`pop`/`shift`/`unshift`/`splice` 合并为单一 `splice` Patch
+- **自定义类型序列化**：通过 `types` 选项支持 `Date`、`Map`、`Set` 等非 JSON 安全类型
+- **两种记录模式**：事务模式（`recordTransaction`）和持续监听模式（`createRecorder`）
+- **变更重放**：通过 `replay` 将 Patch 列表按时间戳顺序应用到目标对象
 
 ## install
 
@@ -21,7 +32,338 @@ npx shadcn@latest add https://cmtlyt.github.io/lingshu-toolkit/r/sharedChangeTra
 ## usage
 
 ```ts
-import { changeTracker } from '@cmtlyt/lingshu-toolkit/shared'
+import { recordTransaction, createRecorder, replay } from '@cmtlyt/lingshu-toolkit/shared'
 // or
-import { changeTracker } from '@cmtlyt/lingshu-toolkit/shared/change-tracker'
+import { recordTransaction, createRecorder, replay } from '@cmtlyt/lingshu-toolkit/shared/change-tracker'
 ```
+
+## 基础用法
+
+### 事务模式 — recordTransaction
+
+在闭包中修改 draft，自动收集所有变更，原对象不受影响：
+
+```ts
+const state = { name: 'init', count: 0 };
+
+const patches = recordTransaction(state, (draft) => {
+  draft.name = 'Alice';
+  draft.count = 42;
+});
+
+console.log(patches.length); // 2
+console.log(state.name); // 'init'（原对象未被修改）
+```
+
+### 持续监听模式 — createRecorder
+
+长期监听对象变更，随时 flush 获取增量 Patch：
+
+```ts
+const state = { name: 'init', tags: ['a'] };
+const recorder = createRecorder(state);
+
+recorder.proxy.name = 'Bob';
+recorder.proxy.tags.push('b');
+
+const patches = recorder.flush(); // 获取并清空缓冲区
+console.log(patches.length); // 2
+
+// flush 后继续记录
+recorder.proxy.name = 'Charlie';
+const morePatch = recorder.flush();
+console.log(morePatch.length); // 1
+
+// 使用完毕后释放
+recorder.dispose();
+```
+
+### 变更重放 — replay
+
+将 Patch 列表应用到目标对象，默认不修改原对象：
+
+```ts
+const base = { name: 'init', count: 0 };
+const patches = [
+  { path: ['name'], op: 'set', value: 'Alice', timestamp: 1 },
+  { path: ['count'], op: 'set', value: 42, timestamp: 2 },
+];
+
+const result = replay(base, patches);
+console.log(result.name); // 'Alice'
+console.log(base.name); // 'init'（原对象未被修改）
+```
+
+## 高级用法
+
+### 嵌套对象追踪
+
+支持任意层级的嵌套对象，路径自动追踪：
+
+```ts
+const state = { user: { profile: { age: 20 } } };
+
+const patches = recordTransaction(state, (draft) => {
+  draft.user.profile.age = 30;
+});
+
+console.log(patches[0].path); // ['user', 'profile', 'age']
+```
+
+### 数组操作
+
+数组的变异方法会被合并为单一 `splice` Patch：
+
+```ts
+const state = { tags: ['a'] };
+
+const patches = recordTransaction(state, (draft) => {
+  draft.tags.push('b', 'c');
+});
+
+console.log(patches[0].op); // 'splice'
+console.log(patches[0].index); // 1
+console.log(patches[0].items); // ['b', 'c']
+```
+
+### 自定义类型序列化
+
+通过 `types` 选项支持非 JSON 安全类型的序列化和反序列化：
+
+```ts
+import type { CustomTypeConfig } from '@cmtlyt/lingshu-toolkit/shared'
+
+const dateType: CustomTypeConfig<Date> = {
+  type: 'Date',
+  is: (value): value is Date => value instanceof Date,
+  serialize: (value) => value.toISOString(),
+  deserialize: (raw) => new Date(raw as string),
+};
+
+const options = { types: [dateType] };
+
+// 记录时自动序列化
+const state = { createdAt: new Date('2025-01-01') };
+const patches = recordTransaction(
+  state,
+  (draft) => {
+    draft.createdAt = new Date('2026-06-10');
+  },
+  options,
+);
+
+console.log(patches[0].value); // '2026-06-10T00:00:00.000Z'
+console.log(patches[0].type); // 'Date'
+
+// 重放时自动反序列化
+const result = replay(state, patches, options);
+console.log(result.createdAt instanceof Date); // true
+```
+
+### 原地修改模式
+
+`replay` 默认返回深拷贝，设置 `mutate: true` 可原地修改：
+
+```ts
+const base = { name: 'init' };
+const patches = [{ path: ['name'], op: 'set', value: 'Alice', timestamp: 1 }];
+
+const result = replay(base, patches, { mutate: true });
+console.log(result === base); // true
+console.log(base.name); // 'Alice'
+```
+
+### Patch 按时间戳排序
+
+`replay` 会自动按 `timestamp` 升序应用 Patch，无需手动排序：
+
+```ts
+const base = { name: 'init' };
+const patches = [
+  { path: ['name'], op: 'set', value: 'second', timestamp: 20 },
+  { path: ['name'], op: 'set', value: 'first', timestamp: 10 },
+  { path: ['name'], op: 'set', value: 'third', timestamp: 30 },
+];
+
+const result = replay(base, patches);
+console.log(result.name); // 'third'
+```
+
+## 使用场景
+
+### 状态同步
+
+记录本地变更，序列化后发送到远端重放：
+
+```ts
+const state = { user: { name: 'init', age: 20 }, tags: ['a'] };
+const recorder = createRecorder(structuredClone(state));
+
+// 本地操作
+recorder.proxy.user.name = 'Alice';
+recorder.proxy.tags.push('b', 'c');
+
+// 获取增量 Patch 并序列化传输
+const patches = recorder.flush();
+const jsonString = JSON.stringify(patches);
+
+// 远端接收并重放
+const receivedPatches = JSON.parse(jsonString);
+const synced = replay(state, receivedPatches);
+// synced.user.name === 'Alice'
+// synced.tags === ['a', 'b', 'c']
+
+recorder.dispose();
+```
+
+### 操作日志
+
+使用事务模式为每次操作生成独立的 Patch 批次：
+
+```ts
+const state = { count: 0, items: ['x'] };
+
+const batch1 = recordTransaction(state, (draft) => {
+  draft.count = 99;
+  draft.items.push('y');
+});
+
+// Patch 可持久化存储，后续回放
+const result = replay(state, batch1);
+// result.count === 99
+// result.items === ['x', 'y']
+// state 未被修改
+```
+
+## API
+
+### recordTransaction
+
+在事务闭包中记录对象变更，原对象不被修改。
+
+```ts
+function recordTransaction<T extends object>(
+  baseObject: T,
+  changeFn: (draft: T) => void,
+  options?: TrackerOptions,
+): Patch[]
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| baseObject | `T extends object` | 是 | 原始对象，不会被修改 |
+| changeFn | `(draft: T) => void` | 是 | 变更函数，在 draft 上操作 |
+| options | `TrackerOptions` | 否 | 配置项 |
+
+#### 返回值
+
+`Patch[]` — 变更记录列表。
+
+### createRecorder
+
+创建持续监听的变更记录器。
+
+```ts
+function createRecorder<T extends object>(
+  baseObject: T,
+  options?: TrackerOptions,
+): RecorderInstance<T>
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| baseObject | `T extends object` | 是 | 目标对象，会被直接修改 |
+| options | `TrackerOptions` | 否 | 配置项 |
+
+#### 返回值
+
+`RecorderInstance<T>` — 记录器实例。
+
+| 属性/方法 | 类型 | 描述 |
+|-----------|------|------|
+| proxy | `T` | 代理对象，通过它操作即可记录变更 |
+| flush() | `() => Patch[]` | 获取并清空已记录的 Patch 列表 |
+| dispose() | `() => void` | 释放记录器，之后操作 proxy 会报错 |
+
+### replay
+
+将 Patch 列表应用到目标对象。
+
+```ts
+function replay<T extends object>(
+  baseObject: T,
+  patchList: Patch[],
+  options?: ReplayOptions,
+): T
+```
+
+#### 参数
+
+| 参数 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| baseObject | `T extends object` | 是 | 基础对象 |
+| patchList | `Patch[]` | 是 | 要应用的 Patch 列表 |
+| options | `ReplayOptions` | 否 | 配置项 |
+
+#### 返回值
+
+`T` — 应用变更后的对象。`mutate: false`（默认）时返回深拷贝，`mutate: true` 时返回原对象。
+
+### 类型定义
+
+```ts
+interface Patch {
+  path: (string | number)[];
+  op: 'set' | 'delete' | 'splice';
+  value?: unknown;
+  index?: number;
+  deleteCount?: number;
+  items?: unknown[];
+  type?: string;
+  timestamp: number;
+}
+
+interface CustomTypeConfig<T = unknown> {
+  type: string;
+  is: (value: unknown) => value is T;
+  serialize: (value: T) => unknown;
+  deserialize: (raw: unknown) => T;
+}
+
+interface TrackerOptions {
+  types?: CustomTypeConfig<any>[];
+}
+
+interface ReplayOptions extends TrackerOptions {
+  mutate?: boolean;
+}
+
+interface RecorderInstance<T extends object> {
+  proxy: T;
+  flush: () => Patch[];
+  dispose: () => void;
+}
+```
+
+## 注意事项
+
+### ⚠️ recordTransaction vs createRecorder
+
+- `recordTransaction` 会深拷贝原对象后在副本上操作，**原对象不会被修改**
+- `createRecorder` 直接在原对象上创建代理，**原对象会被修改**
+
+### ⚠️ dispose 后禁止操作
+
+调用 `dispose()` 后，再访问或修改 `proxy` 会抛出错误。确保在不再需要时才调用 `dispose()`。
+
+### ⚠️ 自定义类型一致性
+
+记录和重放时必须传入相同的 `types` 配置，否则自定义类型的值将不会被正确反序列化。
+
+### ⚠️ Patch 序列化安全
+
+Patch 结构为纯 JSON 安全数据（配合 `types` 选项后），可直接 `JSON.stringify` 用于网络传输或持久化存储。
